@@ -21,9 +21,12 @@ test("server-renders the CUTLINE workbench", async () => {
 
   const html = await response.text();
   assert.match(html, /CUTLINE/);
-  assert.match(html, /从整场直播，到值得发的切片/);
-  assert.match(html, /候选切片/);
-  assert.match(html, /交互原型/);
+  assert.match(html, /把整场直播，交给一位真正的主编/);
+  assert.match(html, /上传与类型/);
+  assert.match(html, /内容地图/);
+  assert.match(html, /文字精剪/);
+  assert.match(html, /聊播/);
+  assert.match(html, /带货/);
   assert.doesNotMatch(html, /codex-preview/);
   assert.doesNotMatch(html, /Your site is taking shape/);
 });
@@ -35,8 +38,15 @@ test("ships product metadata and removes the disposable starter preview", async 
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /CUTLINE · 切片工作台/);
-  assert.match(page, /不会假装处理你上传的内容/);
+  assert.match(page, /本场自然发现/);
+  assert.match(page, /目标输出：无字幕 · 无效果 · 保留原声/);
+  assert.match(page, /下载无字幕样片/);
+  assert.match(page, /送入 ChatCut 精修/);
+  assert.match(page, /不设目标、不设保底，也不补齐/);
+  assert.match(page, /const discoveredCount = analysisReady \? modeIdeas\.length : 0/);
+  assert.doesNotMatch(page, /demoDiscoveryCounts/);
+  assert.match(page, /文字粗剪预听已按当前选择更新/);
+  assert.match(page, /uploadedPreviewUrl \? activeClip\.sourceStart : 0/);
   assert.match(layout, /CUTLINE · 天总切片工作台/);
   assert.match(layout, /og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);

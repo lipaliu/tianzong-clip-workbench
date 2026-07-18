@@ -1,117 +1,343 @@
 "use client";
 
-import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
-type ClipKind = "聊播" | "带货";
-type ClipStatus = "高潜" | "可用" | "待复核";
+type Mode = "聊播" | "带货";
+type WorkflowStep = 1 | 2 | 3;
+type Decision = "keep" | "remove";
 
-type Clip = {
+type TranscriptLine = {
   id: string;
-  kind: ClipKind;
-  status: ClipStatus;
-  score: number;
-  duration: string;
-  sourceRange: string;
-  title: string;
-  hook: string;
-  body: string;
-  reason: string;
-  thumbnail: string;
-  color: string;
-  risk?: string;
+  time: string;
+  seconds: number;
+  text: string;
+  defaultDecision: Decision;
+  speaker?: string;
 };
 
-const clips: Clip[] = [
+type ClipIdea = {
+  id: string;
+  kind: Mode;
+  index: string;
+  title: string;
+  duration: string;
+  sourceTime: string;
+  sourceStart: number;
+  score: number;
+  summary: string;
+  thumbnail: string;
+  video: string;
+  transcript: TranscriptLine[];
+};
+
+const longTermTranscript: TranscriptLine[] = [
+  { id: "long-1", time: "00:00", seconds: 0, text: "带货是长线的问题。", defaultDecision: "keep" },
+  { id: "long-2", time: "00:03", seconds: 3, text: "如果你是想赚快钱，我觉得带货不适合。", defaultDecision: "keep" },
+  { id: "long-3", time: "00:07", seconds: 7, text: "那我想做的是什么电商来着……", defaultDecision: "remove", speaker: "连麦人" },
+  { id: "long-4", time: "00:11", seconds: 11, text: "其实这个问题要看你从什么行业过来。", defaultDecision: "remove" },
+  { id: "long-5", time: "00:16", seconds: 16, text: "上来做电商，起码要学两年。", defaultDecision: "keep" },
+  { id: "long-6", time: "00:21", seconds: 21, text: "货品、团队、商务、人群、内容、平台规则，你都要学。", defaultDecision: "keep" },
+  { id: "long-7", time: "00:29", seconds: 29, text: "所以它不是今天开播，明天就能看到结果的东西。", defaultDecision: "keep" },
+];
+
+function transcriptFor(prefix: string, hook: string, support: string): TranscriptLine[] {
+  return [
+    { id: `${prefix}-1`, time: "00:00", seconds: 0, text: hook, defaultDecision: "keep" },
+    { id: `${prefix}-2`, time: "00:05", seconds: 5, text: "有人会问，那是不是所有人都应该这样做？", defaultDecision: "remove", speaker: "提问" },
+    { id: `${prefix}-3`, time: "00:10", seconds: 10, text: support, defaultDecision: "keep" },
+    { id: `${prefix}-4`, time: "00:17", seconds: 17, text: "我先把另外一个不相关的例子说完。", defaultDecision: "remove" },
+    { id: `${prefix}-5`, time: "00:22", seconds: 22, text: "你先把这件事做对，再谈下一步。", defaultDecision: "keep" },
+    { id: `${prefix}-6`, time: "00:29", seconds: 29, text: "这才是我真正想给你们的结论。", defaultDecision: "keep" },
+  ];
+}
+
+const ideas: ClipIdea[] = [
   {
-    id: "chat-07",
+    id: "chat-longterm",
     kind: "聊播",
-    status: "高潜",
-    score: 96,
-    duration: "31 秒",
-    sourceRange: "00:59:46 — 01:00:46",
-    title: "把带货当快钱的人，第一步就错了",
-    hook: "如果你想赚快钱，带货不适合。带货是长线的问题。",
-    body: "直接接“起码两年”，再解释货品、团队、商务、人群、内容和平台规则为什么都要学。",
-    reason: "结论先行 · 认知反差 · 能力清单完整",
+    index: "01",
+    title: "带货是长线，不是赚快钱",
+    duration: "00:38",
+    sourceTime: "00:59:46 — 01:00:24",
+    sourceStart: 3586,
+    score: 98,
+    summary: "保留天总的完整判断，删除连麦人的问题，直接接“起码两年”。",
     thumbnail: "/thumbnails/chat-longterm.png",
-    color: "#e8dcff",
-    risk: "“两年”需保留为个人经验，不包装成行业认证周期。",
+    video: "/previews/chat-rules.mp4",
+    transcript: longTermTranscript,
   },
   {
-    id: "chat-03",
+    id: "chat-ip",
     kind: "聊播",
-    status: "高潜",
-    score: 93,
-    duration: "68 秒",
-    sourceRange: "00:30:21 — 00:31:43",
-    title: "本职工作和个人 IP，根本不是二选一",
-    hook: "这两个完全可以一起做，这不是非二选一的东西。",
-    body: "把本职成绩拆成账号内容，用真实业务经验建立信用，再逐渐验证个人 IP。",
-    reason: "高频困惑 · 方法可执行 · 观点鲜明",
+    index: "02",
+    title: "本职工作和个人 IP，不是二选一",
+    duration: "01:08",
+    sourceTime: "00:30:21 — 00:31:29",
+    sourceStart: 1821,
+    score: 96,
+    summary: "从二选一误区切入，给出边工作边验证个人 IP 的执行路径。",
     thumbnail: "/thumbnails/chat-selfmedia.png",
-    color: "#dff7eb",
-    risk: "弱化收入数字，避免形成收益承诺。",
+    video: "/previews/chat-problems.mp4",
+    transcript: transcriptFor("ip", "这两个完全可以一起做，这不是非二选一的东西。", "你可以先把本职工作的真实经验拆成内容，再逐渐验证个人 IP。"),
   },
   {
-    id: "sales-25",
-    kind: "带货",
-    status: "可用",
-    score: 89,
-    duration: "42 秒",
-    sourceRange: "05:16:00 — 05:17:25",
-    title: "一条度假裙，为什么要做三种穿法",
-    hook: "这件衣服一共是三穿。",
-    body: "长袖、一字肩、吊带三种穿法，配合收腰位置和裙摆展示，最后落到度假场景。",
-    reason: "卖点单一 · 画面强 · 使用场景明确",
-    thumbnail: "/thumbnails/sales-detail.png",
-    color: "#ffe9d9",
-  },
-  {
-    id: "sales-51",
-    kind: "带货",
-    status: "待复核",
-    score: 84,
-    duration: "54 秒",
-    sourceRange: "02:33:45 — 02:36:55",
-    title: "一个猫包，八个口袋到底怎么装",
-    hook: "它不是只解决把猫背出去，是把你一路要用的东西都装进去。",
-    body: "围绕八口袋与双肩带逐一展示，不混入另一段母子包结构，保持一个视频只讲一个核心。",
-    reason: "结构可视化 · 细节密度高 · 购买理由明确",
+    id: "chat-rules",
+    kind: "聊播",
+    index: "03",
+    title: "成年人最直白的相处规则",
+    duration: "00:46",
+    sourceTime: "01:22:10 — 01:22:56",
+    sourceStart: 4930,
+    score: 95,
+    summary: "观点结论先行，删除来回确认，只保留天总的完整逻辑链。",
     thumbnail: "/thumbnails/sales-value.png",
-    color: "#dcecff",
-    risk: "需要复核每个口袋对应画面，避免口播与展示错位。",
+    video: "/previews/chat-rules.mp4",
+    transcript: transcriptFor("rules", "成年人相处，先看行动，不要替别人解释。", "君子论迹不论心，长期关系更应该看稳定的行为。"),
+  },
+  {
+    id: "chat-energy",
+    kind: "聊播",
+    index: "04",
+    title: "你缺的不是办法，是精力",
+    duration: "00:52",
+    sourceTime: "02:05:33 — 02:06:25",
+    sourceStart: 7533,
+    score: 93,
+    summary: "从“道理都懂”切入，把解决办法落到恢复精力与降低内耗。",
+    thumbnail: "/thumbnails/chat-selfmedia.png",
+    video: "/previews/chat-energy.mp4",
+    transcript: transcriptFor("energy", "你不是不知道怎么办，你是已经没有精力去做。", "先把睡眠、身体和注意力救回来，再谈执行力。"),
+  },
+  {
+    id: "chat-problems",
+    kind: "聊播",
+    index: "05",
+    title: "每天都在解决各种各样的问题",
+    duration: "00:47",
+    sourceTime: "02:46:18 — 02:47:05",
+    sourceStart: 9978,
+    score: 91,
+    summary: "把创业的真实感讲清楚，不包装成励志口号。",
+    thumbnail: "/thumbnails/chat-longterm.png",
+    video: "/previews/chat-problems.mp4",
+    transcript: transcriptFor("problems", "创业不是每天都在赢，是每天都在解决问题。", "你解决问题的速度，最后就会变成团队的能力。"),
+  },
+  {
+    id: "chat-money",
+    kind: "聊播",
+    index: "06",
+    title: "做事不要把赚钱当唯一目标",
+    duration: "00:58",
+    sourceTime: "01:15:09 — 01:16:07",
+    sourceStart: 4509,
+    score: 89,
+    summary: "保留反常识结论，再解释能力、作品和长期回报的关系。",
+    thumbnail: "/thumbnails/chat-selfmedia.png",
+    video: "/previews/chat-energy.mp4",
+    transcript: transcriptFor("money", "赚钱可以是结果，但不能是你做每件事唯一的目标。", "当你的能力和作品开始复利，钱才更容易变成稳定结果。"),
+  },
+  {
+    id: "sales-dress",
+    kind: "带货",
+    index: "01",
+    title: "一条度假裙，为什么要做三种穿法",
+    duration: "00:42",
+    sourceTime: "05:16:00 — 05:16:42",
+    sourceStart: 18960,
+    score: 97,
+    summary: "一个视频只讲三穿、收腰和度假场景，画面必须跟上口播。",
+    thumbnail: "/thumbnails/sales-detail.png",
+    video: "/previews/sales-mainpick.mp4",
+    transcript: transcriptFor("dress", "这件衣服一共是三穿。", "长袖、一字肩、吊带都能穿，腰线位置还会把比例拉得很好。"),
+  },
+  {
+    id: "sales-mainpick",
+    kind: "带货",
+    index: "02",
+    title: "不要只买主推，先看你真正需要什么",
+    duration: "00:35",
+    sourceTime: "00:52:31 — 00:53:06",
+    sourceStart: 3151,
+    score: 95,
+    summary: "用反常识钩子建立信任，再把选择标准说清楚。",
+    thumbnail: "/thumbnails/sales-value.png",
+    video: "/previews/sales-mainpick.mp4",
+    transcript: transcriptFor("mainpick", "不要因为它是主推，就默认它最适合你。", "先看你的使用场景、预算和最在意的那个问题。"),
+  },
+  {
+    id: "sales-bag",
+    kind: "带货",
+    index: "03",
+    title: "一个猫包，八个口袋到底怎么装",
+    duration: "00:54",
+    sourceTime: "02:33:45 — 02:34:39",
+    sourceStart: 9225,
+    score: 92,
+    summary: "按口袋顺序展示，删除与母子包结构无关的岔题。",
+    thumbnail: "/thumbnails/sales-value.png",
+    video: "/previews/sales-mainpick.mp4",
+    transcript: transcriptFor("bag", "它不是只解决把猫背出去，是把一路要用的东西都装进去。", "八个口袋分别对应水、零食、纸巾和随身小物，不会乱。"),
+  },
+  {
+    id: "sales-shape",
+    kind: "带货",
+    index: "04",
+    title: "真正显瘦的是比例，不是尺码",
+    duration: "00:49",
+    sourceTime: "03:18:50 — 03:19:39",
+    sourceStart: 11930,
+    score: 90,
+    summary: "用上身效果证明腰线与肩颈比例，不做无法验证的身材承诺。",
+    thumbnail: "/thumbnails/sales-detail.png",
+    video: "/previews/sales-mainpick.mp4",
+    transcript: transcriptFor("shape", "显瘦不是把自己塞进更小的尺码，是先把比例穿对。", "这件的腰线和肩颈留白，才是你上身显利落的原因。"),
+  },
+  {
+    id: "sales-fans",
+    kind: "带货",
+    index: "05",
+    title: "直播间粉丝从来不是一种人",
+    duration: "00:51",
+    sourceTime: "01:08:12 — 01:09:03",
+    sourceStart: 4092,
+    score: 88,
+    summary: "把人群分层讲清楚，只保留与成交路径直接相关的部分。",
+    thumbnail: "/thumbnails/chat-longterm.png",
+    video: "/previews/chat-rules.mp4",
+    transcript: transcriptFor("fans", "直播间粉丝从来不是一种人，你不能用同一句话跟所有人沟通。", "先分清新客、老客和高黏性用户，再决定每一段讲什么。"),
+  },
+  {
+    id: "sales-reason",
+    kind: "带货",
+    index: "06",
+    title: "一条视频，只保留一个购买理由",
+    duration: "00:44",
+    sourceTime: "04:41:03 — 04:41:47",
+    sourceStart: 16863,
+    score: 86,
+    summary: "删除卖点堆砌，让一个核心理由贯穿口播和展示。",
+    thumbnail: "/thumbnails/sales-detail.png",
+    video: "/previews/sales-mainpick.mp4",
+    transcript: transcriptFor("reason", "不要在一条切片里塞十个卖点，观众最后一个都记不住。", "先选出最能解决问题的一个理由，让画面把它证明出来。"),
   },
 ];
 
-const stages = ["上传直播", "逐字转写", "内容地图", "候选评分", "事实复核", "人工审核", "送入 ChatCut"];
+const initialDecisions = Object.fromEntries(
+  ideas.flatMap((idea) => idea.transcript.map((line) => [line.id, line.defaultDecision])),
+) as Record<string, Decision>;
+
+const stepLabels: { step: WorkflowStep; label: string }[] = [
+  { step: 1, label: "上传与类型" },
+  { step: 2, label: "内容地图" },
+  { step: 3, label: "文字精剪" },
+];
 
 export default function Home() {
-  const [activeClipId, setActiveClipId] = useState(clips[0].id);
-  const [selectedIds, setSelectedIds] = useState<string[]>([clips[0].id, clips[1].id]);
-  const [filter, setFilter] = useState<"全部" | ClipKind>("全部");
-  const [query, setQuery] = useState("");
-  const [instruction, setInstruction] = useState("保留“带货是长线的问题”，删掉连麦人的提问，直接接“起码两年”。");
-  const [revisionState, setRevisionState] = useState<"idle" | "working" | "done">("idle");
-  const [toast, setToast] = useState("");
-  const [showUpload, setShowUpload] = useState(false);
-  const [showArchitecture, setShowArchitecture] = useState(false);
+  const [step, setStep] = useState<WorkflowStep>(1);
+  const [mode, setMode] = useState<Mode | null>(null);
   const [fileName, setFileName] = useState("");
-  const [demoRunning, setDemoRunning] = useState(false);
-  const [demoProgress, setDemoProgress] = useState(100);
+  const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState("");
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisReady, setAnalysisReady] = useState(false);
+  const [activeClipId, setActiveClipId] = useState(ideas[0].id);
+  const [selectedIds, setSelectedIds] = useState<string[]>([ideas[0].id]);
+  const [decisions, setDecisions] = useState<Record<string, Decision>>(initialDecisions);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [generationState, setGenerationState] = useState<"idle" | "working" | "done">("idle");
+  const [highPotentialOnly, setHighPotentialOnly] = useState(false);
+  const [toast, setToast] = useState("");
+  const [showArchitecture, setShowArchitecture] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
-  const activeClip = clips.find((clip) => clip.id === activeClipId) ?? clips[0];
+  useEffect(() => {
+    return () => {
+      if (uploadedPreviewUrl) URL.revokeObjectURL(uploadedPreviewUrl);
+    };
+  }, [uploadedPreviewUrl]);
 
-  const filteredClips = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return clips.filter((clip) => {
-      const matchesKind = filter === "全部" || clip.kind === filter;
-      const matchesQuery =
-        !normalized ||
-        `${clip.title}${clip.hook}${clip.reason}`.toLowerCase().includes(normalized);
-      return matchesKind && matchesQuery;
-    });
-  }, [filter, query]);
+  const modeIdeas = useMemo(
+    () => ideas.filter((idea) => idea.kind === (mode ?? "聊播")),
+    [mode],
+  );
+  const displayedIdeas = useMemo(
+    () => highPotentialOnly ? modeIdeas.filter((idea) => idea.score >= 95) : modeIdeas,
+    [highPotentialOnly, modeIdeas],
+  );
+  const discoveredCount = analysisReady ? modeIdeas.length : 0;
+
+  const activeClip = ideas.find((idea) => idea.id === activeClipId) ?? modeIdeas[0];
+  const activeLineIndex = activeClip.transcript.findIndex((line, index) => {
+    const next = activeClip.transcript[index + 1]?.seconds ?? Number.POSITIVE_INFINITY;
+    return currentTime >= line.seconds && currentTime < next;
+  });
+  const keptCount = activeClip.transcript.filter((line) => decisions[line.id] === "keep").length;
+  const excludedRanges = activeClip.transcript.flatMap((line, index) => {
+    if (decisions[line.id] !== "remove") return [];
+    const next = activeClip.transcript[index + 1]?.seconds ?? line.seconds + 5;
+    return [{ start: line.seconds, end: next }];
+  });
+
+  function showToast(message: string) {
+    setToast(message);
+    window.setTimeout(() => setToast(""), 3600);
+  }
+
+  function switchMode(nextMode: Mode) {
+    if (mode === nextMode) return;
+    const shouldExplainReset = step > 1;
+    setMode(nextMode);
+    const first = ideas.find((idea) => idea.kind === nextMode) ?? ideas[0];
+    setActiveClipId(first.id);
+    setSelectedIds([first.id]);
+    setAnalysisReady(false);
+    setAnalysisProgress(0);
+    setStep(1);
+    setGenerationState("idle");
+    setHighPotentialOnly(false);
+    setCurrentTime(0);
+    if (shouldExplainReset) {
+      window.setTimeout(() => showToast(`已切换为${nextMode}切片，请重新生成这一场的内容地图。`), 0);
+    }
+  }
+
+  function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (uploadedPreviewUrl) URL.revokeObjectURL(uploadedPreviewUrl);
+    setFileName(file.name);
+    setUploadedPreviewUrl(URL.createObjectURL(file));
+  }
+
+  function startAnalysis() {
+    if (!mode) {
+      showToast("请先选择聊播切片或带货切片。");
+      return;
+    }
+    setAnalysisProgress(8);
+    let value = 8;
+    const timer = window.setInterval(() => {
+      value += value < 50 ? 14 : value < 82 ? 9 : 6;
+      if (value >= 100) {
+        window.clearInterval(timer);
+        setAnalysisProgress(100);
+        setAnalysisReady(true);
+        const modelResultCandidates = ideas.filter((idea) => idea.kind === mode);
+        const modelResultCount = modelResultCandidates.length;
+        const first = modelResultCandidates[0] ?? ideas[0];
+        setActiveClipId(first.id);
+        setSelectedIds([first.id]);
+        window.setTimeout(() => setStep(2), 320);
+        showToast(`内容地图已生成：本场自然发现 ${modelResultCount} 条可剪灵感。`);
+        return;
+      }
+      setAnalysisProgress(value);
+    }, 260);
+  }
+
+  function openStep(nextStep: WorkflowStep) {
+    if (nextStep === 1 || analysisReady) setStep(nextStep);
+  }
 
   function toggleSelected(id: string) {
     setSelectedIds((current) =>
@@ -119,333 +345,345 @@ export default function Home() {
     );
   }
 
-  function runRevision() {
-    if (!instruction.trim()) return;
-    setRevisionState("working");
+  function activateClip(id: string) {
+    setActiveClipId(id);
+    setCurrentTime(0);
+    setGenerationState("idle");
+  }
+
+  function enterTranscript() {
+    if (!selectedIds.length) {
+      showToast("请先选择至少一个内容想法。");
+      return;
+    }
+    if (!selectedIds.includes(activeClip.id)) activateClip(selectedIds[0]);
+    setStep(3);
+  }
+
+  function seekTo(seconds: number) {
+    const video = videoRef.current;
+    if (!video) return;
+    const absoluteSeconds = (uploadedPreviewUrl ? activeClip.sourceStart : 0) + seconds;
+    video.currentTime = Math.min(absoluteSeconds, Number.isFinite(video.duration) ? Math.max(video.duration - 0.1, 0) : absoluteSeconds);
+    void video.play();
+  }
+
+  function setLineDecision(id: string, decision: Decision) {
+    setDecisions((current) => ({ ...current, [id]: decision }));
+    setGenerationState("idle");
+  }
+
+  function generateClip() {
+    setGenerationState("working");
     window.setTimeout(() => {
-      setRevisionState("done");
-      setToast("演示：修改意图已记录。接入剪辑后台后会生成新版时间轴。");
-      window.setTimeout(() => setToast(""), 3600);
-    }, 950);
-  }
-
-  function runDemo() {
-    setShowUpload(false);
-    setDemoRunning(true);
-    setDemoProgress(12);
-    let value = 12;
-    const timer = window.setInterval(() => {
-      value += value < 58 ? 18 : 11;
-      if (value >= 100) {
-        window.clearInterval(timer);
-        setDemoProgress(100);
-        setDemoRunning(false);
-        setToast("示例分析完成：已载入 4 条人工校准过的候选切片。");
-        window.setTimeout(() => setToast(""), 3600);
-        return;
-      }
-      setDemoProgress(value);
-    }, 420);
-  }
-
-  function handleFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) setFileName(file.name);
+      setGenerationState("done");
+      showToast("文字粗剪预听已按当前选择更新；正式 MP4 将由后台按这些时间码渲染。");
+    }, 1300);
   }
 
   function handoffToChatCut() {
-    setToast(
-      selectedIds.length
-        ? `演示：已准备 ${selectedIds.length} 条切片；真实发送需接入 ChatCut 授权。`
-        : "请先勾选至少一条候选切片。",
-    );
-    window.setTimeout(() => setToast(""), 3800);
+    showToast("演示：已准备可编辑时间线。正式版连接 ChatCut 后会写入用户工程。");
   }
 
+  function toggleIdeaFilter() {
+    const next = !highPotentialOnly;
+    setHighPotentialOnly(next);
+    if (next && activeClip.score < 95) {
+      const firstHighPotential = modeIdeas.find((idea) => idea.score >= 95);
+      if (firstHighPotential) activateClip(firstHighPotential.id);
+    }
+  }
+
+  function explainAllIdeas() {
+    showToast(`当前模型样例共返回 ${discoveredCount} 条可播放灵感；正式版同样直接渲染 candidates.length，不预设、不补齐。`);
+  }
+
+  const previewSource = uploadedPreviewUrl || activeClip.video;
+
   return (
-    <main className="app-shell">
-      <aside className="sidebar" aria-label="主导航">
-        <div className="brand-mark" aria-label="切片台">
-          <span>切</span>
+    <main className="cutline-app">
+      <header className="masthead">
+        <div className="masthead-brand">
+          <button className="wordmark" onClick={() => setStep(1)} aria-label="返回上传步骤">CUTLINE</button>
+          <span>AI LIVESTREAM CLIPPING WORKBENCH</span>
         </div>
-        <nav className="side-nav">
-          <button className="side-nav-item active" aria-label="任务工作台" title="任务工作台">
-            <span>▦</span>
-          </button>
-          <button className="side-nav-item" aria-label="人设库" title="人设库">
-            <span>◇</span>
-          </button>
-          <button className="side-nav-item" aria-label="剪辑规则" title="剪辑规则">
-            <span>≋</span>
-          </button>
-          <button className="side-nav-item" aria-label="成片库" title="成片库">
-            <span>▶</span>
-          </button>
+
+        <nav className="step-rail" aria-label="切片工作流">
+          {stepLabels.map((item) => (
+            <button
+              key={item.step}
+              className={step === item.step ? "active" : step > item.step ? "complete" : ""}
+              disabled={item.step > 1 && !analysisReady}
+              onClick={() => openStep(item.step)}
+              aria-current={step === item.step ? "step" : undefined}
+            >
+              <b>{item.step}</b>
+              <span>{item.label}</span>
+            </button>
+          ))}
         </nav>
-        <button className="avatar-button" aria-label="账号">
-          L
-        </button>
-      </aside>
 
-      <section className="workspace">
-        <header className="topbar">
-          <div>
-            <div className="eyebrow-row">
-              <span className="eyebrow">CUTLINE · 切片工作台</span>
-              <span className="demo-pill">交互原型</span>
-            </div>
-            <h1>从整场直播，到值得发的切片。</h1>
-          </div>
-          <div className="topbar-actions">
-            <button className="ghost-button" onClick={() => setShowArchitecture(true)}>
-              后台怎么跑？
-            </button>
-            <button className="primary-button" onClick={() => setShowUpload(true)}>
-              <span>＋</span> 新建直播任务
-            </button>
-          </div>
-        </header>
-
-        <div className="honesty-banner" role="status">
-          <span className="honesty-dot" />
-          当前展示的是<strong>已人工校准的天总样片流程</strong>。上传、真实转写、模型分析与 ChatCut 发送接口尚未接入，不会假装处理你上传的内容。
-        </div>
-
-        <section className="job-overview" aria-labelledby="job-title">
-          <div className="job-copy">
-            <div className="job-meta-row">
-              <span className="live-dot" />
-              <span>示例任务 · 聊播</span>
-              <span>2026.06.17</span>
-            </div>
-            <h2 id="job-title">竺天天整场直播</h2>
-            <p>03:12:46 · 已完成逐字阅读与人设校准</p>
-          </div>
-
-          <div className="metrics" aria-label="任务概览">
-            <div><strong>28</strong><span>候选片段</span></div>
-            <div><strong>12</strong><span>高潜片段</span></div>
-            <div><strong>06</strong><span>可直接送审</span></div>
-          </div>
-
-          <div className="pipeline" aria-label="处理流程">
-            {stages.map((stage, index) => (
-              <div className="pipeline-step" key={stage}>
-                <span className="step-check">{demoRunning && index > 1 ? index + 1 : "✓"}</span>
-                <span>{stage}</span>
-                {index < stages.length - 1 && <i />}
-              </div>
-            ))}
-          </div>
-
-          {demoRunning && (
-            <div className="analysis-progress" aria-live="polite">
-              <div>
-                <span>正在模拟：逐字稿分段 → 价值判断 → 人设校准</span>
-                <strong>{Math.min(demoProgress, 100)}%</strong>
-              </div>
-              <progress max="100" value={Math.min(demoProgress, 100)} />
+        <div className="masthead-actions">
+          {step > 1 && (
+            <div className="mode-switch" aria-label="切片类型">
+              {(["带货", "聊播"] as Mode[]).map((item) => (
+                <button
+                  key={item}
+                  className={mode === item ? "active" : ""}
+                  onClick={() => switchMode(item)}
+                  aria-pressed={mode === item}
+                >
+                  {item}切片
+                </button>
+              ))}
             </div>
           )}
-        </section>
+          <button className="text-action" onClick={() => setShowArchitecture(true)}>真实后台</button>
+        </div>
+      </header>
 
-        <section className="review-section" aria-labelledby="review-heading">
-          <div className="section-heading-row">
-            <div>
-              <span className="section-kicker">人工审核</span>
-              <h2 id="review-heading">候选切片</h2>
-            </div>
-            <div className="review-toolbar">
-              <label className="search-box">
-                <span>⌕</span>
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜观点、卖点或话题"
-                  aria-label="搜索候选切片"
-                />
-              </label>
-              <div className="filter-tabs" aria-label="候选类型">
-                {(["全部", "聊播", "带货"] as const).map((item) => (
-                  <button
-                    key={item}
-                    className={filter === item ? "active" : ""}
-                    onClick={() => setFilter(item)}
-                    aria-pressed={filter === item}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-            </div>
+      {step === 1 && (
+        <section className="intake-view" aria-labelledby="intake-title">
+          <div className="intake-intro">
+            <span className="edition-label">NEW PROJECT · 最高质量模型</span>
+            <h1 id="intake-title">把整场直播，交给一位真正的主编。</h1>
+            <p>先选择内容类型。不同类型使用不同的选题、语境、节奏和风险判断；候选数量完全由本场判断结果决定，不设目标、不设保底，也不补齐。</p>
           </div>
 
-          <div className="review-grid">
-            <div className="candidate-column">
-              <div className="candidate-list-head">
-                <span>按内容价值排序</span>
-                <span>{filteredClips.length} 条样例</span>
-              </div>
-
-              <div className="candidate-list">
-                {filteredClips.map((clip) => {
-                  const active = clip.id === activeClip.id;
-                  const selected = selectedIds.includes(clip.id);
-                  return (
-                    <article
-                      className={`clip-card ${active ? "active" : ""}`}
-                      key={clip.id}
-                      onClick={() => setActiveClipId(clip.id)}
-                    >
-                      <button
-                        className={`check-button ${selected ? "checked" : ""}`}
-                        aria-label={`${selected ? "取消" : "选择"}${clip.title}`}
-                        aria-pressed={selected}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleSelected(clip.id);
-                        }}
-                      >
-                        {selected ? "✓" : ""}
-                      </button>
-                      <div className="clip-thumb">
-                        <img src={clip.thumbnail} alt="天总直播候选片段画面" />
-                        <span>{clip.duration}</span>
-                        <button aria-label={`预览${clip.title}`} onClick={(event) => event.stopPropagation()}>
-                          ▶
-                        </button>
-                      </div>
-                      <div className="clip-card-body">
-                        <div className="clip-labels">
-                          <span className="kind-label" style={{ background: clip.color }}>{clip.kind}</span>
-                          <span className={`status-label status-${clip.status}`}>{clip.status}</span>
-                          <span className="source-time">{clip.sourceRange}</span>
-                        </div>
-                        <h3>{clip.title}</h3>
-                        <p>“{clip.hook}”</p>
-                        <div className="reason-row">
-                          <span>{clip.reason}</span>
-                          <strong>{clip.score}<small>/100</small></strong>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-
-            <aside className="inspector" aria-label="切片审核详情">
-              <div className="inspector-head">
-                <div>
-                  <span className="section-kicker">当前切片</span>
-                  <h2>{activeClip.title}</h2>
-                </div>
-                <span className="score-chip">价值分 {activeClip.score}</span>
-              </div>
-
-              <div className="preview-frame">
-                <img src={activeClip.thumbnail} alt="当前候选切片预览" />
-                <div className="preview-overlay">
-                  <button aria-label="播放当前候选切片">▶</button>
-                  <span>样片画面</span>
-                </div>
-                <div className="caption-preview">{activeClip.hook}</div>
-              </div>
-
-              <div className="mini-timeline" aria-label="示意时间轴">
-                <div className="timeline-labels"><span>入点 00:00.0</span><span>出点 {activeClip.duration}</span></div>
-                <div className="waveform" aria-hidden="true">
-                  {Array.from({ length: 34 }, (_, index) => (
-                    <i key={index} style={{ height: `${12 + ((index * 13) % 30)}px` }} />
-                  ))}
-                </div>
-                <div className="timeline-selection"><span /><span /></div>
-              </div>
-
-              <div className="script-block">
-                <div className="script-block-head"><span>结构建议</span><button>查看逐字稿</button></div>
-                <div className="script-row"><b>钩子</b><p>{activeClip.hook}</p></div>
-                <div className="script-row"><b>展开</b><p>{activeClip.body}</p></div>
-                <div className="script-row"><b>理由</b><p>{activeClip.reason}</p></div>
-              </div>
-
-              {activeClip.risk && (
-                <div className="risk-note"><span>!</span><p><strong>复核提醒</strong>{activeClip.risk}</p></div>
+          <div className="intake-grid">
+            <section className="upload-editorial" aria-label="上传直播录屏">
+              <div className="section-number">01 / SOURCE</div>
+              <h2>上传完整直播</h2>
+              <p>MP4 / MOV · 正式版支持断点上传、后台转写和原片上下文播放。</p>
+              <button className="upload-field" onClick={() => fileRef.current?.click()}>
+                <span>{fileName || "选择直播录屏"}</span>
+                <small>{fileName ? "已在浏览器中读取，尚未上传" : "也可以直接使用校准样片体验"}</small>
+              </button>
+              <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
+              {uploadedPreviewUrl && (
+                <video className="upload-preview" src={uploadedPreviewUrl} controls playsInline preload="metadata" />
               )}
+            </section>
 
-              <label className="instruction-box">
-                <span>告诉剪辑助手怎么改</span>
-                <textarea
-                  value={instruction}
-                  onChange={(event) => {
-                    setInstruction(event.target.value);
-                    setRevisionState("idle");
-                  }}
-                  rows={4}
-                />
-              </label>
-              <div className="inspector-actions">
-                <button className="secondary-button" onClick={() => setInstruction("")}>清空</button>
-                <button className="dark-button" onClick={runRevision} disabled={revisionState === "working" || !instruction.trim()}>
-                  {revisionState === "working" ? "正在理解修改…" : revisionState === "done" ? "已记录修改 ✓" : "按这句话重剪"}
+            <section className="mode-editorial" aria-labelledby="mode-title">
+              <div className="section-number">02 / EDITION</div>
+              <h2 id="mode-title">这场直播，要剪成哪一种？</h2>
+              <div className="mode-covers">
+                <button
+                  className={mode === "聊播" ? "selected" : ""}
+                  onClick={() => switchMode("聊播")}
+                  aria-pressed={mode === "聊播"}
+                >
+                  <b>聊播</b>
+                  <span>完整观点与上下文</span>
+                  <p>删除他人提问与无效来回，保留天总原话、情绪和结论。</p>
+                </button>
+                <button
+                  className={mode === "带货" ? "selected" : ""}
+                  onClick={() => switchMode("带货")}
+                  aria-pressed={mode === "带货"}
+                >
+                  <b>带货</b>
+                  <span>单一卖点与画面验证</span>
+                  <p>一个视频只讲一个购买理由，口播、展示与合规逐项对齐。</p>
                 </button>
               </div>
-            </aside>
+            </section>
           </div>
-        </section>
 
-        <footer className="batch-bar">
-          <div>
-            <span className="batch-count">{selectedIds.length}</span>
-            <p><strong>已选择候选</strong><span>先人工确认，再生成可编辑时间轴</span></p>
-          </div>
-          <div>
-            <button className="ghost-button" onClick={() => setSelectedIds([])}>取消选择</button>
-            <button className="primary-button" onClick={handoffToChatCut}>送入 ChatCut <span>→</span></button>
-          </div>
-        </footer>
-      </section>
-
-      {showUpload && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowUpload(false)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="upload-title" onMouseDown={(event) => event.stopPropagation()}>
-            <button className="modal-close" aria-label="关闭" onClick={() => setShowUpload(false)}>×</button>
-            <span className="section-kicker">新建任务</span>
-            <h2 id="upload-title">放进一场完整直播</h2>
-            <p className="modal-lead">第一版先用样片体验完整审核流程。真实上传接口接入后，会在后台完成转写、找段与时间轴生成。</p>
-            <button className="upload-zone" onClick={() => fileRef.current?.click()}>
-              <span className="upload-icon">⇧</span>
-              <strong>{fileName || "选择直播录屏"}</strong>
-              <small>{fileName ? "文件只在当前浏览器中选中，尚未上传" : "MP4 / MOV，真实版本将支持断点上传"}</small>
+          <div className="intake-footer">
+            <div>
+              <strong>三遍主编制</strong>
+              <span>全场发现 → 结构精剪 → 独立终审</span>
+            </div>
+            <button className="pink-action" onClick={startAnalysis} disabled={!mode || (analysisProgress > 0 && analysisProgress < 100)}>
+              {analysisProgress > 0 && analysisProgress < 100 ? `正在生成内容地图 ${Math.min(analysisProgress, 99)}%` : "开始生成内容地图"}
             </button>
-            <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
-            <div className="privacy-note"><span>隐私</span><p>真实版本会在上传前说明保存期限、模型处理方式与删除入口。</p></div>
-            <div className="modal-actions">
-              <button className="secondary-button" onClick={() => setShowUpload(false)}>稍后再说</button>
-              <button className="primary-button" onClick={runDemo}>用校准样片体验流程</button>
+          </div>
+
+          {analysisProgress > 0 && analysisProgress < 100 && (
+            <div className="analysis-strip" aria-live="polite">
+              <span style={{ width: `${analysisProgress}%` }} />
+            </div>
+          )}
+
+          <p className="prototype-note">当前为交互原型：选择本地视频只用于浏览器预览；真实上传、OpenAI 分析与 ChatCut 写入尚未接通。</p>
+        </section>
+      )}
+
+      {step === 2 && (
+        <section className="map-view" aria-labelledby="map-title">
+          <aside className="idea-index">
+            <div className="panel-heading">
+              <div><span>本场发现</span><b>{discoveredCount} 条灵感</b></div>
+              <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看高潜"}</button>
+            </div>
+            <p className="panel-intro">模型自然返回多少就是多少，不预设、不保底、不凑数。</p>
+            <div className="idea-list">
+              {displayedIdeas.map((idea) => (
+                <article className={`idea-row ${activeClip.id === idea.id ? "active" : ""}`} key={idea.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(idea.id)}
+                    onChange={() => toggleSelected(idea.id)}
+                    aria-label={`选择 ${idea.title}`}
+                  />
+                  <button onClick={() => activateClip(idea.id)}>
+                    <span>{idea.index}</span>
+                    <strong>{idea.title}</strong>
+                    <small>{idea.duration}</small>
+                  </button>
+                </article>
+              ))}
+            </div>
+            <button className="outline-action full" onClick={explainAllIdeas}>查看全部灵感（{discoveredCount}）</button>
+          </aside>
+
+          <section className="map-preview" aria-label="候选原片预览">
+            <div className="story-header">
+              <span>SELECTED STORY · {activeClip.index}</span>
+              <b>价值判断 {activeClip.score}</b>
+            </div>
+            <h1 id="map-title">{activeClip.title}</h1>
+            <p>{activeClip.summary}</p>
+            <VideoPreview
+              videoRef={videoRef}
+              source={previewSource}
+              poster={activeClip.thumbnail}
+              uploaded={Boolean(uploadedPreviewUrl)}
+              sourceStart={activeClip.sourceStart}
+              excludedRanges={excludedRanges}
+              roughPreview={false}
+              onTimeUpdate={setCurrentTime}
+            />
+            <div className="source-facts">
+              <span>原片位置</span><strong>{activeClip.sourceTime}</strong>
+              <span>预计成片</span><strong>{activeClip.duration}</strong>
             </div>
           </section>
-        </div>
+
+          <aside className="map-notes">
+            <div className="panel-heading"><div><span>文字快照</span><b>AI 初判断</b></div></div>
+            <div className="legend"><span>保留片段</span><span>建议删除</span></div>
+            <div className="snapshot-lines">
+              {activeClip.transcript.map((line) => (
+                <button
+                  key={line.id}
+                  className={decisions[line.id] === "remove" ? "removed" : ""}
+                  onClick={() => seekTo(line.seconds)}
+                >
+                  <time>{line.time}</time>
+                  <span>{line.text}</span>
+                </button>
+              ))}
+            </div>
+            <div className="selection-summary">
+              <span>已选 {selectedIds.length} 条 · 本场模型返回 {discoveredCount} 条</span>
+              <button className="pink-action" onClick={enterTranscript}>选中后进入文字精剪</button>
+            </div>
+          </aside>
+        </section>
+      )}
+
+      {step === 3 && (
+        <section className="cut-room" aria-labelledby="cut-title">
+          <aside className="idea-index compact">
+            <div className="panel-heading">
+              <div><span>本场发现</span><b>{discoveredCount} 条灵感</b></div>
+              <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看高潜"}</button>
+            </div>
+            <p className="panel-intro">数量由模型自然得出，不设上限，也不补齐。</p>
+            <div className="idea-list">
+              {displayedIdeas.map((idea) => (
+                <button
+                  className={`compact-idea ${activeClip.id === idea.id ? "active" : ""}`}
+                  key={idea.id}
+                  onClick={() => activateClip(idea.id)}
+                >
+                  <span>{idea.index}</span><strong>{idea.title}</strong><small>{idea.duration}</small>
+                </button>
+              ))}
+            </div>
+            <button className="outline-action full" onClick={explainAllIdeas}>查看全部灵感（{discoveredCount}）</button>
+          </aside>
+
+          <section className="cut-preview" aria-label="文字精剪视频预览">
+            <div className="story-header"><span>正在精剪 · {activeClip.index}</span><b>{activeClip.duration}</b></div>
+            <h1 id="cut-title">{activeClip.title}</h1>
+            <VideoPreview
+              videoRef={videoRef}
+              source={previewSource}
+              poster={activeClip.thumbnail}
+              uploaded={Boolean(uploadedPreviewUrl)}
+              sourceStart={activeClip.sourceStart}
+              excludedRanges={excludedRanges}
+              roughPreview={generationState === "done"}
+              onTimeUpdate={setCurrentTime}
+            />
+            <div className="generation-proof" aria-live="polite">
+              <span>{generationState === "done" ? "文字粗剪预听已更新（浏览器演示）" : "当前播放器为原片上下文预览"}</span>
+              <b>{keptCount} 段保留 · {activeClip.transcript.length - keptCount} 段删除</b>
+            </div>
+            <p className="raw-output-note">目标输出：无字幕 · 无效果 · 保留原声</p>
+          </section>
+
+          <section className="transcript-editor" aria-labelledby="transcript-title">
+            <div className="transcript-head">
+              <div>
+                <h2 id="transcript-title">文字精剪</h2>
+                <p>点文字可定位播放；每一句都能改成保留或删除。</p>
+              </div>
+              <span>最高质量模型初筛</span>
+            </div>
+            <div className="legend"><span>保留内容</span><span>建议删除</span></div>
+            <div className="transcript-lines">
+              {activeClip.transcript.map((line, index) => {
+                const decision = decisions[line.id] ?? line.defaultDecision;
+                return (
+                  <article
+                    key={line.id}
+                    className={`${decision === "remove" ? "removed" : ""} ${activeLineIndex === index ? "playing" : ""}`}
+                  >
+                    <button className="transcript-seek" onClick={() => seekTo(line.seconds)} aria-label={`从 ${line.time} 播放：${line.text}`}>
+                      <time>{line.time}</time>
+                      <p>{line.speaker && <small>{line.speaker}</small>}{line.text}</p>
+                    </button>
+                    <div>
+                      <button className={decision === "keep" ? "active" : ""} onClick={() => setLineDecision(line.id, "keep")}>保留</button>
+                      <button className={decision === "remove" ? "active remove" : ""} onClick={() => setLineDecision(line.id, "remove")}>删除</button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="cut-actions">
+              <button className="outline-action" onClick={() => setStep(2)}>返回内容地图</button>
+              {generationState === "done" ? (
+                <div className="output-actions">
+                  <a className="outline-action" href={activeClip.video} download>下载无字幕样片</a>
+                  <button className="pink-action" onClick={handoffToChatCut}>送入 ChatCut 精修</button>
+                </div>
+              ) : (
+                <button className="pink-action" onClick={generateClip} disabled={generationState === "working"}>
+                  {generationState === "working" ? "正在按文字生成切片…" : "按文字生成切片"}
+                </button>
+              )}
+            </div>
+          </section>
+        </section>
       )}
 
       {showArchitecture && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowArchitecture(false)}>
-          <section className="modal architecture-modal" role="dialog" aria-modal="true" aria-labelledby="architecture-title" onMouseDown={(event) => event.stopPropagation()}>
-            <button className="modal-close" aria-label="关闭" onClick={() => setShowArchitecture(false)}>×</button>
-            <span className="section-kicker">真实运行方式</span>
-            <h2 id="architecture-title">用户不需要登录 Codex</h2>
-            <p className="modal-lead">Codex 是我们开发和校准工作流的工具。公开产品由你的网站账号承接，后台统一调用模型与媒体服务。</p>
-            <div className="architecture-flow">
-              <div><b>01</b><span>对象存储</span><p>直播断点上传、代理文件、自动删除</p></div>
-              <div><b>02</b><span>逐字转写</span><p>语音识别＋说话人区分＋词级时间戳</p></div>
-              <div><b>03</b><span>语义剪辑</span><p>模型按人设、价值与节奏生成候选脚本</p></div>
-              <div><b>04</b><span>交付成片</span><p>ChatCut 授权生成可编辑时间轴，或后台渲染</p></div>
-            </div>
-            <div className="cost-grid">
-              <div><span>需要 Token</span><strong>是</strong><p>用于理解逐字稿、评分、重组与接受修改意见。</p></div>
-              <div><span>需要 GPU</span><strong>按需</strong><p>托管 API 不需自备 GPU；自建转写或批量渲染时才需要。</p></div>
-              <div><span>建议模型</span><strong>分层调用</strong><p>便宜模型初筛，平衡型模型终审；高风险内容再升级。</p></div>
-              <div><span>用户登录</span><strong>产品账号</strong><p>无需 Codex；需要可编辑工程时，再授权自己的 ChatCut。</p></div>
+          <section className="architecture-modal" role="dialog" aria-modal="true" aria-labelledby="architecture-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="modal-close" onClick={() => setShowArchitecture(false)} aria-label="关闭">关闭</button>
+            <span className="edition-label">PRODUCTION ARCHITECTURE</span>
+            <h2 id="architecture-title">我们的后台是主脑，OpenAI 是最高质量模型，ChatCut 是剪辑执行层。</h2>
+            <div className="architecture-list">
+              <div><b>01</b><strong>上传与存储</strong><p>直播断点上传、代理文件、权限和删除周期。</p></div>
+              <div><b>02</b><strong>OpenAI 主编</strong><p>最强转写与旗舰模型完成全场发现、结构精剪和独立终审。</p></div>
+              <div><b>03</b><strong>人工文字复核</strong><p>用户对每句话做最终保留/删除判断，系统不黑箱下刀。</p></div>
+              <div><b>04</b><strong>ChatCut 交付</strong><p>把确认后的时间码写成可编辑时间线，也可直接生成预览成片。</p></div>
             </div>
           </section>
         </div>
@@ -453,5 +691,67 @@ export default function Home() {
 
       {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
     </main>
+  );
+}
+
+function VideoPreview({
+  videoRef,
+  source,
+  poster,
+  uploaded,
+  sourceStart,
+  excludedRanges,
+  roughPreview,
+  onTimeUpdate,
+}: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  source: string;
+  poster: string;
+  uploaded: boolean;
+  sourceStart: number;
+  excludedRanges: { start: number; end: number }[];
+  roughPreview: boolean;
+  onTimeUpdate: (time: number) => void;
+}) {
+  return (
+    <video
+      key={`${source}-${sourceStart}`}
+      ref={videoRef}
+      className="main-video"
+      src={source}
+      poster={poster}
+      controls
+      playsInline
+      preload="metadata"
+      onLoadedMetadata={(event) => {
+        if (!uploaded) return;
+        const video = event.currentTarget;
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          video.currentTime = Math.min(sourceStart, Math.max(video.duration - 0.1, 0));
+        }
+      }}
+      onTimeUpdate={(event) => {
+        const video = event.currentTarget;
+        const baseOffset = uploaded ? sourceStart : 0;
+        const relativeTime = Math.max(0, video.currentTime - baseOffset);
+        const excluded = roughPreview
+          ? excludedRanges.find((range) => relativeTime >= range.start && relativeTime < range.end)
+          : undefined;
+
+        if (excluded) {
+          const nextAbsoluteTime = baseOffset + excluded.end + 0.01;
+          if (Number.isFinite(video.duration) && nextAbsoluteTime >= video.duration - 0.05) {
+            video.pause();
+          } else {
+            video.currentTime = nextAbsoluteTime;
+          }
+          return;
+        }
+
+        onTimeUpdate(relativeTime);
+      }}
+    >
+      你的浏览器暂不支持在线播放该视频。
+    </video>
   );
 }

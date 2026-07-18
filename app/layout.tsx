@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Bodoni_Moda, Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 
@@ -13,13 +13,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const bodoni = Bodoni_Moda({
+  variable: "--font-bodoni",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+});
+
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
   const origin = new URL(`${protocol}://${host}`);
   const title = "CUTLINE · 天总切片工作台";
-  const description = "从完整直播中寻找高价值片段，按人设校准并交付可编辑切片。";
+  const description = "上传整场直播，选择聊播或带货，先看内容灵感，再按逐字稿生成干净切片。";
 
   return {
     metadataBase: origin,
@@ -43,7 +49,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>{children}</body>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${bodoni.variable}`}>{children}</body>
     </html>
   );
 }
