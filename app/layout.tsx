@@ -24,24 +24,33 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
   const origin = new URL(`${protocol}://${host}`);
-  const title = "CUTLINE · 天总切片工作台";
-  const description = "上传整场直播，选择聊播或带货，先看内容灵感，再按逐字稿生成干净切片。";
+  const title = "天总直播切片系统 · 内测 BETA 1.0";
+  const description = "天总直播专属内部切片系统：把持续研究、人工校准与版本化规则落实到聊播和带货直播的候选判断、逐字精剪与输出依据中。";
 
   return {
     metadataBase: origin,
+    applicationName: "天总直播切片系统",
     title,
     description,
+    robots: {
+      index: false,
+      follow: false,
+      noarchive: true,
+      googleBot: {
+        index: false,
+        follow: false,
+        noarchive: true,
+      },
+    },
     openGraph: {
       title,
       description,
       type: "website",
-      images: [{ url: new URL("/og.png", origin).toString(), width: 1200, height: 630 }],
     },
     twitter: {
-      card: "summary_large_image",
+      card: "summary",
       title,
       description,
-      images: [new URL("/og.png", origin).toString()],
     },
   };
 }

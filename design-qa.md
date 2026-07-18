@@ -1,4 +1,4 @@
-# CUTLINE Design QA
+# 天总直播切片系统 Design QA
 
 ## Evidence
 
@@ -14,7 +14,7 @@
 
 ## Full-view comparison evidence
 
-The final side-by-side comparison preserves the source's editorial hierarchy: oversized CUTLINE masthead, numbered three-step rail, near-black canvas, ivory typography, blush selection state, three-column editing room, portrait video, transcript ledger, and flat bottom delivery actions. The implementation uses a naturally returned sample count of 6 instead of the static 67 shown in the visual target; this is an intentional product-correct content difference, not layout drift.
+The final side-by-side comparison preserves the source's editorial hierarchy: oversized Tianzong-specific masthead, numbered three-step rail, near-black canvas, ivory typography, blush selection state, three-column editing room, portrait video, transcript ledger, and flat bottom delivery actions. The implementation uses a naturally returned sample count of 6 instead of the static 67 shown in the visual target; this is an intentional product-correct content difference, not layout drift.
 
 ## Focused region comparison evidence
 

@@ -12,7 +12,15 @@ type TranscriptLine = {
   seconds: number;
   text: string;
   defaultDecision: Decision;
+  reason: string;
+  evidenceLevel: "原声逐字" | "逐字稿摘录" | "策划摘要";
   speaker?: string;
+};
+
+type ScorePart = {
+  label: string;
+  score: number;
+  max: number;
 };
 
 type ClipIdea = {
@@ -25,33 +33,231 @@ type ClipIdea = {
   sourceStart: number;
   score: number;
   summary: string;
+  contentType: string;
+  durationMode: string;
+  durationWindow: string;
+  durationReason: string;
+  selectionReasons: string[];
+  scoreBreakdown: ScorePart[];
+  priority: "S" | "A" | "B";
+  factGate: string;
+  calibrationStatus: string;
   thumbnail: string;
   video: string;
   transcript: TranscriptLine[];
 };
 
-const longTermTranscript: TranscriptLine[] = [
-  { id: "long-1", time: "00:00", seconds: 0, text: "带货是长线的问题。", defaultDecision: "keep" },
-  { id: "long-2", time: "00:03", seconds: 3, text: "如果你是想赚快钱，我觉得带货不适合。", defaultDecision: "keep" },
-  { id: "long-3", time: "00:07", seconds: 7, text: "那我想做的是什么电商来着……", defaultDecision: "remove", speaker: "连麦人" },
-  { id: "long-4", time: "00:11", seconds: 11, text: "其实这个问题要看你从什么行业过来。", defaultDecision: "remove" },
-  { id: "long-5", time: "00:16", seconds: 16, text: "上来做电商，起码要学两年。", defaultDecision: "keep" },
-  { id: "long-6", time: "00:21", seconds: 21, text: "货品、团队、商务、人群、内容、平台规则，你都要学。", defaultDecision: "keep" },
-  { id: "long-7", time: "00:29", seconds: 29, text: "所以它不是今天开播，明天就能看到结果的东西。", defaultDecision: "keep" },
+const corpusBaseline = {
+  version: "内测 BETA 1.0",
+  contentUnits: "2,469",
+  transcriptLines: "32,594",
+  materialFiles: "909",
+  uniqueWorks: "827",
+  analysisBatches: "47",
+  calibratedOriginals: "5",
+};
+
+const durationReferences = [
+  { label: "micro", value: "12–27 秒" },
+  { label: "standard", value: "28–35 秒" },
+  { label: "deep_dive", value: "90–130 秒" },
+  { label: "custom", value: "无硬窗口" },
 ];
 
-function transcriptFor(prefix: string, hook: string, support: string): TranscriptLine[] {
+const scoreLabels = [
+  { label: "前三秒", max: 20 },
+  { label: "情绪", max: 20 },
+  { label: "金句", max: 20 },
+  { label: "共鸣", max: 15 },
+  { label: "闭环", max: 15 },
+  { label: "反转", max: 10 },
+];
+
+function scoreParts(scores: number[]): ScorePart[] {
+  return scoreLabels.map((item, index) => ({ ...item, score: scores[index] }));
+}
+
+type ClipIdeaBase = Omit<
+  ClipIdea,
+  | "contentType"
+  | "durationMode"
+  | "durationWindow"
+  | "durationReason"
+  | "selectionReasons"
+  | "scoreBreakdown"
+  | "priority"
+  | "factGate"
+  | "calibrationStatus"
+>;
+
+const longTermTranscript: TranscriptLine[] = [
+  { id: "long-1", time: "00:00", seconds: 0, text: "如果你是想赚快钱的话，带货不适合，带货是长线的问题。", defaultDecision: "keep", reason: "天总原生反常识判断，直接承担前三秒钩子。", evidenceLevel: "原声逐字" },
+  { id: "long-2", time: "00:06", seconds: 6, text: "那我想做的是什么电商来着……", defaultDecision: "remove", speaker: "连麦人", reason: "连麦人插话，不属于天总主体表达，删除后上下句仍可自然衔接。", evidenceLevel: "原声逐字" },
+  { id: "long-3", time: "00:10", seconds: 10, text: "上来做电商，起码要学两年。", defaultDecision: "keep", reason: "具体时间成本是天总商业判断的关键证据。", evidenceLevel: "原声逐字" },
+  { id: "long-4", time: "00:15", seconds: 15, text: "很多人觉得电商很简单。", defaultDecision: "keep", reason: "点出观众的错误预期，承接“两年”判断。", evidenceLevel: "原声逐字" },
+  { id: "long-5", time: "00:19", seconds: 19, text: "货品、团队、商务、人群、内容、平台规则，你都要学。", defaultDecision: "keep", reason: "六项学习成本把反常识判断解释完整，不能只留狠话。", evidenceLevel: "原声逐字" },
+  { id: "long-6", time: "00:30", seconds: 30, text: "所以完整学下来，估计起码得两年。", defaultDecision: "keep", reason: "回扣具体时间成本并自然收口，形成独立逻辑闭环。", evidenceLevel: "原声逐字" },
+];
+
+function planningTranscript(prefix: string, hook: string, support: string): TranscriptLine[] {
   return [
-    { id: `${prefix}-1`, time: "00:00", seconds: 0, text: hook, defaultDecision: "keep" },
-    { id: `${prefix}-2`, time: "00:05", seconds: 5, text: "有人会问，那是不是所有人都应该这样做？", defaultDecision: "remove", speaker: "提问" },
-    { id: `${prefix}-3`, time: "00:10", seconds: 10, text: support, defaultDecision: "keep" },
-    { id: `${prefix}-4`, time: "00:17", seconds: 17, text: "我先把另外一个不相关的例子说完。", defaultDecision: "remove" },
-    { id: `${prefix}-5`, time: "00:22", seconds: 22, text: "你先把这件事做对，再谈下一步。", defaultDecision: "keep" },
-    { id: `${prefix}-6`, time: "00:29", seconds: 29, text: "这才是我真正想给你们的结论。", defaultDecision: "keep" },
+    { id: `${prefix}-1`, time: "待定位", seconds: 0, text: hook, defaultDecision: "keep", reason: "策划阶段识别为强判断；接入原片后必须替换为真实逐字与词级时间码。", evidenceLevel: "策划摘要" },
+    { id: `${prefix}-2`, time: "待定位", seconds: 0, text: support, defaultDecision: "keep", reason: "策划阶段承担必要解释；待原片核对是否存在更完整的证据句。", evidenceLevel: "策划摘要" },
+    { id: `${prefix}-3`, time: "待定位", seconds: 0, text: "删除与主判断无关的提问、重复和第二案例。", defaultDecision: "remove", reason: "这是编导删除策略，不冒充天总原话。", evidenceLevel: "策划摘要" },
+    { id: `${prefix}-4`, time: "待定位", seconds: 0, text: "在结论或可信证据落地后及时结束。", defaultDecision: "keep", reason: "这是候选结构目标；正式落刀前必须回到原声核验。", evidenceLevel: "策划摘要" },
   ];
 }
 
-const ideas: ClipIdea[] = [
+const ideaEvidence: Record<
+  string,
+  Pick<
+    ClipIdea,
+    | "contentType"
+    | "durationMode"
+    | "durationWindow"
+    | "durationReason"
+    | "selectionReasons"
+    | "scoreBreakdown"
+    | "priority"
+    | "factGate"
+    | "calibrationStatus"
+  >
+> = {
+  "chat-longterm": {
+    contentType: "搞钱事业 · 商业判断",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 语义闭环优先",
+    durationReason: "38 秒不是由目标时长倒推，而是删除连麦插话与旁支后，仍需保留“长线—不适合快钱—至少两年—学习成本—结论”的完整因果链。",
+    selectionReasons: ["“带货是长线”首句即成立，反常识且有行业识别度。", "“至少两年”与六项学习成本提供具体证据，不是空泛金句。", "删掉连麦人和过渡句后，天总原话仍能自然闭环。"],
+    scoreBreakdown: scoreParts([20, 18, 20, 15, 15, 10]),
+    priority: "S",
+    factGate: "黄 · “两年”与六项成本须回看原片",
+    calibrationStatus: "已按用户反馈校准",
+  },
+  "chat-ip": {
+    contentType: "搞钱事业 · 职业路径",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 待原片校准",
+    durationReason: "68 秒来自“先有本职工作—副业验证—再发展个人 IP”的三步路径；若为追短而删前提，会改变天总给出的真实执行顺序。",
+    selectionReasons: ["命中“工作还是自媒体”的高频真实决策。", "天总给出可执行路径，而不是只做情绪鼓励。", "结论回到能力与现金流，符合她的创业者人设。"],
+    scoreBreakdown: scoreParts([19, 18, 19, 15, 15, 10]),
+    priority: "S",
+    factGate: "绿 · 无外部功效或价格承诺",
+    calibrationStatus: "历史语料策划样例 · 待原片时间码校准",
+  },
+  "chat-rules": {
+    contentType: "情感清醒 · 关系边界",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 待原片校准",
+    durationReason: "46 秒用于完整保留“行为判断—君子论迹—稳定行动”的机制解释，避免只剪一句极端狠话；情感类型尚无真实视频时长样本。",
+    selectionReasons: ["“君子论迹不论心”是高辨识度强定义。", "议题具备评论与转发共鸣。", "狠话之后仍保留关系判断依据，符合“可以狠，但要有理”。"],
+    scoreBreakdown: scoreParts([20, 18, 19, 15, 15, 8]),
+    priority: "S",
+    factGate: "绿 · 价值判断，无事实数字",
+    calibrationStatus: "历史语料策划样例 · 待原片时间码校准",
+  },
+  "chat-energy": {
+    contentType: "真实生活 · 状态管理",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 待原片校准",
+    durationReason: "52 秒用于保留“道理都懂—精力不足—先恢复身体与注意力—再谈执行”的完整递进；不是把 52 秒当作平台最优值。",
+    selectionReasons: ["“缺的不是办法，是精力”具备清晰命名能力。", "命中焦虑、内耗与执行力的高频共鸣。", "结尾给到恢复顺序，不停留在安慰。"],
+    scoreBreakdown: scoreParts([19, 17, 18, 15, 15, 9]),
+    priority: "A",
+    factGate: "黄 · 身体与精力表述不得剪成医疗建议",
+    calibrationStatus: "历史语料策划样例 · 待原片时间码校准",
+  },
+  "chat-problems": {
+    contentType: "搞钱事业 · 创业现实",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 待原片校准",
+    durationReason: "47 秒保留创业痛苦、持续解决问题与心态锻炼三层关系；删掉后续无关互动后在结论处及时结束。",
+    selectionReasons: ["“每天都在解决问题”呈现真实创业反差。", "内容去掉了成功学包装，强化天总女老板可信度。", "痛苦—问题—能力形成完整闭环。"],
+    scoreBreakdown: scoreParts([18, 17, 18, 14, 15, 9]),
+    priority: "A",
+    factGate: "绿 · 个人经验判断",
+    calibrationStatus: "历史语料策划样例 · 待原片时间码校准",
+  },
+  "chat-money": {
+    contentType: "搞钱事业 · 长期主义",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 待原片校准",
+    durationReason: "58 秒用于保留“赚钱不是目标—动作会变形—钱是奖励—具体例子”的解释链；只留首句会变成空洞鸡汤。",
+    selectionReasons: ["“赚钱是奖励，不是目标”具备反常识传播力。", "奶茶与卖衣服案例让商业逻辑可理解。", "最终回到把事情做好，稳定强化核心人设。"],
+    scoreBreakdown: scoreParts([18, 16, 17, 14, 15, 9]),
+    priority: "A",
+    factGate: "绿 · 无需外部事实核验",
+    calibrationStatus: "历史语料策划样例 · 待原片时间码校准",
+  },
+  "sales-dress": {
+    contentType: "成交型带货 · 穿搭",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 带货样本待校准",
+    durationReason: "42 秒来自三种穿法、收腰效果和度假场景的逐项画面证明；18–45 秒仅是历史编辑先验，五条真实视频校准尚未覆盖带货。",
+    selectionReasons: ["一个核心购买理由：一条裙子解决三种穿法。", "卖点可由上身画面直接验证。", "场景、人群和版型信息同片闭环。"],
+    scoreBreakdown: scoreParts([20, 18, 19, 15, 15, 10]),
+    priority: "S",
+    factGate: "黄 · 三穿结构与上身画面逐项核对",
+    calibrationStatus: "带货策划样例 · 待 SKU 与原片校准",
+  },
+  "sales-mainpick": {
+    contentType: "自然带货 · 信任建立",
+    durationMode: "standard",
+    durationWindow: "28–35 秒 · 带货样本待校准",
+    durationReason: "35 秒恰好进入 standard 参考，但保留它的真正原因是“商家为何主推—库存或利润—回到真实需求”的劝退逻辑完整；不能把窗口重合误写成效果证明。",
+    selectionReasons: ["“不要买主推”是强反常识钩子。", "天总以带货从业者身份解释库存和利润动机。", "不是机械喊单，而是给用户选择标准。"],
+    scoreBreakdown: scoreParts([20, 18, 19, 15, 15, 8]),
+    priority: "S",
+    factGate: "黄 · 涉及商家动机，需保持个人判断语气",
+    calibrationStatus: "历史语料策划样例 · 待原片时间码校准",
+  },
+  "sales-bag": {
+    contentType: "成交型带货 · 功能展示",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 带货样本待校准",
+    durationReason: "八个口袋需要按真实展示顺序交代用途，54 秒无法在不损失功能证明的前提下压缩；因此由自然语义与画面验证决定，不称作超窗。",
+    selectionReasons: ["功能数量明确，天然形成观看顺序。", "每个口袋均能由实物画面验证。", "删除母子包以外岔题后仍是单一购买理由。"],
+    scoreBreakdown: scoreParts([19, 16, 18, 14, 15, 10]),
+    priority: "A",
+    factGate: "黄 · 口袋数量与用途必须逐帧核对",
+    calibrationStatus: "带货策划样例 · 待 SKU 与原片校准",
+  },
+  "sales-shape": {
+    contentType: "成交型带货 · 版型证明",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 带货样本待校准",
+    durationReason: "49 秒用于同时保留适合人群、劝退人群、腰线与肩颈画面证明；天总带货规则要求限制条件同片保留，因此不为追短删除边界。",
+    selectionReasons: ["“显瘦看比例，不看尺码”具有观点型卖点。", "上身画面可验证腰线与肩颈结构。", "保留不适合人群的劝退，增强可信度。"],
+    scoreBreakdown: scoreParts([18, 15, 18, 14, 15, 10]),
+    priority: "A",
+    factGate: "黄 · 不得剪成普遍身材承诺",
+    calibrationStatus: "带货策划样例 · 待 SKU 与原片校准",
+  },
+  "sales-fans": {
+    contentType: "搞钱事业 · 直播运营",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 待原片校准",
+    durationReason: "51 秒用于保留新客、老客、高黏性用户与沟通策略的分层关系；这是直播运营观点，不套单品成交先验。",
+    selectionReasons: ["粉丝分层是直播运营的高价值知识。", "人群—话术—成交路径形成完整商业闭环。", "不与单品卖货候选混用评分窗口。"],
+    scoreBreakdown: scoreParts([18, 14, 17, 14, 15, 10]),
+    priority: "A",
+    factGate: "绿 · 方法论，不含 SKU 承诺",
+    calibrationStatus: "历史语料策划样例 · 待原片时间码校准",
+  },
+  "sales-reason": {
+    contentType: "成交型带货 · 话术方法",
+    durationMode: "custom",
+    durationWindow: "无硬窗口 · 带货样本待校准",
+    durationReason: "44 秒完整保留“不要堆卖点—锁定一个问题—让画面证明”的方法链，结论落地后立即结束；历史 18–45 秒只作编辑先验。",
+    selectionReasons: ["直接回答切片团队如何处理卖点。", "一个购买理由对应一个视频，规则清晰可执行。", "口播与画面验证关系明确，可直接进入编导流程。"],
+    scoreBreakdown: scoreParts([18, 14, 16, 13, 15, 10]),
+    priority: "A",
+    factGate: "绿 · 内部方法论",
+    calibrationStatus: "带货策划样例 · 待原片时间码校准",
+  },
+};
+
+const baseIdeas: ClipIdeaBase[] = [
   {
     id: "chat-longterm",
     kind: "聊播",
@@ -78,7 +284,7 @@ const ideas: ClipIdea[] = [
     summary: "从二选一误区切入，给出边工作边验证个人 IP 的执行路径。",
     thumbnail: "/thumbnails/chat-selfmedia.png",
     video: "/previews/chat-problems.mp4",
-    transcript: transcriptFor("ip", "这两个完全可以一起做，这不是非二选一的东西。", "你可以先把本职工作的真实经验拆成内容，再逐渐验证个人 IP。"),
+    transcript: planningTranscript("ip", "策划摘要：本职工作与个人 IP 可以并行，不是非二选一。", "策划摘要：先用本职工作稳定现金流，再把真实经验拆成内容验证个人 IP。"),
   },
   {
     id: "chat-rules",
@@ -92,7 +298,7 @@ const ideas: ClipIdea[] = [
     summary: "观点结论先行，删除来回确认，只保留天总的完整逻辑链。",
     thumbnail: "/thumbnails/sales-value.png",
     video: "/previews/chat-rules.mp4",
-    transcript: transcriptFor("rules", "成年人相处，先看行动，不要替别人解释。", "君子论迹不论心，长期关系更应该看稳定的行为。"),
+    transcript: planningTranscript("rules", "策划摘要：成年人相处先看行动，不替别人解释。", "策划摘要：用“君子论迹不论心”落到长期、稳定的行为判断。"),
   },
   {
     id: "chat-energy",
@@ -106,7 +312,7 @@ const ideas: ClipIdea[] = [
     summary: "从“道理都懂”切入，把解决办法落到恢复精力与降低内耗。",
     thumbnail: "/thumbnails/chat-selfmedia.png",
     video: "/previews/chat-energy.mp4",
-    transcript: transcriptFor("energy", "你不是不知道怎么办，你是已经没有精力去做。", "先把睡眠、身体和注意力救回来，再谈执行力。"),
+    transcript: planningTranscript("energy", "策划摘要：不是不知道怎么办，而是已经没有精力去做。", "策划摘要：先恢复睡眠、身体和注意力，再谈执行力。"),
   },
   {
     id: "chat-problems",
@@ -120,7 +326,7 @@ const ideas: ClipIdea[] = [
     summary: "把创业的真实感讲清楚，不包装成励志口号。",
     thumbnail: "/thumbnails/chat-longterm.png",
     video: "/previews/chat-problems.mp4",
-    transcript: transcriptFor("problems", "创业不是每天都在赢，是每天都在解决问题。", "你解决问题的速度，最后就会变成团队的能力。"),
+    transcript: planningTranscript("problems", "策划摘要：创业不是每天都在赢，而是每天都在解决问题。", "策划摘要：持续解决问题会锻炼心态，也会沉淀成团队能力。"),
   },
   {
     id: "chat-money",
@@ -134,7 +340,7 @@ const ideas: ClipIdea[] = [
     summary: "保留反常识结论，再解释能力、作品和长期回报的关系。",
     thumbnail: "/thumbnails/chat-selfmedia.png",
     video: "/previews/chat-energy.mp4",
-    transcript: transcriptFor("money", "赚钱可以是结果，但不能是你做每件事唯一的目标。", "当你的能力和作品开始复利，钱才更容易变成稳定结果。"),
+    transcript: planningTranscript("money", "策划摘要：赚钱可以是结果，但不能成为做每件事的唯一目标。", "策划摘要：先把事情做好，能力和作品形成复利后，钱才会成为稳定奖励。"),
   },
   {
     id: "sales-dress",
@@ -148,7 +354,7 @@ const ideas: ClipIdea[] = [
     summary: "一个视频只讲三穿、收腰和度假场景，画面必须跟上口播。",
     thumbnail: "/thumbnails/sales-detail.png",
     video: "/previews/sales-mainpick.mp4",
-    transcript: transcriptFor("dress", "这件衣服一共是三穿。", "长袖、一字肩、吊带都能穿，腰线位置还会把比例拉得很好。"),
+    transcript: planningTranscript("dress", "策划摘要：一条度假裙用“三种穿法”作为唯一购买理由。", "策划摘要：长袖、一字肩、吊带与腰线效果都必须由上身画面逐项证明。"),
   },
   {
     id: "sales-mainpick",
@@ -162,7 +368,7 @@ const ideas: ClipIdea[] = [
     summary: "用反常识钩子建立信任，再把选择标准说清楚。",
     thumbnail: "/thumbnails/sales-value.png",
     video: "/previews/sales-mainpick.mp4",
-    transcript: transcriptFor("mainpick", "不要因为它是主推，就默认它最适合你。", "先看你的使用场景、预算和最在意的那个问题。"),
+    transcript: planningTranscript("mainpick", "策划摘要：不要因为商品是主推，就默认它最适合自己。", "策划摘要：先解释库存或利润动机，再回到使用场景、预算和真实需求。"),
   },
   {
     id: "sales-bag",
@@ -176,7 +382,7 @@ const ideas: ClipIdea[] = [
     summary: "按口袋顺序展示，删除与母子包结构无关的岔题。",
     thumbnail: "/thumbnails/sales-value.png",
     video: "/previews/sales-mainpick.mp4",
-    transcript: transcriptFor("bag", "它不是只解决把猫背出去，是把一路要用的东西都装进去。", "八个口袋分别对应水、零食、纸巾和随身小物，不会乱。"),
+    transcript: planningTranscript("bag", "策划摘要：猫包的购买理由是把出门所需物品有序装下。", "策划摘要：八个口袋的数量、位置和用途都要跟随实物展示逐项核验。"),
   },
   {
     id: "sales-shape",
@@ -190,7 +396,7 @@ const ideas: ClipIdea[] = [
     summary: "用上身效果证明腰线与肩颈比例，不做无法验证的身材承诺。",
     thumbnail: "/thumbnails/sales-detail.png",
     video: "/previews/sales-mainpick.mp4",
-    transcript: transcriptFor("shape", "显瘦不是把自己塞进更小的尺码，是先把比例穿对。", "这件的腰线和肩颈留白，才是你上身显利落的原因。"),
+    transcript: planningTranscript("shape", "策划摘要：显瘦的重点是比例，不是把人塞进更小尺码。", "策划摘要：腰线与肩颈留白必须有上身画面证明，并保留不适合人群。"),
   },
   {
     id: "sales-fans",
@@ -204,7 +410,7 @@ const ideas: ClipIdea[] = [
     summary: "把人群分层讲清楚，只保留与成交路径直接相关的部分。",
     thumbnail: "/thumbnails/chat-longterm.png",
     video: "/previews/chat-rules.mp4",
-    transcript: transcriptFor("fans", "直播间粉丝从来不是一种人，你不能用同一句话跟所有人沟通。", "先分清新客、老客和高黏性用户，再决定每一段讲什么。"),
+    transcript: planningTranscript("fans", "策划摘要：直播间粉丝不是同一种人，不能用同一句话沟通。", "策划摘要：先区分新客、老客和高黏性用户，再决定每一段的内容与行动。"),
   },
   {
     id: "sales-reason",
@@ -218,9 +424,14 @@ const ideas: ClipIdea[] = [
     summary: "删除卖点堆砌，让一个核心理由贯穿口播和展示。",
     thumbnail: "/thumbnails/sales-detail.png",
     video: "/previews/sales-mainpick.mp4",
-    transcript: transcriptFor("reason", "不要在一条切片里塞十个卖点，观众最后一个都记不住。", "先选出最能解决问题的一个理由，让画面把它证明出来。"),
+    transcript: planningTranscript("reason", "策划摘要：一条切片不堆十个卖点，只建立一个购买理由。", "策划摘要：锁定最能解决问题的一点，再让口播与画面共同证明。"),
   },
 ];
+
+const ideas: ClipIdea[] = baseIdeas.map((idea) => ({
+  ...idea,
+  ...ideaEvidence[idea.id],
+}));
 
 const initialDecisions = Object.fromEntries(
   ideas.flatMap((idea) => idea.transcript.map((line) => [line.id, line.defaultDecision])),
@@ -244,6 +455,7 @@ export default function Home() {
   const [decisions, setDecisions] = useState<Record<string, Decision>>(initialDecisions);
   const [currentTime, setCurrentTime] = useState(0);
   const [generationState, setGenerationState] = useState<"idle" | "working" | "done">("idle");
+  const [feedbackQueued, setFeedbackQueued] = useState(false);
   const [highPotentialOnly, setHighPotentialOnly] = useState(false);
   const [toast, setToast] = useState("");
   const [showArchitecture, setShowArchitecture] = useState(false);
@@ -261,18 +473,29 @@ export default function Home() {
     [mode],
   );
   const displayedIdeas = useMemo(
-    () => highPotentialOnly ? modeIdeas.filter((idea) => idea.score >= 95) : modeIdeas,
+    () => highPotentialOnly ? modeIdeas.filter((idea) => idea.priority === "S") : modeIdeas,
     [highPotentialOnly, modeIdeas],
   );
   const discoveredCount = analysisReady ? modeIdeas.length : 0;
 
   const activeClip = ideas.find((idea) => idea.id === activeClipId) ?? modeIdeas[0];
   const activeLineIndex = activeClip.transcript.findIndex((line, index) => {
+    if (line.evidenceLevel !== "原声逐字") return false;
     const next = activeClip.transcript[index + 1]?.seconds ?? Number.POSITIVE_INFINITY;
     return currentTime >= line.seconds && currentTime < next;
   });
   const keptCount = activeClip.transcript.filter((line) => decisions[line.id] === "keep").length;
+  const reviewChangeCount = activeClip.transcript.filter(
+    (line) => (decisions[line.id] ?? line.defaultDecision) !== line.defaultDecision,
+  ).length;
+  const totalReviewChangeCount = ideas.reduce(
+    (total, idea) => total + idea.transcript.filter(
+      (line) => (decisions[line.id] ?? line.defaultDecision) !== line.defaultDecision,
+    ).length,
+    0,
+  );
   const excludedRanges = activeClip.transcript.flatMap((line, index) => {
+    if (line.evidenceLevel !== "原声逐字") return [];
     if (decisions[line.id] !== "remove") return [];
     const next = activeClip.transcript[index + 1]?.seconds ?? line.seconds + 5;
     return [{ start: line.seconds, end: next }];
@@ -294,6 +517,7 @@ export default function Home() {
     setAnalysisProgress(0);
     setStep(1);
     setGenerationState("idle");
+    setFeedbackQueued(false);
     setHighPotentialOnly(false);
     setCurrentTime(0);
     if (shouldExplainReset) {
@@ -328,7 +552,7 @@ export default function Home() {
         setActiveClipId(first.id);
         setSelectedIds([first.id]);
         window.setTimeout(() => setStep(2), 320);
-        showToast(`内容地图已生成：本场自然发现 ${modelResultCount} 条可剪灵感。`);
+        showToast(`天总内容地图初筛完成：本场识别 ${modelResultCount} 条候选，待逐字和原片复核。`);
         return;
       }
       setAnalysisProgress(value);
@@ -349,11 +573,12 @@ export default function Home() {
     setActiveClipId(id);
     setCurrentTime(0);
     setGenerationState("idle");
+    setFeedbackQueued(false);
   }
 
   function enterTranscript() {
     if (!selectedIds.length) {
-      showToast("请先选择至少一个内容想法。");
+      showToast("请先选择至少一个切片候选。");
       return;
     }
     if (!selectedIds.includes(activeClip.id)) activateClip(selectedIds[0]);
@@ -371,13 +596,15 @@ export default function Home() {
   function setLineDecision(id: string, decision: Decision) {
     setDecisions((current) => ({ ...current, [id]: decision }));
     setGenerationState("idle");
+    setFeedbackQueued(false);
   }
 
   function generateClip() {
     setGenerationState("working");
     window.setTimeout(() => {
       setGenerationState("done");
-      showToast("文字粗剪预听已按当前选择更新；正式 MP4 将由后台按这些时间码渲染。");
+      setFeedbackQueued(true);
+      showToast(`句级预听已更新；${reviewChangeCount} 项人工纠偏已记为本次回标演示，当前不会写入后台或生成正式 MP4。`);
     }, 1300);
   }
 
@@ -388,14 +615,14 @@ export default function Home() {
   function toggleIdeaFilter() {
     const next = !highPotentialOnly;
     setHighPotentialOnly(next);
-    if (next && activeClip.score < 95) {
-      const firstHighPotential = modeIdeas.find((idea) => idea.score >= 95);
+    if (next && activeClip.priority !== "S") {
+      const firstHighPotential = modeIdeas.find((idea) => idea.priority === "S");
       if (firstHighPotential) activateClip(firstHighPotential.id);
     }
   }
 
   function explainAllIdeas() {
-    showToast(`当前模型样例共返回 ${discoveredCount} 条可播放灵感；正式版同样直接渲染 candidates.length，不预设、不补齐。`);
+    showToast(`本场共 ${discoveredCount} 条候选。数量由完整语义闭环、同题去重和风险门禁决定，不设目标条数。`);
   }
 
   const previewSource = uploadedPreviewUrl || activeClip.video;
@@ -404,8 +631,8 @@ export default function Home() {
     <main className="cutline-app">
       <header className="masthead">
         <div className="masthead-brand">
-          <button className="wordmark" onClick={() => setStep(1)} aria-label="返回上传步骤">CUTLINE</button>
-          <span>AI LIVESTREAM CLIPPING WORKBENCH</span>
+          <button className="wordmark" onClick={() => setStep(1)} aria-label="返回上传步骤">天总直播切片系统</button>
+          <span>内测 BETA 1.0</span>
         </div>
 
         <nav className="step-rail" aria-label="切片工作流">
@@ -438,23 +665,61 @@ export default function Home() {
               ))}
             </div>
           )}
-          <button className="text-action" onClick={() => setShowArchitecture(true)}>真实后台</button>
+          <button className="text-action" onClick={() => setShowArchitecture(true)}>天总切片规则</button>
         </div>
       </header>
 
       {step === 1 && (
         <section className="intake-view" aria-labelledby="intake-title">
           <div className="intake-intro">
-            <span className="edition-label">NEW PROJECT · 最高质量模型</span>
-            <h1 id="intake-title">把整场直播，交给一位真正的主编。</h1>
-            <p>先选择内容类型。不同类型使用不同的选题、语境、节奏和风险判断；候选数量完全由本场判断结果决定，不设目标、不设保底，也不补齐。</p>
+            <span className="edition-label">天总聊播 / 带货校准规则</span>
+            <h1 id="intake-title">只剪天总，也以她当前的直播逻辑为准。</h1>
+            <p>系统把我们对天总直播的长期研究变成每一步可追溯的判断。近期直播与近期切片拥有最高权重，早期官方作品只作低权重风格参考；候选由自然语义闭环决定，有多少就是多少。</p>
           </div>
+
+          <section className="research-baseline" aria-labelledby="research-title">
+            <div className="research-heading">
+              <span>研究基线 · {corpusBaseline.version}</span>
+              <h2 id="research-title">不是一句“懂天总”，而是已经拆过、读过、校过的内容资产。</h2>
+              <p>当前基线来自四份逐字稿、四组切片素材、近期直播复盘和五条真实视频时长校准。页面上的类型、分数、候选数量与成片时长，都必须能回到明确证据解释。</p>
+            </div>
+            <div className="research-metrics" aria-label="天总语料统计">
+              <div><b>{corpusBaseline.contentUnits}</b><span>原始段落记录 · 待去重质检</span></div>
+              <div><b>{corpusBaseline.transcriptLines}</b><span>逐字稿行</span></div>
+              <div><b>{corpusBaseline.materialFiles}</b><span>视频素材文件</span></div>
+              <div><b>{corpusBaseline.uniqueWorks}</b><span>去重作品 ID</span></div>
+              <div><b>{corpusBaseline.analysisBatches}</b><span>语料分析批次</span></div>
+              <div><b>{corpusBaseline.calibratedOriginals}</b><span>逐秒校准原片</span></div>
+            </div>
+            <p className="research-disclaimer">47 个分析批次覆盖 97.85% 逐字稿；2,469 是处理器返回的原始段落记录，不等于 2,469 条已验证成片。</p>
+            <div className="persona-evidence">
+              <div>
+                <span>稳定人设结论</span>
+                <strong>高能反差型女老板</strong>
+                <p>可以狠，但要有理；可以贵，但要务实；可以美，但要真实；可以卖，但先有证据。</p>
+              </div>
+              <div>
+                <span>当前权重顺序</span>
+                <strong>近期直播 ＞ 近期切片 ＞ 早期官方作品</strong>
+                <p>她现在不再使用的旧做法不会反向绑架当前判断。</p>
+              </div>
+            </div>
+            <div className="duration-reference" aria-label="历史时长参考">
+              <span>类型化时长参考，不是硬裁切线</span>
+              <div>{durationReferences.map((item) => <p key={item.label}><b>{item.label}</b><em>{item.value}</em></p>)}</div>
+            </div>
+            <div className="calibration-strip" aria-label="真实视频时长校准结果">
+              <div><span>standard · n=4</span><b>28.54–32.07 秒</b><small>均值 30.57 · 中位数 30.84</small></div>
+              <div><span>deep_dive · n=1</span><b>122.34 秒</b><small>完整观点不因超过 75 秒自动拆条</small></div>
+              <p>这是五条真实视频的首轮小样本研究基线，不是平台“最佳时长”，带货类型仍待原片校准。</p>
+            </div>
+          </section>
 
           <div className="intake-grid">
             <section className="upload-editorial" aria-label="上传直播录屏">
-              <div className="section-number">01 / SOURCE</div>
-              <h2>上传完整直播</h2>
-              <p>MP4 / MOV · 正式版支持断点上传、后台转写和原片上下文播放。</p>
+              <div className="section-number">01 / 天总原片</div>
+              <h2>上传天总完整直播</h2>
+              <p>MP4 / MOV · 保留整场上下文，避免只凭单句话误判天总真正想表达的意思。</p>
               <button className="upload-field" onClick={() => fileRef.current?.click()}>
                 <span>{fileName || "选择直播录屏"}</span>
                 <small>{fileName ? "已在浏览器中读取，尚未上传" : "也可以直接使用校准样片体验"}</small>
@@ -466,8 +731,8 @@ export default function Home() {
             </section>
 
             <section className="mode-editorial" aria-labelledby="mode-title">
-              <div className="section-number">02 / EDITION</div>
-              <h2 id="mode-title">这场直播，要剪成哪一种？</h2>
+              <div className="section-number">02 / 直播类型</div>
+              <h2 id="mode-title">选择天总本场直播类型</h2>
               <div className="mode-covers">
                 <button
                   className={mode === "聊播" ? "selected" : ""}
@@ -475,8 +740,8 @@ export default function Home() {
                   aria-pressed={mode === "聊播"}
                 >
                   <b>聊播</b>
-                  <span>完整观点与上下文</span>
-                  <p>删除他人提问与无效来回，保留天总原话、情绪和结论。</p>
+                  <span>保留天总完整观点</span>
+                  <p>先保留会改变答案的问题前提，再保留天总的判断、理由、案例和落点；只删无效寒暄、重复、串场和等待。</p>
                 </button>
                 <button
                   className={mode === "带货" ? "selected" : ""}
@@ -484,17 +749,41 @@ export default function Home() {
                   aria-pressed={mode === "带货"}
                 >
                   <b>带货</b>
-                  <span>单一卖点与画面验证</span>
-                  <p>一个视频只讲一个购买理由，口播、展示与合规逐项对齐。</p>
+                  <span>执行天总带货方法</span>
+                  <p>先锁定一个购买理由：精准人群 → 卖点与场景 → 痛点强化 → 价值收口；劝退、限制和实物证明同片保留。</p>
                 </button>
               </div>
             </section>
           </div>
 
+          <section className="knowledge-version" aria-label="天总知识库版本演进">
+            <div>
+              <span>当前学习结果</span>
+              <h2>{corpusBaseline.version}</h2>
+              <p>你在后台持续补充、纠偏和讲解后，系统把已经确认的判断固化进这一版；前台只展示学会后的规则与依据。</p>
+              <div className="release-learnings">
+                <span>这一版已经学会</span>
+                <ul className="learning-list">
+                  <li>近期直播与近期切片最高权重，早期官方作品降权。</li>
+                  <li>候选数量由自然语义闭环决定，不设目标数、不补齐。</li>
+                  <li>聊播保留判断、理由与落点；无效插话不承担语义就删除。</li>
+                  <li>带货先锁定一个购买理由，限制、劝退与实物证明同片保留。</li>
+                  <li>时长是完整表达的结果，不用固定秒数反向切碎观点。</li>
+                </ul>
+              </div>
+            </div>
+            <ol>
+              <li><b>01</b><span>后台研究对话</span><p>你继续讲、继续纠偏，补充新的天总判断</p></li>
+              <li><b>02</b><span>判断修订</span><p>明确新增、修改或废止了哪一条规则</p></li>
+              <li><b>03</b><span>回测校准</span><p>用既有直播与编导回标验证变化是否成立</p></li>
+              <li><b>04</b><span>版本发布</span><p>BETA 1.0 → 正式 1.0 → 2.0 → 3.0 → 5.0 → 10.0</p></li>
+            </ol>
+          </section>
+
           <div className="intake-footer">
             <div>
-              <strong>三遍主编制</strong>
-              <span>全场发现 → 结构精剪 → 独立终审</span>
+              <strong>天总切片判断链</strong>
+              <span>完整直播 → 三向分流 → 自然闭环 → 事实门禁 → 逐字复核</span>
             </div>
             <button className="pink-action" onClick={startAnalysis} disabled={!mode || (analysisProgress > 0 && analysisProgress < 100)}>
               {analysisProgress > 0 && analysisProgress < 100 ? `正在生成内容地图 ${Math.min(analysisProgress, 99)}%` : "开始生成内容地图"}
@@ -507,7 +796,7 @@ export default function Home() {
             </div>
           )}
 
-          <p className="prototype-note">当前为交互原型：选择本地视频只用于浏览器预览；真实上传、OpenAI 分析与 ChatCut 写入尚未接通。</p>
+          <p className="prototype-note">当前为内部内测：仅演示校准样片、候选依据和句级预听；真实上传、全场转写、候选生成、视频渲染与 ChatCut 写入尚未接通。</p>
         </section>
       )}
 
@@ -515,10 +804,11 @@ export default function Home() {
         <section className="map-view" aria-labelledby="map-title">
           <aside className="idea-index">
             <div className="panel-heading">
-              <div><span>本场发现</span><b>{discoveredCount} 条灵感</b></div>
-              <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看高潜"}</button>
+              <div><span>本场自然发现</span><b>{discoveredCount} 条候选</b></div>
+              <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看 S 级"}</button>
             </div>
-            <p className="panel-intro">模型自然返回多少就是多少，不预设、不保底、不凑数。</p>
+            <p className="panel-intro">按完整语义、同题去重与风险门禁召回；自然返回多少就是多少，不设目标、不设保底，也不补齐。</p>
+            <div className="version-context"><span>{corpusBaseline.version}</span><p>{mode}规则 · 近期直播最高权重</p></div>
             <div className="idea-list">
               {displayedIdeas.map((idea) => (
                 <article className={`idea-row ${activeClip.id === idea.id ? "active" : ""}`} key={idea.id}>
@@ -529,23 +819,28 @@ export default function Home() {
                     aria-label={`选择 ${idea.title}`}
                   />
                   <button onClick={() => activateClip(idea.id)}>
-                    <span>{idea.index}</span>
+                    <span>{idea.priority} · {idea.index}</span>
                     <strong>{idea.title}</strong>
                     <small>{idea.duration}</small>
                   </button>
                 </article>
               ))}
             </div>
-            <button className="outline-action full" onClick={explainAllIdeas}>查看全部灵感（{discoveredCount}）</button>
+            <button className="outline-action full" onClick={explainAllIdeas}>查看全部候选（{discoveredCount}）</button>
           </aside>
 
           <section className="map-preview" aria-label="候选原片预览">
             <div className="story-header">
-              <span>SELECTED STORY · {activeClip.index}</span>
-              <b>价值判断 {activeClip.score}</b>
+              <span>天总候选 · {activeClip.index}</span>
+              <b>编辑适配分 {activeClip.score} / 100</b>
             </div>
             <h1 id="map-title">{activeClip.title}</h1>
             <p>{activeClip.summary}</p>
+            <div className="evidence-status">
+              <span>优先级 {activeClip.priority}</span>
+              <span>{activeClip.factGate}</span>
+              <span>{activeClip.calibrationStatus}</span>
+            </div>
             <VideoPreview
               videoRef={videoRef}
               source={previewSource}
@@ -560,25 +855,49 @@ export default function Home() {
               <span>原片位置</span><strong>{activeClip.sourceTime}</strong>
               <span>预计成片</span><strong>{activeClip.duration}</strong>
             </div>
+            <section className="evidence-panel" aria-label="候选成立依据">
+              <div className="decision-proof">
+                <span>为什么召回</span>
+                <strong>{activeClip.contentType}</strong>
+                <ol>{activeClip.selectionReasons.map((reason) => <li key={reason}>{reason}</li>)}</ol>
+              </div>
+              <div className="score-evidence">
+                <span>为什么是 {activeClip.score} 分</span>
+                <p>这是编辑适配分，不是爆款概率；每一项都要能回到原句或画面。</p>
+                <div className="score-grid">
+                  {activeClip.scoreBreakdown.map((part) => (
+                    <div key={part.label}><span>{part.label}</span><b>{part.score}</b><small>/ {part.max}</small></div>
+                  ))}
+                </div>
+              </div>
+              <div className="duration-proof">
+                <span>为什么是 {activeClip.duration}</span>
+                <strong>{activeClip.durationMode} · {activeClip.durationWindow}</strong>
+                <p>{activeClip.durationReason}</p>
+              </div>
+            </section>
           </section>
 
           <aside className="map-notes">
-            <div className="panel-heading"><div><span>文字快照</span><b>AI 初判断</b></div></div>
-            <div className="legend"><span>保留片段</span><span>建议删除</span></div>
+            <div className="panel-heading"><div><span>句级依据</span><b>语义初筛 · 待原片复核</b></div></div>
+            <div className="legend"><span>保留片段</span><span>建议删除 · 每句有理由</span></div>
             <div className="snapshot-lines">
               {activeClip.transcript.map((line) => (
                 <button
                   key={line.id}
                   className={decisions[line.id] === "remove" ? "removed" : ""}
-                  onClick={() => seekTo(line.seconds)}
+                  disabled={line.evidenceLevel !== "原声逐字"}
+                  onClick={() => line.evidenceLevel === "原声逐字" && seekTo(line.seconds)}
                 >
                   <time>{line.time}</time>
+                  <span className="evidence-badge">{line.evidenceLevel}</span>
                   <span>{line.text}</span>
+                  <small className="line-rationale">{line.reason}</small>
                 </button>
               ))}
             </div>
             <div className="selection-summary">
-              <span>已选 {selectedIds.length} 条 · 本场模型返回 {discoveredCount} 条</span>
+              <span>已选 {selectedIds.length} 条 · 本场识别 {discoveredCount} 条 · 不为凑数补候选</span>
               <button className="pink-action" onClick={enterTranscript}>选中后进入文字精剪</button>
             </div>
           </aside>
@@ -589,10 +908,11 @@ export default function Home() {
         <section className="cut-room" aria-labelledby="cut-title">
           <aside className="idea-index compact">
             <div className="panel-heading">
-              <div><span>本场发现</span><b>{discoveredCount} 条灵感</b></div>
-              <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看高潜"}</button>
+              <div><span>本场自然发现</span><b>{discoveredCount} 条候选</b></div>
+              <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看 S 级"}</button>
             </div>
-            <p className="panel-intro">数量由模型自然得出，不设上限，也不补齐。</p>
+            <p className="panel-intro">数量由天总专属判断自然得出，不设上限，也不补齐。</p>
+            <div className="version-context"><span>{corpusBaseline.version}</span><p>当前候选沿用已发布判断 · 人工差异进入回标</p></div>
             <div className="idea-list">
               {displayedIdeas.map((idea) => (
                 <button
@@ -600,16 +920,20 @@ export default function Home() {
                   key={idea.id}
                   onClick={() => activateClip(idea.id)}
                 >
-                  <span>{idea.index}</span><strong>{idea.title}</strong><small>{idea.duration}</small>
+                  <span>{idea.priority} · {idea.index}</span><strong>{idea.title}</strong><small>{idea.duration}</small>
                 </button>
               ))}
             </div>
-            <button className="outline-action full" onClick={explainAllIdeas}>查看全部灵感（{discoveredCount}）</button>
+            <button className="outline-action full" onClick={explainAllIdeas}>查看全部候选（{discoveredCount}）</button>
           </aside>
 
           <section className="cut-preview" aria-label="文字精剪视频预览">
-            <div className="story-header"><span>正在精剪 · {activeClip.index}</span><b>{activeClip.duration}</b></div>
+            <div className="story-header"><span>正在精剪 · {activeClip.index}</span><b>编辑适配分 {activeClip.score}</b></div>
             <h1 id="cut-title">{activeClip.title}</h1>
+            <div className="evidence-status">
+              <span>优先级 {activeClip.priority}</span>
+              <span>{activeClip.factGate}</span>
+            </div>
             <VideoPreview
               videoRef={videoRef}
               source={previewSource}
@@ -621,21 +945,35 @@ export default function Home() {
               onTimeUpdate={setCurrentTime}
             />
             <div className="generation-proof" aria-live="polite">
-              <span>{generationState === "done" ? "文字粗剪预听已更新（浏览器演示）" : "当前播放器为原片上下文预览"}</span>
+              <span>{generationState === "done" ? "句级预听已更新 · 不代表最终落刀" : "当前播放器为原片上下文预览"}</span>
               <b>{keptCount} 段保留 · {activeClip.transcript.length - keptCount} 段删除</b>
             </div>
             <p className="raw-output-note">目标输出：无字幕 · 无效果 · 保留原声</p>
+            <section className="output-rationale" aria-label="最终输出判断依据">
+              <div>
+                <span>为什么这样成片</span>
+                <h2>{activeClip.duration} · {activeClip.durationMode}</h2>
+                <p>{activeClip.durationReason}</p>
+              </div>
+              <div className="output-rationale-grid">
+                <p><span>内容类型</span><b>{activeClip.contentType}</b></p>
+                <p><span>事实门禁</span><b>{activeClip.factGate}</b></p>
+                <p><span>校准状态</span><b>{activeClip.calibrationStatus}</b></p>
+                <p><span>人工回标</span><b>{reviewChangeCount} 项本条差异 · {totalReviewChangeCount} 项本场累计</b></p>
+              </div>
+              <small>{feedbackQueued ? "本次差异已记录为本地回标演示；正式版需后台评审与回测后才影响下一知识版本。" : "当编导改写系统建议时，差异将成为回标候选；不会立即覆盖当前全局规则。"}</small>
+            </section>
           </section>
 
           <section className="transcript-editor" aria-labelledby="transcript-title">
             <div className="transcript-head">
               <div>
                 <h2 id="transcript-title">文字精剪</h2>
-                <p>点文字可定位播放；每一句都能改成保留或删除。</p>
+                <p>原声逐字可定位播放；策划摘要只展示结构判断，接入原片前不能当作天总原话。</p>
               </div>
-              <span>最高质量模型初筛</span>
+              <span>{corpusBaseline.version} · 句级依据</span>
             </div>
-            <div className="legend"><span>保留内容</span><span>建议删除</span></div>
+            <div className="legend"><span>保留内容</span><span>建议删除 · 修改会形成回标差异</span></div>
             <div className="transcript-lines">
               {activeClip.transcript.map((line, index) => {
                 const decision = decisions[line.id] ?? line.defaultDecision;
@@ -644,9 +982,19 @@ export default function Home() {
                     key={line.id}
                     className={`${decision === "remove" ? "removed" : ""} ${activeLineIndex === index ? "playing" : ""}`}
                   >
-                    <button className="transcript-seek" onClick={() => seekTo(line.seconds)} aria-label={`从 ${line.time} 播放：${line.text}`}>
+                    <button
+                      className="transcript-seek"
+                      disabled={line.evidenceLevel !== "原声逐字"}
+                      onClick={() => line.evidenceLevel === "原声逐字" && seekTo(line.seconds)}
+                      aria-label={line.evidenceLevel === "原声逐字" ? `从 ${line.time} 播放：${line.text}` : `${line.evidenceLevel}，待原片定位：${line.text}`}
+                    >
                       <time>{line.time}</time>
-                      <p>{line.speaker && <small>{line.speaker}</small>}{line.text}</p>
+                      <p>
+                        <span className="evidence-badge">{line.evidenceLevel}</span>
+                        {line.speaker && <small className="speaker-label">{line.speaker}</small>}
+                        {line.text}
+                        <small className="line-rationale">{line.reason}</small>
+                      </p>
                     </button>
                     <div>
                       <button className={decision === "keep" ? "active" : ""} onClick={() => setLineDecision(line.id, "keep")}>保留</button>
@@ -660,12 +1008,12 @@ export default function Home() {
               <button className="outline-action" onClick={() => setStep(2)}>返回内容地图</button>
               {generationState === "done" ? (
                 <div className="output-actions">
-                  <a className="outline-action" href={activeClip.video} download>下载无字幕样片</a>
-                  <button className="pink-action" onClick={handoffToChatCut}>送入 ChatCut 精修</button>
+                  <a className="outline-action" href={activeClip.video} download>下载演示样片</a>
+                  <button className="pink-action" onClick={handoffToChatCut}>送入 ChatCut 精修（演示）</button>
                 </div>
               ) : (
                 <button className="pink-action" onClick={generateClip} disabled={generationState === "working"}>
-                  {generationState === "working" ? "正在按文字生成切片…" : "按文字生成切片"}
+                  {generationState === "working" ? "正在更新句级预听…" : "更新句级预听"}
                 </button>
               )}
             </div>
@@ -677,13 +1025,14 @@ export default function Home() {
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowArchitecture(false)}>
           <section className="architecture-modal" role="dialog" aria-modal="true" aria-labelledby="architecture-title" onMouseDown={(event) => event.stopPropagation()}>
             <button className="modal-close" onClick={() => setShowArchitecture(false)} aria-label="关闭">关闭</button>
-            <span className="edition-label">PRODUCTION ARCHITECTURE</span>
-            <h2 id="architecture-title">我们的后台是主脑，OpenAI 是最高质量模型，ChatCut 是剪辑执行层。</h2>
+            <span className="edition-label">天总专属系统 · 内测 BETA 1.0</span>
+            <h2 id="architecture-title">这里沉淀的不是通用剪辑方法，而是我们对天总直播的全部判断。</h2>
             <div className="architecture-list">
-              <div><b>01</b><strong>上传与存储</strong><p>直播断点上传、代理文件、权限和删除周期。</p></div>
-              <div><b>02</b><strong>OpenAI 主编</strong><p>最强转写与旗舰模型完成全场发现、结构精剪和独立终审。</p></div>
-              <div><b>03</b><strong>人工文字复核</strong><p>用户对每句话做最终保留/删除判断，系统不黑箱下刀。</p></div>
-              <div><b>04</b><strong>ChatCut 交付</strong><p>把确认后的时间码写成可编辑时间线，也可直接生成预览成片。</p></div>
+              <div><b>01</b><strong>完整直播</strong><p>保留问题前提、说话人、原片时间和连续上下文，让每个判断能回到原话核对。</p></div>
+              <div><b>02</b><strong>候选策划</strong><p>按聊播、成交型带货、非成交产品/生活三向分流，再按自然语义闭环建立候选。</p></div>
+              <div><b>03</b><strong>逐字与事实复核</strong><p>核对完整句、数字、SKU、限制与画面证明；编辑适配分不能越过事实门禁。</p></div>
+              <div><b>04</b><strong>干净 A-roll 交付</strong><p>通过声音、画面与正常观看验收后，交付无字幕、无效果、保留原声的干净切片。</p></div>
+              <div><b>05</b><strong>人工回标反哺</strong><p>编导每次改动形成回标候选；只有经过后台研究、归因与回测，才进入下一知识版本。</p></div>
             </div>
           </section>
         </div>
