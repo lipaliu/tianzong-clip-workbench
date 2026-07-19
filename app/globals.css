@@ -3253,7 +3253,7 @@ button:not(:disabled):active {
   overflow-x: auto;
   overflow-y: hidden;
   scroll-padding-inline: 12px;
-  scroll-snap-type: x mandatory;
+  scroll-snap-type: x proximity;
   overscroll-behavior-inline: contain;
   scrollbar-color: rgba(191, 117, 145, 0.7) rgba(255, 255, 255, 0.48);
   scrollbar-width: thin;
@@ -3264,6 +3264,10 @@ button:not(:disabled):active {
 
 .model-mini-gallery.dragging {
   cursor: grabbing;
+  scroll-snap-type: none;
+}
+
+.model-mini-gallery.auto-scrolling {
   scroll-snap-type: none;
 }
 
@@ -3297,20 +3301,20 @@ button:not(:disabled):active {
   scroll-snap-align: start;
 }
 
-.model-mini-gallery img:nth-child(2) {
+.model-mini-gallery img[data-gallery-index="1"] {
   object-position: center 18%;
 }
 
-.model-mini-gallery img:nth-child(3) {
+.model-mini-gallery img[data-gallery-index="2"] {
   object-position: center 36%;
 }
 
-.model-mini-gallery img:nth-child(4),
-.model-mini-gallery img:nth-child(8) {
+.model-mini-gallery img[data-gallery-index="3"],
+.model-mini-gallery img[data-gallery-index="7"] {
   object-position: center 17%;
 }
 
-.model-mini-gallery img:nth-child(5) {
+.model-mini-gallery img[data-gallery-index="4"] {
   object-position: center 23%;
 }
 
@@ -3325,6 +3329,36 @@ button:not(:disabled):active {
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.model-gallery-controls {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.model-gallery-toggle {
+  min-width: 62px;
+  padding: 5px 10px;
+  border: 1px solid rgba(191, 117, 145, 0.42);
+  border-radius: 999px;
+  color: #66545a;
+  background: rgba(255, 255, 255, 0.55);
+  font: inherit;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.model-gallery-toggle:hover:not(:disabled),
+.model-gallery-toggle:focus-visible {
+  border-color: var(--pink-strong);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.model-gallery-toggle:disabled {
+  cursor: default;
+  opacity: 0.58;
 }
 
 .home-prompt {
@@ -3945,7 +3979,15 @@ button:not(:disabled):active {
 
   .model-gallery-footer {
     padding: 8px 9px 0;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 7px;
     font-size: 8px;
+  }
+
+  .model-gallery-controls {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .home-prompt {
