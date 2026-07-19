@@ -7,9 +7,7 @@ type WorkflowStep = 1 | 2 | 3;
 type Decision = "keep" | "remove";
 type PersonaMode = "实战老板" | "强姐姐" | "视觉吸引" | "搞笑女" | "脆弱真实";
 
-type EditorialMedia =
-  | { kind: "image"; src: string; alt: string; label: string; crop: string }
-  | { kind: "video"; src: string; poster: string; label: string; crop: string };
+type EditorialImage = { src: string; alt: string; label: string; crop: string };
 
 type TranscriptLine = {
   id: string;
@@ -81,48 +79,24 @@ const profileChapters = [
   },
 ];
 
-const editorialMedia: EditorialMedia[] = [
+const editorialImages: EditorialImage[] = [
   {
-    kind: "image",
     src: "/editorial/tianzong-street-full.jpg",
     alt: "天总在街头回身看向镜头的全身照片",
     label: "外景肖像 · 人物识别",
     crop: "street-full",
   },
   {
-    kind: "video",
-    src: "/editorial/tianzong-sunset-pose.mp4",
-    poster: "/editorial/tianzong-sunset-pose-poster.jpg",
-    label: "动态画面 · 镜头吸引",
-    crop: "sunset",
-  },
-  {
-    kind: "image",
     src: "/editorial/tianzong-korea-close.jpg",
     alt: "天总在餐厅看向镜头的近景照片",
     label: "近景肖像 · 表情状态",
     crop: "korea-close",
   },
   {
-    kind: "video",
-    src: "/editorial/tianzong-sunset-turn.mp4",
-    poster: "/editorial/tianzong-sunset-turn-poster.jpg",
-    label: "动态画面 · 状态切换",
-    crop: "sunset",
-  },
-  {
-    kind: "image",
     src: "/editorial/tianzong-street-close.jpg",
     alt: "天总在街头整理头发的半身照片",
     label: "人物细节 · 穿搭表现",
     crop: "street-close",
-  },
-  {
-    kind: "video",
-    src: "/editorial/tianzong-street-dance.mp4",
-    poster: "/editorial/tianzong-street-dance-poster.jpg",
-    label: "动态画面 · 动作反差",
-    crop: "street-dance",
   },
 ];
 
@@ -790,18 +764,9 @@ export default function Home() {
           <div className="intake-intro">
             <div className="intake-copy">
               <span className="edition-label">整场直播 → 内容地图 → 文字精剪</span>
-              <h1 id="intake-title">上传整场直播，开始找天总切片。</h1>
+              <h1 id="intake-title">她不是永远强大，也不是只负责漂亮。她真正让人留下来的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时成立。</h1>
               <p>先选择聊播或带货。候选数量由直播内容自然决定，不设目标数。</p>
             </div>
-            <figure className="intake-motion-hero">
-              <AmbientVideo
-                src="/editorial/tianzong-business-walk.mp4"
-                poster="/editorial/tianzong-business-walk-poster.jpg"
-                label="天总穿着黑色大衣向镜头走来的动态画面"
-                eager
-              />
-              <figcaption>天总动态视觉 · 实战老板 × 视觉吸引</figcaption>
-            </figure>
           </div>
 
           <div className="intake-grid">
@@ -864,16 +829,12 @@ export default function Home() {
           <section className="editorial-media-deck" aria-label="天总视觉素材">
             <header>
               <span>天总视觉素材</span>
-              <p>照片负责稳定人物识别，短视频以无声循环方式保留她的动作、穿搭与镜头表现。</p>
+              <p>三张人物照片只负责建立形象、表情与穿搭识别，不代替本场直播原片。</p>
             </header>
             <div className="editorial-media-track">
-              {editorialMedia.map((item) => (
+              {editorialImages.map((item) => (
                 <figure className={`editorial-media-card ${item.crop}`} key={item.src}>
-                  {item.kind === "image" ? (
-                    <img src={item.src} alt={item.alt} loading="lazy" decoding="async" />
-                  ) : (
-                    <AmbientVideo src={item.src} poster={item.poster} label={item.label} />
-                  )}
+                  <img src={item.src} alt={item.alt} loading="lazy" decoding="async" />
                   <figcaption>{item.label}</figcaption>
                 </figure>
               ))}
@@ -1154,61 +1115,6 @@ export default function Home() {
 
       {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
     </main>
-  );
-}
-
-function AmbientVideo({
-  src,
-  poster,
-  label,
-  eager = false,
-}: {
-  src: string;
-  poster: string;
-  label: string;
-  eager?: boolean;
-}) {
-  const ambientRef = useRef<HTMLVideoElement | null>(null);
-
-  useEffect(() => {
-    const video = ambientRef.current;
-    if (!video) return;
-
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (reducedMotion.matches) {
-      video.pause();
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          void video.play().catch(() => undefined);
-        } else {
-          video.pause();
-        }
-      },
-      { threshold: 0.2 },
-    );
-
-    observer.observe(video);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <video
-      ref={ambientRef}
-      className="ambient-video"
-      src={src}
-      poster={poster}
-      muted
-      loop
-      playsInline
-      preload={eager ? "metadata" : "none"}
-      aria-label={label}
-    >
-      你的浏览器暂不支持这段动态画面。
-    </video>
   );
 }
 

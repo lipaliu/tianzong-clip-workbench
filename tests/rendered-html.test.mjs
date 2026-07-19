@@ -3,24 +3,9 @@ import { access, readFile, stat } from "node:fs/promises";
 import test from "node:test";
 
 const editorialAssets = [
-  "editorial/tianzong-business-walk-poster.jpg",
-  "editorial/tianzong-business-walk.mp4",
   "editorial/tianzong-korea-close.jpg",
   "editorial/tianzong-street-close.jpg",
-  "editorial/tianzong-street-dance-poster.jpg",
-  "editorial/tianzong-street-dance.mp4",
   "editorial/tianzong-street-full.jpg",
-  "editorial/tianzong-sunset-pose-poster.jpg",
-  "editorial/tianzong-sunset-pose.mp4",
-  "editorial/tianzong-sunset-turn-poster.jpg",
-  "editorial/tianzong-sunset-turn.mp4",
-];
-
-const editorialVideos = [
-  ["/editorial/tianzong-business-walk.mp4", "天总穿着黑色大衣向镜头走来的动态画面"],
-  ["/editorial/tianzong-sunset-pose.mp4", "动态画面 · 镜头吸引"],
-  ["/editorial/tianzong-sunset-turn.mp4", "动态画面 · 状态切换"],
-  ["/editorial/tianzong-street-dance.mp4", "动态画面 · 动作反差"],
 ];
 
 function mediaTag(html, tagName, assetPath) {
@@ -51,7 +36,8 @@ test("server-renders a function-first Tianzong clipping intake", async () => {
   assert.match(html, /<meta name="robots" content="noindex, nofollow, noarchive"\s*\/?>/);
   assert.match(html, /天总直播切片系统/);
   assert.match(html, /内测 BETA 1\.0/);
-  assert.match(html, /上传整场直播，开始找天总切片/);
+  assert.match(html, /她不是永远强大，也不是只负责漂亮/);
+  assert.match(html, /有本事、有判断、像姐妹、会发疯、也会受伤/);
   assert.match(html, /上传天总完整直播/);
   assert.match(html, /选择直播录屏/);
   assert.match(html, /选择天总本场直播类型/);
@@ -90,25 +76,19 @@ test("server-renders a function-first Tianzong clipping intake", async () => {
   assert.match(mediaTag(html, "img", "/editorial/tianzong-korea-close.jpg"), /alt="天总在餐厅看向镜头的近景照片"/);
   assert.match(mediaTag(html, "img", "/editorial/tianzong-street-close.jpg"), /alt="天总在街头整理头发的半身照片"/);
 
-  for (const [videoPath, label] of editorialVideos) {
-    const tag = mediaTag(html, "video", videoPath);
-    assert.match(tag, /muted=""/);
-    assert.match(tag, /loop=""/);
-    assert.match(tag, /playsInline=""/);
-    assert.ok(tag.includes(`aria-label="${label}"`), `expected a semantic label for ${videoPath}`);
-  }
+  assert.doesNotMatch(html, /\/editorial\/[^"']+\.mp4/);
 
   assert.doesNotMatch(html, /CUTLINE/);
   assert.doesNotMatch(html, /codex-preview/);
   assert.doesNotMatch(html, /Your site is taking shape/);
 });
 
-test("ships every Tianzong editorial media asset as a non-empty public file", async () => {
+test("ships every Tianzong editorial image as a non-empty public file", async () => {
   const assetStats = await Promise.all(
     editorialAssets.map((asset) => stat(new URL(`../public/${asset}`, import.meta.url))),
   );
 
-  assert.equal(assetStats.length, 11);
+  assert.equal(assetStats.length, 3);
   for (const [index, assetStat] of assetStats.entries()) {
     assert.ok(assetStat.isFile(), `${editorialAssets[index]} must be a file`);
     assert.ok(assetStat.size > 0, `${editorialAssets[index]} must not be empty`);
@@ -149,6 +129,7 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.doesNotMatch(page, /xwechat_files/);
   assert.doesNotMatch(page, /RWTemp/);
   assert.doesNotMatch(page, /codex-clipboard/);
+  assert.doesNotMatch(page, /AmbientVideo/);
   assert.doesNotMatch(page, /01 \/ 核心人格/);
   assert.doesNotMatch(page, /profile-editorial/);
   assert.doesNotMatch(page, /research-metrics/);
