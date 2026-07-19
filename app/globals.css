@@ -1921,43 +1921,67 @@ button:not(:disabled):active {
   line-height: 1.65;
 }
 
-.delivery-main-actions,
-.delivery-utilities {
+.delivery-choice-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px;
-}
-
-.delivery-main-actions {
   margin-top: 14px;
 }
 
-.delivery-main-actions button,
-.delivery-utilities button {
+.delivery-option {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
   border: 1px solid var(--pink-block);
   background: white;
   color: var(--ink);
   text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
 }
 
-.delivery-main-actions button {
+.delivery-option.local,
+.delivery-option.chatcut {
+  position: relative;
   min-height: 145px;
   padding: 16px;
 }
 
-.delivery-main-actions button:hover:not(:disabled),
-.delivery-utilities button:hover:not(:disabled) {
+.delivery-option.local {
+  display: flex;
+  flex-direction: column;
+}
+
+.delivery-option.local > label,
+.delivery-option.chatcut {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  cursor: pointer;
+}
+
+.delivery-option.local > label {
+  flex: 1;
+  width: 100%;
+}
+
+.delivery-option:hover,
+.delivery-option.selected {
   border-color: var(--pink-deep);
   background: var(--pink-pale);
 }
 
-.delivery-main-actions span,
-.delivery-utilities span {
+.delivery-option.selected {
+  box-shadow: inset 3px 0 0 var(--pink-strong);
+}
+
+.delivery-option-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.delivery-option-top > span:first-child {
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
   font-size: 12px;
@@ -1965,15 +1989,34 @@ button:not(:disabled):active {
   letter-spacing: 0.06em;
 }
 
-.delivery-main-actions strong {
+.delivery-choice-check,
+.delivery-independent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.delivery-choice-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--pink-strong);
+}
+
+.delivery-option > label > strong,
+.delivery-option.chatcut > strong {
   margin-top: auto;
   font-size: 18px;
   font-weight: 600;
   line-height: 1.35;
 }
 
-.delivery-main-actions small,
-.delivery-utilities small {
+.delivery-option small {
   display: block;
   margin-top: 6px;
   color: var(--muted);
@@ -1982,24 +2025,51 @@ button:not(:disabled):active {
   line-height: 1.5;
 }
 
-.delivery-utilities {
-  margin-top: 9px;
-}
-
-.delivery-utilities button {
-  min-height: 92px;
-  padding: 13px 14px;
-}
-
-.delivery-utilities strong {
+.delivery-option.local > label > strong {
   width: 100%;
   overflow: hidden;
-  margin-top: 7px;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.subtitle-import-action {
+  margin-top: 12px;
+  padding: 0 0 2px;
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: transparent;
+  color: var(--pink-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.subtitle-import-action:hover {
+  color: var(--ink);
+}
+
+.delivery-download-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--pink-block);
+}
+
+.delivery-download-bar p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.delivery-download-bar p strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.delivery-download-bar .pink-action {
+  min-width: 190px;
 }
 
 .delivery-boundary {
@@ -2521,13 +2591,22 @@ button:not(:disabled):active {
     padding: 17px;
   }
 
-  .delivery-main-actions,
-  .delivery-utilities {
+  .delivery-choice-grid {
     grid-template-columns: 1fr;
   }
 
-  .delivery-main-actions button {
+  .delivery-option.local,
+  .delivery-option.chatcut {
     min-height: 112px;
+  }
+
+  .delivery-download-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .delivery-download-bar .pink-action {
+    width: 100%;
   }
 
   .delivery-panel h3 {

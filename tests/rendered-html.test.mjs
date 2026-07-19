@@ -141,8 +141,19 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /导入 SRT 字幕/);
   assert.match(page, /Premiere \/ DaVinci Resolve/);
   assert.match(page, /真实 MP4 渲染和 ChatCut 工程写入尚未接通/);
+  assert.match(page, /type LocalExportOption = "mp4" \| "srt" \| "xml"/);
+  assert.match(page, /const \[selectedLocalExports, setSelectedLocalExports\]/);
+  assert.match(page, /function toggleLocalExport/);
+  assert.match(page, /function downloadSelectedLocalOutputs/);
+  assert.match(page, /下载所选到本地/);
+  assert.match(page, /项本地格式已选/);
+  assert.match(page, /ChatCut 是独立交付，不参与批量下载/);
+  assert.match(page, /className="delivery-option chatcut"/);
+  assert.equal(page.match(/onChange=\{\(\) => toggleLocalExport\("/g)?.length, 3);
   assert.match(page, /function exportXmlTimeline/);
+  assert.match(page, /function exportSrtSubtitle/);
   assert.match(page, /function importSrt/);
+  assert.match(page, /downloadBlob\(importedSubtitle\.content/);
   assert.match(page, /application\/xml;charset=utf-8/);
   assert.match(page, /application\/x-subrip/);
   assert.match(page, /scrollIntoView\(\{ behavior: "smooth", block: "nearest" \}\)/);
@@ -220,8 +231,10 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(styles, /\.output-persona p,[\s\S]*?font-size: 16px/);
   assert.match(styles, /\.output-rationale-grid b[\s\S]*?font-size: 16px/);
   assert.match(styles, /\.feedback-path li > p[\s\S]*?font-size: 16px/);
-  assert.match(styles, /\.delivery-main-actions strong[\s\S]*?font-size: 18px/);
-  assert.doesNotMatch(styles, /\.delivery-main-actions button\.chatcut/);
+  assert.match(styles, /\.delivery-option > label > strong,[\s\S]*?font-size: 18px/);
+  assert.match(styles, /\.delivery-choice-grid[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /\.delivery-option\.selected[\s\S]*?box-shadow/);
+  assert.doesNotMatch(styles, /\.delivery-main-actions/);
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
 });
 

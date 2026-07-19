@@ -7,6 +7,7 @@ type IntakeStep = 1 | 2;
 type WorkflowStep = 1 | 2 | 3;
 type Decision = "keep" | "remove";
 type PersonaMode = "实战老板" | "强姐姐" | "视觉吸引" | "搞笑女" | "脆弱真实";
+type LocalExportOption = "mp4" | "srt" | "xml";
 
 type TranscriptLine = {
   id: string;
@@ -65,6 +66,7 @@ type ProjectRecord = {
 type ImportedSubtitle = {
   name: string;
   cueCount: number;
+  content: string;
 };
 
 const corpusBaseline = {
@@ -558,6 +560,7 @@ export default function Home() {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [importedSubtitle, setImportedSubtitle] = useState<ImportedSubtitle | null>(null);
+  const [selectedLocalExports, setSelectedLocalExports] = useState<LocalExportOption[]>(["mp4"]);
   const fileRef = useRef<HTMLInputElement>(null);
   const subtitleRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -652,6 +655,8 @@ export default function Home() {
     setFeedbackQueued(false);
     setHighPotentialOnly(false);
     setCurrentTime(0);
+    setImportedSubtitle(null);
+    setSelectedLocalExports(["mp4"]);
     if (shouldExplainReset) {
       window.setTimeout(() => showToast(`已切换为${nextMode}切片，请重新生成这一场的内容地图。`), 0);
     }
@@ -668,6 +673,8 @@ export default function Home() {
     setAnalysisProgress(0);
     setStep(1);
     setIntakeStep(2);
+    setImportedSubtitle(null);
+    setSelectedLocalExports(["mp4"]);
   }
 
   async function startAnalysis() {
@@ -768,6 +775,7 @@ export default function Home() {
     setGenerationState("idle");
     setFeedbackQueued(false);
     setImportedSubtitle(null);
+    setSelectedLocalExports(["mp4"]);
   }
 
   function enterTranscript() {
@@ -792,6 +800,7 @@ export default function Home() {
     setGenerationState("idle");
     setFeedbackQueued(false);
     setImportedSubtitle(null);
+    setSelectedLocalExports((current) => current.filter((item) => item !== "srt"));
   }
 
   function generateClip() {
@@ -799,12 +808,30 @@ export default function Home() {
     window.setTimeout(() => {
       setGenerationState("done");
       setFeedbackQueued(true);
-      showToast(`本条剪辑决定已确认；现在可以选择下载成片、导出 XML 时间线，或进入 ChatCut 继续精修。当前真实渲染与 ChatCut 写入仍待接通。`);
+      showToast(`本条剪辑决定已确认；本地格式可以多选后一起下载，ChatCut 保持独立交付。当前真实渲染与 ChatCut 写入仍待接通。`);
     }, 900);
   }
 
-  function requestClipDownload() {
-    showToast("当前尚未接入真实媒体裁切与渲染，不能把整场原片冒充成片下载。正式版会在这里输出无字幕、无效果、保留原声的 MP4。");
+  function toggleLocalExport(option: LocalExportOption) {
+    if (option === "srt" && !importedSubtitle && !selectedLocalExports.includes("srt")) {
+      subtitleRef.current?.click();
+      showToast("先导入 SRT 字幕；校验通过后会自动勾选这一项。");
+      return;
+    }
+    setSelectedLocalExports((current) =>
+      current.includes(option)
+        ? current.filter((item) => item !== option)
+        : [...current, option],
+    );
+  }
+
+  function downloadBlob(content: BlobPart, type: string, downloadName: string) {
+    const blobUrl = URL.createObjectURL(new Blob([content], { type }));
+    const anchor = document.createElement("a");
+    anchor.href = blobUrl;
+    anchor.download = downloadName;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
   }
 
   function handoffToChatCut() {
@@ -828,14 +855,27 @@ export default function Home() {
       return;
     }
 
-    setImportedSubtitle({ name: file.name, cueCount });
+    setImportedSubtitle({ name: file.name, cueCount, content });
+    setSelectedLocalExports((current) => current.includes("srt") ? current : [...current, "srt"]);
+    event.target.value = "";
     showToast(`已在本地读入 ${file.name}，识别 ${cueCount} 条字幕；正式渲染接通后可用于成片或继续带入 ChatCut。`);
   }
 
-  function exportXmlTimeline() {
+  function exportSrtSubtitle(silent = false) {
+    if (!importedSubtitle) {
+      if (!silent) showToast("请先导入 SRT 字幕文件，再把它加入本地下载。");
+      return false;
+    }
+
+    downloadBlob(importedSubtitle.content, "application/x-subrip;charset=utf-8", importedSubtitle.name);
+    if (!silent) showToast(`SRT 字幕已下载：${importedSubtitle.name}`);
+    return true;
+  }
+
+  function exportXmlTimeline(silent = false) {
     if (!uploadedPreviewUrl || !fileName) {
-      showToast("请先上传原片，再导出 XML 时间线。");
-      return;
+      if (!silent) showToast("请先上传原片，再导出 XML 时间线。");
+      return false;
     }
 
     const frameRate = 30;
@@ -872,14 +912,33 @@ export default function Home() {
 
     const sequenceName = `${projectDate?.label ?? "天总"} · ${activeClip.title}`;
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<xmeml version="5"><sequence><name>${escapeXml(sequenceName)}</name><duration>${timelineFrame}</duration><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate><media><video><format><samplecharacteristics><width>1080</width><height>1920</height><pixelaspectratio>square</pixelaspectratio><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate></samplecharacteristics></format><track>${videoItems.join("")}</track></video><audio><track>${audioItems.join("")}</track></audio></media></sequence></xmeml>`;
-    const blobUrl = URL.createObjectURL(new Blob([xml], { type: "application/xml;charset=utf-8" }));
-    const anchor = document.createElement("a");
     const safeTitle = activeClip.title.replace(/[\\/:*?"<>|]/g, "-");
-    anchor.href = blobUrl;
-    anchor.download = `${projectDate?.label ?? "天总"}-${safeTitle}.xml`;
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
-    showToast("XML 时间线草案已导出，可在 Premiere 或 DaVinci Resolve 中按原片文件名重新链接。当前时间码仍来自内测演示数据。");
+    downloadBlob(xml, "application/xml;charset=utf-8", `${projectDate?.label ?? "天总"}-${safeTitle}.xml`);
+    if (!silent) showToast("XML 时间线草案已导出，可在 Premiere 或 DaVinci Resolve 中按原片文件名重新链接。当前时间码仍来自内测演示数据。");
+    return true;
+  }
+
+  function downloadSelectedLocalOutputs() {
+    if (!selectedLocalExports.length) {
+      showToast("请先勾选至少一种本地输出格式。");
+      return;
+    }
+
+    const completed: string[] = [];
+    const pending: string[] = [];
+
+    if (selectedLocalExports.includes("srt")) {
+      if (exportSrtSubtitle(true)) completed.push("SRT");
+      else pending.push("SRT 需先导入字幕文件");
+    }
+    if (selectedLocalExports.includes("xml") && exportXmlTimeline(true)) completed.push("XML");
+    if (selectedLocalExports.includes("mp4")) pending.push("MP4 等待真实渲染接通");
+
+    const messages = [
+      completed.length ? `已下载：${completed.join("、")}` : "",
+      pending.length ? `未完成：${pending.join("、")}` : "",
+    ].filter(Boolean);
+    showToast(messages.join("；"));
   }
 
   function toggleIdeaFilter() {
@@ -1373,37 +1432,86 @@ export default function Home() {
                 <header>
                   <span>FINAL DELIVERY / 本条已定稿</span>
                   <h3 id="delivery-title">现在怎么输出？</h3>
-                  <p>直接拿无包装成片，或者把同一份删留时间线送进 ChatCut 继续做字幕、包装和精修。</p>
+                  <p>要下载到本地的格式可以同时勾选；ChatCut 是独立交付，不参与批量下载。</p>
                 </header>
 
-                <div className="delivery-main-actions">
-                  <button type="button" onClick={requestClipDownload}>
-                    <span>MP4 · 待渲染</span>
-                    <strong>直接下载成片</strong>
-                    <small>无字幕 · 无效果 · 保留原声</small>
-                  </button>
-                  <button type="button" className="chatcut" onClick={handoffToChatCut}>
-                    <span>EDITABLE · 待授权</span>
-                    <strong>进入 ChatCut 精修</strong>
-                    <small>继续加字幕、包装与效果</small>
-                  </button>
-                </div>
+                <div className="delivery-choice-grid" aria-label="最终交付选项">
+                  <article className={`delivery-option local ${selectedLocalExports.includes("mp4") ? "selected" : ""}`}>
+                    <label>
+                      <span className="delivery-option-top">
+                        <span>MP4 · 待渲染</span>
+                        <span className="delivery-choice-check">
+                          <input
+                            type="checkbox"
+                            checked={selectedLocalExports.includes("mp4")}
+                            onChange={() => toggleLocalExport("mp4")}
+                          />
+                          本地
+                        </span>
+                      </span>
+                      <strong>直接下载成片</strong>
+                      <small>无字幕 · 无效果 · 保留原声</small>
+                    </label>
+                  </article>
 
-                <div className="delivery-utilities">
-                  <button type="button" onClick={() => subtitleRef.current?.click()}>
-                    <span>SRT 字幕</span>
-                    <strong>{importedSubtitle ? importedSubtitle.name : "导入 SRT 字幕"}</strong>
-                    <small>{importedSubtitle ? `已识别 ${importedSubtitle.cueCount} 条字幕 · 本地校验通过` : "带入成片或 ChatCut 可编辑时间线"}</small>
-                  </button>
-                  <button type="button" onClick={exportXmlTimeline}>
-                    <span>XML 时间线</span>
-                    <strong>导出到专业剪辑软件</strong>
-                    <small>Premiere / DaVinci Resolve · 按原片名重连</small>
+                  <article className={`delivery-option local ${selectedLocalExports.includes("srt") ? "selected" : ""}`}>
+                    <label>
+                      <span className="delivery-option-top">
+                        <span>SRT · 本地字幕</span>
+                        <span className="delivery-choice-check">
+                          <input
+                            type="checkbox"
+                            checked={selectedLocalExports.includes("srt")}
+                            onChange={() => toggleLocalExport("srt")}
+                          />
+                          本地
+                        </span>
+                      </span>
+                      <strong>{importedSubtitle ? importedSubtitle.name : "SRT 字幕文件"}</strong>
+                      <small>{importedSubtitle ? `已识别 ${importedSubtitle.cueCount} 条 · 可随所选格式下载` : "先导入字幕，再与其他格式一起下载"}</small>
+                    </label>
+                    <button type="button" className="subtitle-import-action" onClick={() => subtitleRef.current?.click()}>
+                      {importedSubtitle ? "更换 SRT 字幕" : "导入 SRT 字幕"}
+                    </button>
+                  </article>
+
+                  <article className={`delivery-option local ${selectedLocalExports.includes("xml") ? "selected" : ""}`}>
+                    <label>
+                      <span className="delivery-option-top">
+                        <span>XML · 本地时间线</span>
+                        <span className="delivery-choice-check">
+                          <input
+                            type="checkbox"
+                            checked={selectedLocalExports.includes("xml")}
+                            onChange={() => toggleLocalExport("xml")}
+                          />
+                          本地
+                        </span>
+                      </span>
+                      <strong>导出到专业剪辑软件</strong>
+                      <small>Premiere / DaVinci Resolve · 按原片名重连</small>
+                    </label>
+                  </article>
+
+                  <button type="button" className="delivery-option chatcut" onClick={handoffToChatCut}>
+                    <span className="delivery-option-top">
+                      <span>CHATCUT · 待授权</span>
+                      <span className="delivery-independent">独立操作</span>
+                    </span>
+                    <strong>进入 ChatCut 精修</strong>
+                    <small>创建可编辑时间线，继续加字幕、包装与效果</small>
                   </button>
                 </div>
                 <input ref={subtitleRef} type="file" accept=".srt,application/x-subrip,text/plain" hidden onChange={importSrt} />
 
-                <p className="delivery-boundary">当前 XML 草案与 SRT 本地校验可用；真实 MP4 渲染和 ChatCut 工程写入尚未接通，按钮不会把整场原片伪装成最终成片。</p>
+                <div className="delivery-download-bar">
+                  <p><strong>{selectedLocalExports.length}</strong> 项本地格式已选</p>
+                  <button type="button" className="pink-action" disabled={!selectedLocalExports.length} onClick={downloadSelectedLocalOutputs}>
+                    下载所选到本地
+                  </button>
+                </div>
+
+                <p className="delivery-boundary">当前导入的 SRT 原文件与 XML 草案可下载；真实 MP4 渲染和 ChatCut 工程写入尚未接通，系统不会把整场原片伪装成最终成片。</p>
               </section>
             )}
 
