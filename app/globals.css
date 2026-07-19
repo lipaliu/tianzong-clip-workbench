@@ -2948,58 +2948,56 @@ button:not(:disabled):active {
 }
 
 .home-shell {
-  width: min(760px, 100%);
+  width: min(860px, 100%);
   margin: 0 auto;
 }
 
 .model-mini {
   min-width: 0;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  width: min(610px, 100%);
+  gap: 15px;
+  width: min(760px, 100%);
   margin: 0 auto;
   color: var(--muted);
 }
 
 .model-mini img {
-  width: 36px;
-  height: 36px;
+  width: 54px;
+  height: 54px;
   display: block;
   border-radius: 50%;
   object-fit: cover;
   object-position: center 28%;
   filter: saturate(0.82);
+  box-shadow: 0 0 0 4px var(--pink-pale);
 }
 
 .model-mini p {
   min-width: 0;
   margin: 0;
-  font-size: 9px;
-  font-weight: 350;
-  line-height: 1.45;
+  font-size: 12px;
+  font-weight: 360;
+  line-height: 1.65;
 }
 
 .model-mini b {
   display: block;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
   color: var(--ink);
-  font-size: 9px;
-  font-weight: 540;
+  font-size: 11px;
+  font-weight: 560;
 }
 
 .model-mini span {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .model-mini small {
   color: var(--faint);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 6px;
+  font-size: 7px;
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
@@ -3029,12 +3027,11 @@ button:not(:disabled):active {
 .workflow-composer {
   position: relative;
   overflow: hidden;
-  min-height: 180px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  min-height: 344px;
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
   margin-top: 27px;
-  padding: 0 15px 14px;
+  padding: 0;
   border: 1px solid rgba(46, 44, 43, 0.2);
   border-radius: 26px;
   background: rgba(255, 255, 255, 0.92);
@@ -3047,31 +3044,124 @@ button:not(:disabled):active {
   box-shadow: 0 18px 50px rgba(184, 132, 154, 0.12), 0 2px 8px rgba(62, 48, 53, 0.05);
 }
 
+.intake-stepper {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  padding: 10px;
+  border-right: 1px solid var(--line-soft);
+  background: #f9f3f5;
+}
+
+.intake-stepper button {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 19px 18px;
+  border: 1px solid transparent;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--muted);
+  text-align: left;
+}
+
+.intake-stepper button + button {
+  margin-top: 7px;
+}
+
+.intake-stepper button.active {
+  border-color: rgba(184, 132, 154, 0.33);
+  background: var(--pink-block);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34), 0 7px 17px rgba(102, 64, 80, 0.09);
+}
+
+.intake-stepper button.complete:not(.active) {
+  color: var(--ink);
+}
+
+.intake-stepper button.complete:not(.active)::after {
+  content: "✓";
+  position: absolute;
+  top: 17px;
+  right: 16px;
+  color: var(--pink-deep);
+  font-size: 10px;
+}
+
+.intake-stepper span {
+  margin-bottom: 8px;
+  color: var(--pink-deep);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.intake-stepper strong {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 540;
+}
+
+.intake-stepper small {
+  margin-top: 5px;
+  color: inherit;
+  font-size: 8px;
+  font-weight: 350;
+  opacity: 0.72;
+}
+
+.intake-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 344px;
+  padding: 25px 27px 22px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.upload-stage,
+.mode-stage {
+  min-height: 297px;
+  display: flex;
+  flex-direction: column;
+}
+
 .composer-input {
   width: 100%;
-  min-height: 112px;
+  min-height: 218px;
   display: flex;
-  align-items: flex-start;
-  padding: 22px 9px 14px;
-  background: transparent;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  border: 1px dashed rgba(184, 132, 154, 0.52);
+  border-radius: 19px;
+  background: linear-gradient(145deg, rgba(245, 232, 238, 0.52), rgba(255, 255, 255, 0.86));
   color: var(--ink);
-  text-align: left;
+  text-align: center;
+}
+
+.composer-input:hover {
+  border-color: var(--pink-deep);
+  background: var(--pink-pale);
 }
 
 .composer-placeholder {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .composer-placeholder strong {
-  font-size: 17px;
-  font-weight: 410;
+  font-size: 19px;
+  font-weight: 440;
   line-height: 1.45;
 }
 
 .composer-placeholder small {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 350;
   line-height: 1.55;
 }
@@ -3079,19 +3169,20 @@ button:not(:disabled):active {
 .composer-file {
   min-width: 0;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: 46px minmax(0, 1fr);
   align-items: center;
-  gap: 11px;
+  gap: 13px;
   max-width: 100%;
-  padding: 9px 12px 9px 9px;
+  padding: 11px 14px 11px 11px;
   border: 1px solid var(--line-soft);
-  border-radius: 13px;
+  border-radius: 15px;
   background: var(--sheet);
+  text-align: left;
 }
 
 .composer-file > span:first-child {
-  width: 38px;
-  height: 38px;
+  width: 46px;
+  height: 46px;
   display: grid;
   place-items: center;
   border-radius: 9px;
@@ -3108,7 +3199,7 @@ button:not(:disabled):active {
 
 .composer-file strong {
   overflow: hidden;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 520;
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -3117,94 +3208,216 @@ button:not(:disabled):active {
 
 .composer-file small {
   color: var(--muted);
-  font-size: 8px;
-}
-
-.composer-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.composer-add,
-.composer-modes button {
-  min-height: 32px;
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
   font-size: 9px;
 }
 
-.composer-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 11px 0 9px;
-}
-
-.composer-add span {
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 300;
-  line-height: 1;
-}
-
-.composer-modes {
+.stage-actions {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 17px;
+}
+
+.stage-secondary,
+.stage-primary {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 480;
+}
+
+.stage-secondary {
+  padding: 0 15px;
+  border: 1px solid var(--line-soft);
+  background: white;
+  color: var(--muted);
+  box-shadow: 0 3px 8px rgba(62, 48, 53, 0.035);
+}
+
+.stage-primary {
+  gap: 9px;
+  min-width: 154px;
+  padding: 0 18px;
+  border: 1px solid rgba(184, 132, 154, 0.4);
+  background: var(--pink-block);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32), 0 5px 13px rgba(102, 64, 80, 0.08);
+}
+
+.stage-secondary:hover:not(:disabled) {
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.stage-primary:hover:not(:disabled) {
+  background: var(--pink-mid);
+}
+
+.mode-source {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.mode-source > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--pink-pale);
+  color: var(--pink-deep);
+  font-size: 8px;
+}
+
+.mode-source p {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.mode-source strong,
+.mode-source small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mode-source strong {
+  font-size: 9px;
+  font-weight: 520;
+}
+
+.mode-source small {
+  color: var(--faint);
+  font-size: 7px;
+}
+
+.mode-source button {
+  padding: 7px 0 7px 10px;
+  background: transparent;
+  color: var(--pink-deep);
+  font-size: 8px;
+}
+
+.mode-choice-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.mode-choice-cards button {
+  display: grid;
+  gap: 5px;
+  min-height: 63px;
+  padding: 11px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: white;
+  color: var(--muted);
+  text-align: left;
+  box-shadow: 0 3px 8px rgba(62, 48, 53, 0.03);
+}
+
+.mode-choice-cards button.selected {
+  border-color: rgba(184, 132, 154, 0.45);
+  background: var(--pink-block);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35), 0 6px 14px rgba(102, 64, 80, 0.08);
+}
+
+.mode-choice-cards button > span {
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.mode-choice-cards button small {
+  font-size: 8px;
+  font-weight: 350;
+  line-height: 1.35;
+}
+
+.mode-knowledge,
+.mode-empty {
+  min-height: 109px;
+  margin-top: 14px;
+  padding: 13px 15px;
+  border-left: 3px solid var(--pink-mid);
+  border-radius: 0 12px 12px 0;
+  background: #faf7f8;
+  animation: mode-copy-in 240ms var(--ease-out);
+}
+
+.mode-knowledge > span,
+.mode-empty > span {
+  color: var(--pink-deep);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.mode-knowledge h2 {
+  margin: 5px 0 4px;
+  font-size: 13px;
+  font-weight: 540;
+  line-height: 1.35;
+}
+
+.mode-knowledge p,
+.mode-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 350;
+  line-height: 1.6;
+}
+
+.mode-knowledge ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mode-knowledge li {
+  padding: 3px 7px;
+  border: 1px solid rgba(184, 132, 154, 0.18);
+  border-radius: 999px;
+  background: white;
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.mode-empty {
+  display: grid;
+  align-content: center;
   gap: 5px;
 }
 
-.composer-modes button {
-  min-width: 54px;
-  padding: 0 14px;
-}
-
-.composer-add:hover,
-.composer-modes button:hover {
-  border-color: var(--line);
-  background: var(--sheet);
-  color: var(--ink);
-}
-
-.composer-modes button.selected {
-  border-color: rgba(184, 132, 154, 0.45);
-  background: var(--pink-pale);
-  color: var(--ink);
-}
-
-.composer-send {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  margin-left: auto;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--ink);
-  color: var(--paper);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
-  font-weight: 500;
-}
-
-.composer-send span {
-  transform: translateY(-1px);
-  font-family: var(--font-geist-sans), sans-serif;
-  font-size: 20px;
-  font-weight: 320;
-}
-
-.composer-send:hover:not(:disabled) {
-  background: var(--pink-deep);
+@keyframes mode-copy-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .composer-progress {
   position: absolute;
-  right: 20px;
+  right: 27px;
   bottom: 8px;
-  left: 20px;
+  left: 27px;
   height: 2px;
   overflow: hidden;
   border-radius: 2px;
@@ -3369,12 +3582,22 @@ button:not(:disabled):active {
   }
 
   .model-mini {
-    grid-template-columns: 32px minmax(0, 1fr);
+    grid-template-columns: 46px minmax(0, 1fr);
+    gap: 12px;
   }
 
   .model-mini img {
-    width: 32px;
-    height: 32px;
+    width: 46px;
+    height: 46px;
+  }
+
+  .model-mini p {
+    font-size: 10px;
+    line-height: 1.55;
+  }
+
+  .model-mini b {
+    font-size: 10px;
   }
 
   .model-mini small {
@@ -3390,39 +3613,95 @@ button:not(:disabled):active {
   }
 
   .workflow-composer {
-    min-height: 176px;
+    min-height: 430px;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
     margin-top: 23px;
     border-radius: 22px;
   }
 
+  .intake-stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: 1fr;
+    gap: 7px;
+    padding: 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .intake-stepper button {
+    min-height: 80px;
+    padding: 13px 14px;
+    border-radius: 14px;
+  }
+
+  .intake-stepper button + button {
+    margin-top: 0;
+  }
+
+  .intake-stepper span {
+    margin-bottom: 5px;
+  }
+
+  .intake-stepper strong {
+    font-size: 12px;
+  }
+
+  .intake-stage {
+    min-height: 332px;
+    padding: 18px 17px 17px;
+  }
+
+  .upload-stage,
+  .mode-stage {
+    min-height: 296px;
+  }
+
   .composer-input {
-    min-height: 105px;
+    min-height: 218px;
+    padding: 22px 16px;
   }
 
   .composer-placeholder strong {
     font-size: 15px;
   }
 
-  .composer-add {
-    width: 34px;
-    padding: 0;
-    justify-content: center;
-    overflow: hidden;
-    color: transparent;
-    white-space: nowrap;
+  .composer-placeholder small {
+    font-size: 9px;
   }
 
-  .composer-add span {
-    color: var(--ink);
+  .stage-primary {
+    min-width: 0;
+    padding: 0 14px;
   }
 
-  .composer-modes {
-    gap: 4px;
+  .mode-choice-cards {
+    gap: 7px;
   }
 
-  .composer-modes button {
-    min-width: 48px;
-    padding: 0 10px;
+  .mode-choice-cards button {
+    min-height: 66px;
+    padding: 10px 11px;
+  }
+
+  .mode-knowledge,
+  .mode-empty {
+    min-height: 126px;
+    padding: 12px;
+  }
+
+  .mode-knowledge h2 {
+    font-size: 12px;
+  }
+
+  .mode-knowledge p,
+  .mode-empty p {
+    font-size: 7.5px;
+  }
+
+  .composer-progress {
+    right: 17px;
+    left: 17px;
   }
 
   .project-row {

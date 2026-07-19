@@ -3,6 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Mode = "聊播" | "带货";
+type IntakeStep = 1 | 2;
 type WorkflowStep = 1 | 2 | 3;
 type Decision = "keep" | "remove";
 type PersonaMode = "实战老板" | "强姐姐" | "视觉吸引" | "搞笑女" | "脆弱真实";
@@ -63,6 +64,26 @@ type ProjectRecord = {
 
 const corpusBaseline = {
   version: "内测 BETA 1.0",
+};
+
+const modeKnowledge: Record<Mode, {
+  eyebrow: string;
+  title: string;
+  description: string;
+  tags: string[];
+}> = {
+  聊播: {
+    eyebrow: "聊播切片 · 先判断，再闭环",
+    title: "不是摘一句狠话，是让她把一件事讲明白。",
+    description: "先找天总最直接、最有经验感的判断，再保住理由、证据和最后的落点。删掉连麦插话、重复和旁支，但不删让她“狠得有理”、也让强势背后仍然真实的部分。",
+    tags: ["结论先行", "理由闭环", "姐妹共鸣", "反差真实"],
+  },
+  带货: {
+    eyebrow: "带货切片 · 一个理由，一条片",
+    title: "不是堆满卖点，是让一个购买理由被看见、被相信。",
+    description: "一条只解决一个购买问题，用上身或实物画面把它证明清楚，同时保留适合谁、不适合谁和使用场景。天总的成交感来自懂货又敢劝退，不是机械喊单。",
+    tags: ["单一购买理由", "画面证明", "人群边界", "可信成交"],
+  },
 };
 
 const scoreLabels = [
@@ -496,6 +517,7 @@ function formatProjectDate(value: string) {
 
 export default function Home() {
   const [step, setStep] = useState<WorkflowStep>(1);
+  const [intakeStep, setIntakeStep] = useState<IntakeStep>(1);
   const [mode, setMode] = useState<Mode | null>(null);
   const [fileName, setFileName] = useState("");
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState("");
@@ -582,6 +604,7 @@ export default function Home() {
   }
 
   function switchMode(nextMode: Mode) {
+    setIntakeStep(2);
     if (mode === nextMode) return;
     const shouldExplainReset = step > 1;
     setMode(nextMode);
@@ -610,6 +633,7 @@ export default function Home() {
     setAnalysisReady(false);
     setAnalysisProgress(0);
     setStep(1);
+    setIntakeStep(2);
   }
 
   async function startAnalysis() {
@@ -811,7 +835,7 @@ export default function Home() {
               <img src="/photos/tz_neon_face.jpg" alt="" aria-hidden="true" />
               <p>
                 <b>天总专属模型</b>
-                <span>她不是永远强大，也不是只负责漂亮。我们保住她的本事、判断、姐妹感、发疯和真实。</span>
+                <span>她不是永远强大，也不是只负责漂亮。她真正珍贵的的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时在一个人身上成立。</span>
               </p>
               <small>{corpusBaseline.version}</small>
             </aside>
@@ -822,67 +846,139 @@ export default function Home() {
             </header>
 
             <form
-              className={`workflow-composer ${fileName ? "has-file" : ""}`}
+              className={`workflow-composer intake-step-${intakeStep} ${fileName ? "has-file" : ""}`}
               onSubmit={(event) => {
                 event.preventDefault();
                 void startAnalysis();
               }}
             >
-              <button
-                type="button"
-                className="composer-input"
-                onClick={() => fileRef.current?.click()}
-                aria-label={fileName ? `更换直播原片：${fileName}` : "上传整场直播"}
-              >
-                {fileName ? (
-                  <span className="composer-file">
-                    <span aria-hidden="true">▶</span>
-                    <span>
-                      <strong>{fileName}</strong>
-                      <small>{projectDate?.label} · {mode ? `${mode}切片` : "请选择切片类型"}</small>
-                    </span>
-                  </span>
-                ) : (
-                  <span className="composer-placeholder">
-                    <strong>上传整场直播，开始找天总切片</strong>
-                    <small>支持 MP4 / MOV；完整上下文会用于判断哪些内容值得剪。</small>
-                  </span>
-                )}
-              </button>
-              <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
-
-              <div className="composer-toolbar">
-                <button type="button" className="composer-add" onClick={() => fileRef.current?.click()}>
-                  <span aria-hidden="true">＋</span>{fileName ? "更换原片" : "上传原片"}
-                </button>
-                <div className="composer-modes" role="radiogroup" aria-label="选择切片类型">
-                  {(["聊播", "带货"] as Mode[]).map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      className={mode === item ? "selected" : ""}
-                      onClick={() => switchMode(item)}
-                      aria-pressed={mode === item}
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
+              <nav className="intake-stepper" aria-label="上传与类型选择">
                 <button
-                  type="submit"
-                  className="composer-send"
-                  aria-label="开始分析这场直播"
-                  disabled={!uploadedPreviewUrl || !mode || (analysisProgress > 0 && analysisProgress < 100)}
+                  type="button"
+                  className={intakeStep === 1 ? "active" : fileName ? "complete" : ""}
+                  onClick={() => setIntakeStep(1)}
+                  aria-current={intakeStep === 1 ? "step" : undefined}
                 >
-                  {analysisProgress > 0 && analysisProgress < 100 ? Math.min(analysisProgress, 99) : <span aria-hidden="true">↑</span>}
+                  <span>STEP 1</span>
+                  <strong>上传直播</strong>
+                  <small>{fileName ? "原片已选择" : "完整原片"}</small>
                 </button>
-              </div>
+                <button
+                  type="button"
+                  className={intakeStep === 2 ? "active" : ""}
+                  disabled={!uploadedPreviewUrl}
+                  onClick={() => setIntakeStep(2)}
+                  aria-current={intakeStep === 2 ? "step" : undefined}
+                >
+                  <span>STEP 2</span>
+                  <strong>选择类型</strong>
+                  <small>{mode ? `${mode}切片` : "聊播 / 带货"}</small>
+                </button>
+              </nav>
 
-              {analysisProgress > 0 && analysisProgress < 100 && (
-                <div className="composer-progress" aria-live="polite">
-                  <span style={{ width: `${analysisProgress}%` }} />
-                </div>
-              )}
+              <div className="intake-stage">
+                {intakeStep === 1 ? (
+                  <div className="upload-stage">
+                    <button
+                      type="button"
+                      className="composer-input"
+                      onClick={() => fileRef.current?.click()}
+                      aria-label={fileName ? `更换直播原片：${fileName}` : "上传整场直播"}
+                    >
+                      {fileName ? (
+                        <span className="composer-file">
+                          <span aria-hidden="true">▶</span>
+                          <span>
+                            <strong>{fileName}</strong>
+                            <small>{projectDate?.label} · 已准备进入类型判断</small>
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="composer-placeholder">
+                          <strong>上传整场直播，开始找天总切片</strong>
+                          <small>支持 MP4 / MOV；完整上下文会用于判断哪些内容值得剪。</small>
+                        </span>
+                      )}
+                    </button>
+
+                    <div className="stage-actions">
+                      <button type="button" className="stage-secondary" onClick={() => fileRef.current?.click()}>
+                        {fileName ? "更换原片" : "选择原片"}
+                      </button>
+                      <button
+                        type="button"
+                        className="stage-primary"
+                        disabled={!uploadedPreviewUrl}
+                        onClick={() => setIntakeStep(2)}
+                      >
+                        下一步 · 选择类型 <span aria-hidden="true">→</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mode-stage">
+                    <div className="mode-source">
+                      <span aria-hidden="true">▶</span>
+                      <p>
+                        <strong>{fileName}</strong>
+                        <small>{projectDate?.label} · 完整直播原片</small>
+                      </p>
+                      <button type="button" onClick={() => fileRef.current?.click()}>更换</button>
+                    </div>
+
+                    <div className="mode-choice-cards" role="radiogroup" aria-label="选择聊播或带货切片">
+                      {(["聊播", "带货"] as Mode[]).map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          className={mode === item ? "selected" : ""}
+                          onClick={() => switchMode(item)}
+                          aria-pressed={mode === item}
+                        >
+                          <span>{item}</span>
+                          <small>{item === "聊播" ? "剪判断如何成立" : "剪购买理由如何被证明"}</small>
+                        </button>
+                      ))}
+                    </div>
+
+                    {mode ? (
+                      <article className="mode-knowledge" key={mode} aria-live="polite">
+                        <span>{modeKnowledge[mode].eyebrow}</span>
+                        <h2>{modeKnowledge[mode].title}</h2>
+                        <p>{modeKnowledge[mode].description}</p>
+                        <ul aria-label={`${mode}切片判断重点`}>
+                          {modeKnowledge[mode].tags.map((tag) => <li key={tag}>{tag}</li>)}
+                        </ul>
+                      </article>
+                    ) : (
+                      <div className="mode-empty" aria-live="polite">
+                        <span>选择后，这里会切换判断重点</span>
+                        <p>聊播保护观点、因果链和人物反差；带货保护产品证据、适配边界与信任感。</p>
+                      </div>
+                    )}
+
+                    <div className="stage-actions">
+                      <button type="button" className="stage-secondary" onClick={() => setIntakeStep(1)}>返回上传</button>
+                      <button
+                        type="submit"
+                        className="stage-primary"
+                        aria-label="开始分析这场直播"
+                        disabled={!uploadedPreviewUrl || !mode || (analysisProgress > 0 && analysisProgress < 100)}
+                      >
+                        {analysisProgress > 0 && analysisProgress < 100 ? `正在分析 ${Math.min(analysisProgress, 99)}%` : "开始分析这场直播"}
+                        {!(analysisProgress > 0 && analysisProgress < 100) && <span aria-hidden="true">↑</span>}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {analysisProgress > 0 && analysisProgress < 100 && (
+                  <div className="composer-progress" aria-live="polite">
+                    <span style={{ width: `${analysisProgress}%` }} />
+                  </div>
+                )}
+              </div>
+              <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
             </form>
 
             <p className="composer-hint">候选有多少就返回多少，不设目标数，也不为凑数补候选。</p>
