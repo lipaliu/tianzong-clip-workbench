@@ -65,4 +65,52 @@ The focused comparison confirms that the portrait video remains the dominant mid
 - P3: the current demo downloads a clean calibration sample; the real backend still needs media rendering and ChatCut project creation.
 - Non-design test gap: standalone `npx tsc --noEmit` still needs Cloudflare Worker ambient types, while the actual lint, rendered-HTML tests, and production build pass.
 
+## Homepage editorial billboard QA · 2026-07-20
+
+### Evidence
+
+- Source visual truth: the six user-supplied editorial layout references under `/var/folders/lh/m1tb_dms7cv5htnh9fkqsz1w0000gn/T/codex-clipboard-*.png` from this iteration.
+- Browser-rendered desktop implementation: `.qa/implementation-desktop.png` at 1440 × 1000.
+- Browser-rendered mobile implementation: `.qa/implementation-mobile.png` at 390 × 844.
+- Focused implementation region: `.qa/implementation-model-focus.png`.
+- Side-by-side comparison input: `.qa/reference-implementation-comparison.png`.
+- State: first-step empty upload state, before selecting a local live recording.
+- Console: checked after desktop and mobile renders; no errors.
+- Primary state checked: upload action visible, STEP 1 selected, STEP 2 and next action disabled before a file is chosen. No local file was transmitted during visual QA.
+
+### Full-view and focused comparison
+
+The final page uses the references as an art-direction system rather than copying one composition: generous white space, asymmetric typographic scale, straight-edged image panels, a pale editorial palette, and a functional module that remains visually separate from the magazine image field. The upload workflow appears before the model artwork, so the page still reads as a tool instead of a campaign page.
+
+The focused model-region capture confirms that five portrait images read as vertical advertising panels rather than thumbnails. Unequal column widths create a magazine rhythm, the image layer remains visible through controlled opacity, and the bottom-only paper scrim preserves the two lines of copy without bleaching the full image field. A focused comparison was necessary because type and image opacity are too small to judge in the full-page contact sheet.
+
+### Required fidelity surfaces
+
+- Fonts and typography: passed. The first copy line is 36px on desktop and 23px on mobile; the second remains legible at 21px and 15px.
+- Spacing and layout rhythm: passed. The functional prompt and composer lead; the image field follows with an editorial pause. Desktop uses a 1180px image field around an 860px work surface. Mobile stays within 390px with no horizontal overflow.
+- Colors and visual tokens: passed. Warm paper, dusty pink controls, gray-lilac image field, and a soft white bottom scrim follow the supplied references without turning the tool into a decorative poster.
+- Image quality and asset fidelity: passed. Five real Tianzong portrait assets are used as large raster panels with direct crops, no placeholder art, rounded-thumbnail treatment, or decorative video.
+- Copy and content: passed. The user-specified two-part sentence is preserved verbatim, including the requested duplicated “的的”.
+
+### Comparison history
+
+#### Iteration 1 — blocked
+
+- [P1] The model artwork appeared before the upload function and took over the first screen.
+- [P2] A 236–286px horizontal band made the five portraits feel like wallpaper tiles instead of vertical advertisements.
+- [P2] Full-area white gradients plus low image opacity washed out the portraits.
+- [P2] Mobile compressed all five images into narrow strips.
+
+Fixes made: moved the upload prompt and two-step composer ahead of the model artwork; raised the image field to 320–390px; increased portrait opacity and contrast; limited the readability scrim to the lower 69%; widened the mobile image canvas to 160% and clipped it deliberately.
+
+Post-fix evidence: `.qa/implementation-desktop.png`, `.qa/implementation-mobile.png`, and `.qa/implementation-model-focus.png` show the function-first order, recognizable portrait crops, readable copy, and no horizontal overflow.
+
+### Findings
+
+No actionable P0, P1, or P2 findings remain for the requested layout change.
+
+### Follow-up polish
+
+- [P3] If the photo library expands later, the first two blue-outfit images can be alternated with a stronger behavior or live-room portrait for more narrative contrast.
+
 final result: passed

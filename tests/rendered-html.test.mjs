@@ -80,10 +80,11 @@ test("server-renders the Tianzong project workbench", async () => {
   assert.match(html, /她不是永远强大，也不是只负责漂亮。/);
   assert.match(html, /她真正珍贵的的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时在一个人身上成立。/);
   assert.equal(html.match(/class="model-copy-line"/g)?.length, 2);
-  assert.match(html, /\/photos\/tz_neon_face\.jpg/);
   assert.match(html, /\/photos\/tz_street_tall\.jpg/);
   assert.match(html, /\/photos\/tz_pose_tall\.jpg/);
   assert.match(html, /\/photos\/tz_city_dress\.jpg/);
+  assert.match(html, /\/photos\/tz_neon_tall\.jpg/);
+  assert.match(html, /\/photos\/tz_pink_dress\.jpg/);
   assert.match(html, /今天要剪哪一场直播/);
   assert.match(html, /上传整场直播，开始找天总切片/);
   assert.match(html, /STEP 1/);
@@ -101,15 +102,14 @@ test("server-renders the Tianzong project workbench", async () => {
   const stepTwoPosition = html.indexOf("STEP 2");
   const uploadPosition = html.indexOf("上传整场直播，开始找天总切片");
   const projectPosition = html.indexOf("每场直播一个项目");
-  assert.ok(modelPosition >= 0 && modelPosition < headlinePosition);
-  assert.ok(headlinePosition < stepOnePosition);
+  assert.ok(headlinePosition >= 0 && headlinePosition < stepOnePosition);
   assert.ok(stepOnePosition < stepTwoPosition);
   assert.ok(stepTwoPosition < uploadPosition);
-  assert.ok(uploadPosition < projectPosition);
+  assert.ok(uploadPosition < modelPosition);
+  assert.ok(modelPosition < projectPosition);
 
   assert.doesNotMatch(html, /天总视觉素材/);
   assert.doesNotMatch(html, /\/editorial\//);
-  assert.match(html, /\/photos\/tz_neon_face\.jpg/);
   assert.match(html, /model-mini/);
   assert.match(html, /workflow-composer/);
   assert.match(html, /intake-stepper/);
@@ -237,9 +237,11 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.doesNotMatch(layout, /og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(styles, /\.output-persona p,[\s\S]*?font-size: 16px/);
-  assert.match(styles, /\.model-mini p[\s\S]*?font-size: 15px/);
+  assert.match(styles, /\.model-mini p[\s\S]*?font-size: clamp\(17px, 1\.55vw, 21px\)/);
   assert.match(styles, /\.model-copy-line[\s\S]*?display: block/);
-  assert.match(styles, /\.model-mini-gallery img[\s\S]*?width: 44px[\s\S]*?height: 58px/);
+  assert.match(styles, /\.model-mini-gallery[\s\S]*?grid-template-columns: 1\.08fr 0\.9fr 1\.22fr 0\.88fr 1\.1fr/);
+  assert.match(styles, /\.model-mini-gallery img[\s\S]*?width: 100%[\s\S]*?height: 100%[\s\S]*?opacity: 0\.64/);
+  assert.doesNotMatch(styles, /\.model-mini-gallery img[\s\S]*?margin-left: -20px/);
   assert.match(styles, /\.output-rationale-grid b[\s\S]*?font-size: 16px/);
   assert.match(styles, /\.feedback-path li > p[\s\S]*?font-size: 16px/);
   assert.match(styles, /\.delivery-option > label > strong,[\s\S]*?font-size: 18px/);

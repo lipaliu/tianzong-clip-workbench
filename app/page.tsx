@@ -1001,21 +1001,6 @@ export default function Home() {
       {step === 1 && (
         <section className="workspace-home" aria-labelledby="intake-title">
           <div className="home-shell">
-            <aside className="model-mini" aria-label="天总专属模型说明">
-              <div className="model-mini-gallery" aria-hidden="true">
-                <img src="/photos/tz_neon_face.jpg" alt="" />
-                <img src="/photos/tz_street_tall.jpg" alt="" />
-                <img src="/photos/tz_pose_tall.jpg" alt="" />
-                <img src="/photos/tz_city_dress.jpg" alt="" />
-              </div>
-              <p>
-                <b>天总专属模型</b>
-                <span className="model-copy-line">她不是永远强大，也不是只负责漂亮。</span>
-                <span className="model-copy-line">她真正珍贵的的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时在一个人身上成立。</span>
-              </p>
-              <small>{corpusBaseline.version}</small>
-            </aside>
-
             <header className="home-prompt">
               <h1 id="intake-title">今天要剪哪一场直播？</h1>
               <p>上传完整原片，选择聊播或带货；这一场会成为一个独立切片项目。</p>
@@ -1158,6 +1143,22 @@ export default function Home() {
             </form>
 
             <p className="composer-hint">候选有多少就返回多少，不设目标数，也不为凑数补候选。</p>
+
+            <aside className="model-mini" aria-label="天总专属模型说明">
+              <div className="model-mini-gallery" aria-hidden="true">
+                <img src="/photos/tz_street_tall.jpg" alt="" />
+                <img src="/photos/tz_pose_tall.jpg" alt="" />
+                <img src="/photos/tz_city_dress.jpg" alt="" />
+                <img src="/photos/tz_neon_tall.jpg" alt="" />
+                <img src="/photos/tz_pink_dress.jpg" alt="" />
+              </div>
+              <p>
+                <b>天总专属模型</b>
+                <span className="model-copy-line">她不是永远强大，也不是只负责漂亮。</span>
+                <span className="model-copy-line">她真正珍贵的的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时在一个人身上成立。</span>
+              </p>
+              <small>{corpusBaseline.version}</small>
+            </aside>
 
             <section className="project-library" aria-labelledby="projects-title">
               <header>
