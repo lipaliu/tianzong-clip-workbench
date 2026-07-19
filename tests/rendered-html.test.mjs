@@ -58,7 +58,8 @@ test("server-renders a function-first editorial Tianzong intake", async () => {
 
   assert.doesNotMatch(html, /天总视觉素材/);
   assert.doesNotMatch(html, /\/editorial\//);
-  assert.doesNotMatch(html, /<img\b/);
+  assert.match(html, /\/photos\/tz_/);
+  assert.match(html, /intake-collage/);
 
   assert.doesNotMatch(html, /CUTLINE/);
   assert.doesNotMatch(html, /codex-preview/);

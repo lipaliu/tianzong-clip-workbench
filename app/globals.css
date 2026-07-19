@@ -1,20 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --paper: #ffffff;
-  --sheet: #ffffff;
-  --sheet-strong: #ffffff;
-  --ink: #000000;
-  --muted: #636363;
-  --faint: #9d9d9d;
-  --line: rgba(0, 0, 0, 0.18);
-  --line-soft: rgba(0, 0, 0, 0.09);
-  --wine: #000000;
-  --wine-deep: #2b2b2b;
-  --wine-soft: #f2cfdb;
-  --wine-wash: #f9edf2;
-  --pink: #e7afc4;
-  --pink-deep: #d98caa;
+  --paper: #fdfcfb;
+  --sheet: #f6f5f3;
+  --sheet-strong: #efedea;
+  --ink: #2e2c2b;
+  --muted: #757070;
+  --faint: #a8a3a1;
+  --line: rgba(46, 44, 43, 0.16);
+  --line-soft: rgba(46, 44, 43, 0.08);
+  --wine: #3a3736;
+  --wine-deep: #4a4645;
+  --wine-soft: #ecc8d5;
+  --wine-wash: #f7edf1;
+  --pink: #dfa3b8;
+  --pink-deep: #c98aa2;
+  --grey-wash: #f2f1ef;
+  --serif: var(--font-serif), "Songti SC", "Noto Serif SC", "SimSun", serif;
   --positive: #2e6b45;
   --danger: #b04a5a;
   --shadow: none;
@@ -39,7 +41,7 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-weight: 400;
+  font-weight: 300;
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -116,8 +118,8 @@ button:not(:disabled):active {
   align-items: center;
   gap: 28px;
   padding: 10px clamp(20px, 3vw, 42px) 9px;
-  border-bottom: 1px solid var(--ink);
-  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--line);
+  background: rgba(253, 252, 251, 0.96);
   backdrop-filter: blur(20px);
 }
 
@@ -131,10 +133,10 @@ button:not(:disabled):active {
   background: transparent;
   color: var(--ink);
   font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(17px, 1.5vw, 21px);
-  font-weight: 800;
+  font-size: clamp(16px, 1.4vw, 20px);
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -186,7 +188,7 @@ button:not(:disabled):active {
 
 .step-rail span {
   font-size: 8px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
@@ -260,19 +262,22 @@ button:not(:disabled):active {
 .intake-view {
   min-height: calc(100svh - 74px);
   padding: 34px clamp(28px, 5vw, 76px) 48px;
-  background: var(--sheet);
+  background: var(--paper);
   color: var(--ink);
 }
 
 .intake-intro {
-  padding: 6px 0 31px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+  gap: 26px clamp(34px, 5vw, 90px);
+  align-items: center;
+  padding: 26px 0 40px;
 }
 
 .intake-copy {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(250px, 0.55fr);
-  gap: 18px clamp(30px, 5vw, 86px);
-  align-items: end;
+  gap: 22px;
+  align-content: center;
 }
 
 .edition-label,
@@ -292,12 +297,101 @@ button:not(:disabled):active {
 
 .intake-intro h1 {
   margin: 0;
-  max-width: 940px;
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(26px, 2.9vw, 42px);
-  font-weight: 700;
-  line-height: 1.28;
-  letter-spacing: 0;
+  max-width: 780px;
+  font-family: var(--serif);
+  font-size: clamp(25px, 2.7vw, 40px);
+  font-weight: 300;
+  font-style: italic;
+  font-synthesis: style;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+}
+
+.intake-intro h1 span {
+  display: block;
+}
+
+.intake-intro h1 span + span {
+  margin-top: 2px;
+}
+
+/* ── AAAD-style photo collage ── */
+
+.intake-collage {
+  position: relative;
+  min-height: 340px;
+  align-self: stretch;
+}
+
+.collage-photo {
+  position: absolute;
+  margin: 0;
+  background: var(--paper);
+}
+
+.collage-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.collage-photo figcaption {
+  position: absolute;
+  left: 0;
+  bottom: -18px;
+  color: var(--faint);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.collage-main {
+  right: 8%;
+  top: 4%;
+  width: 58%;
+  height: 80%;
+  transform: rotate(1.6deg);
+  padding: 8px 8px 26px;
+  border: 1px solid var(--line-soft);
+}
+
+.collage-main img {
+  height: calc(100% - 0px);
+}
+
+.collage-side {
+  left: 0;
+  bottom: 2%;
+  width: 38%;
+  height: 52%;
+  transform: rotate(-2.4deg);
+  opacity: 0.62;
+}
+
+.collage-side img {
+  filter: saturate(0.82) contrast(0.96);
+}
+
+.collage-side::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(253, 252, 251, 0.55), transparent 55%);
+}
+
+.collage-note {
+  position: absolute;
+  right: 0;
+  bottom: 6%;
+  max-width: 120px;
+  color: var(--muted);
+  font-family: var(--serif);
+  font-size: 13px;
+  font-style: italic;
+  line-height: 1.6;
+  text-align: right;
 }
 
 .intake-intro p {
@@ -335,9 +429,9 @@ button:not(:disabled):active {
 .mode-editorial h2 {
   margin: 10px 0 6px;
   font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(21px, 2vw, 30px);
-  font-weight: 700;
-  line-height: 1.15;
+  font-size: clamp(20px, 1.9vw, 28px);
+  font-weight: 500;
+  line-height: 1.2;
   letter-spacing: 0.01em;
 }
 
@@ -383,9 +477,9 @@ button:not(:disabled):active {
 
 .upload-field > span {
   font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(18px, 1.7vw, 25px);
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-size: clamp(17px, 1.6vw, 23px);
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .upload-field small {
@@ -434,20 +528,21 @@ button:not(:disabled):active {
 }
 
 .mode-covers button.selected {
-  background: var(--ink);
-  color: #ffffff;
+  background: var(--wine);
+  color: #f8f5f3;
 }
 
 .mode-covers b {
   margin-bottom: auto;
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 26px;
-  font-weight: 700;
+  font-family: var(--serif);
+  font-size: 28px;
+  font-weight: 500;
+  font-style: italic;
 }
 
 .mode-covers span {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.04em;
 }
 
@@ -459,7 +554,7 @@ button:not(:disabled):active {
 }
 
 .mode-covers button.selected p {
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(248, 245, 243, 0.75);
 }
 
 .intake-footer {
@@ -497,33 +592,34 @@ button:not(:disabled):active {
   align-items: center;
   justify-content: center;
   padding: 0 26px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--wine);
   border-radius: 0;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 500;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   text-decoration: none;
 }
 
 .pink-action {
-  background: var(--ink);
-  color: #ffffff;
+  background: var(--wine);
+  color: #f8f5f3;
 }
 
 .pink-action:hover:not(:disabled) {
-  background: #ffffff;
-  color: var(--ink);
+  background: var(--wine-wash);
+  border-color: var(--pink-deep);
+  color: var(--wine);
 }
 
 .outline-action {
-  background: #ffffff;
-  color: var(--ink);
+  background: transparent;
+  color: var(--wine);
 }
 
 .outline-action:hover:not(:disabled) {
-  background: var(--ink);
-  color: #ffffff;
+  background: var(--wine-wash);
+  border-color: var(--pink-deep);
 }
 
 .outline-action.full {
@@ -599,14 +695,54 @@ button:not(:disabled):active {
 
 .profile-brief-copy {
   max-width: 840px;
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--serif);
   font-size: clamp(15px, 1.4vw, 20px);
-  font-weight: 600;
-  line-height: 1.5;
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.6;
 }
 
 .profile-brief-body {
   padding: 4px 0 30px 264px;
+}
+
+.profile-brief-photos {
+  position: relative;
+  float: right;
+  width: min(300px, 34%);
+  height: 230px;
+  margin: 0 0 18px 34px;
+}
+
+.brief-photo-a {
+  right: 0;
+  top: 0;
+  width: 62%;
+  height: 82%;
+  transform: rotate(2deg);
+  padding: 6px 6px 22px;
+  border: 1px solid var(--line-soft);
+  background: var(--paper);
+}
+
+.brief-photo-b {
+  left: 0;
+  bottom: 0;
+  width: 46%;
+  height: 58%;
+  transform: rotate(-3deg);
+  opacity: 0.6;
+}
+
+.brief-photo-b img {
+  filter: saturate(0.7) contrast(0.95);
+}
+
+.brief-photo-b::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(253, 252, 251, 0.5), transparent 60%);
 }
 
 .persona-mini-list {
@@ -628,9 +764,10 @@ button:not(:disabled):active {
 .persona-mini-list b {
   display: block;
   color: var(--ink);
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 15px;
-  font-weight: 700;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 500;
+  font-style: italic;
 }
 
 .persona-mini-list span {
@@ -698,8 +835,8 @@ button:not(:disabled):active {
 
 .knowledge-note header b {
   font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 19px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 500;
 }
 
 .knowledge-note-grid {
@@ -776,9 +913,9 @@ button:not(:disabled):active {
 
 .panel-heading b {
   font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 19px;
-  font-weight: 700;
-  line-height: 1.1;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.15;
 }
 
 .panel-heading > button {
@@ -962,7 +1099,7 @@ button:not(:disabled):active {
   bottom: 0;
   left: -22px;
   width: 3px;
-  background: var(--ink);
+  background: var(--pink);
 }
 
 .map-preview {
@@ -973,11 +1110,11 @@ button:not(:disabled):active {
 .map-preview h1,
 .cut-preview h1 {
   margin: 24px 0 9px;
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(28px, 2.9vw, 42px);
-  font-weight: 700;
-  line-height: 1.14;
-  letter-spacing: 0;
+  font-family: var(--serif);
+  font-size: clamp(28px, 2.9vw, 44px);
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
 }
 
 .map-preview > p {
@@ -999,24 +1136,52 @@ button:not(:disabled):active {
 }
 
 .source-placeholder {
+  position: relative;
+  overflow: hidden;
   min-height: clamp(260px, 42svh, 470px);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   padding: clamp(24px, 4vw, 54px);
   border: 1px solid var(--line);
-  background:
-    linear-gradient(90deg, transparent 49.9%, var(--line-soft) 50%, transparent 50.1%),
-    linear-gradient(var(--line-soft), var(--line-soft)) 0 23% / 100% 1px no-repeat,
-    var(--paper);
+  background: var(--paper);
+}
+
+.placeholder-atmo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+  opacity: 0.22;
+  filter: saturate(0.65) contrast(0.92);
+  pointer-events: none;
+}
+
+.source-placeholder::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(to top, rgba(253, 252, 251, 0.92) 8%, rgba(253, 252, 251, 0.45) 55%, rgba(253, 252, 251, 0.15));
+  pointer-events: none;
+}
+
+.source-placeholder > span,
+.source-placeholder > strong,
+.source-placeholder > p {
+  position: relative;
+  z-index: 2;
 }
 
 .source-placeholder.proof {
   min-height: clamp(230px, 36svh, 390px);
-  background:
-    linear-gradient(90deg, transparent 49.9%, var(--line-soft) 50%, transparent 50.1%),
-    linear-gradient(var(--line-soft), var(--line-soft)) 0 28% / 100% 1px no-repeat,
-    var(--wine-wash);
+  background: var(--wine-wash);
+}
+
+.source-placeholder.proof::before {
+  background: linear-gradient(to top, rgba(247, 237, 241, 0.92) 8%, rgba(247, 237, 241, 0.5) 55%, rgba(247, 237, 241, 0.18));
 }
 
 .source-placeholder > span {
@@ -1030,11 +1195,12 @@ button:not(:disabled):active {
 }
 
 .source-placeholder > strong {
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(26px, 3.6vw, 52px);
-  font-weight: 700;
-  line-height: 1.08;
-  letter-spacing: 0;
+  font-family: var(--serif);
+  font-size: clamp(26px, 3.6vw, 50px);
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
 }
 
 .source-placeholder > p {
@@ -1092,10 +1258,10 @@ button:not(:disabled):active {
 .duration-proof strong {
   display: block;
   margin-top: 11px;
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.3;
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .decision-proof ol {
@@ -1174,9 +1340,9 @@ button:not(:disabled):active {
   display: inline-block;
   margin-top: 5px;
   color: var(--ink);
-  font-family: var(--font-display), "PingFang SC", sans-serif;
-  font-size: 20px;
-  font-weight: 700;
+  font-family: var(--serif);
+  font-size: 21px;
+  font-weight: 500;
   line-height: 1;
 }
 
@@ -1377,10 +1543,11 @@ button:not(:disabled):active {
 .output-duration h2 {
   margin: 10px 0 0;
   color: var(--ink);
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(19px, 1.9vw, 27px);
-  font-weight: 700;
-  line-height: 1.25;
+  font-family: var(--serif);
+  font-size: clamp(19px, 1.9vw, 28px);
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.35;
   letter-spacing: 0.01em;
 }
 
@@ -1515,10 +1682,11 @@ button:not(:disabled):active {
 
 .transcript-head h2 {
   margin: 0;
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 23px;
-  font-weight: 700;
-  line-height: 1.1;
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 400;
+  font-style: italic;
+  line-height: 1.2;
 }
 
 .transcript-head p {
@@ -1553,8 +1721,8 @@ button:not(:disabled):active {
 }
 
 .transcript-lines article.playing {
-  background: #ffffff;
-  box-shadow: inset 3px 0 0 var(--ink);
+  background: var(--wine-wash);
+  box-shadow: inset 3px 0 0 var(--pink);
 }
 
 .transcript-lines article.removed {
@@ -1674,8 +1842,8 @@ button:not(:disabled):active {
   max-height: calc(100svh - 48px);
   overflow: auto;
   padding: clamp(28px, 5vw, 62px);
-  border: 1px solid var(--ink);
-  background: #ffffff;
+  border: 1px solid var(--line);
+  background: var(--paper);
 }
 
 .modal-close {
@@ -1692,10 +1860,10 @@ button:not(:disabled):active {
 .architecture-modal h2 {
   max-width: 760px;
   margin: 20px 0 30px;
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: var(--serif);
   font-size: clamp(25px, 3.1vw, 38px);
-  font-weight: 700;
-  line-height: 1.2;
+  font-weight: 400;
+  line-height: 1.3;
   letter-spacing: 0;
 }
 
@@ -1729,7 +1897,7 @@ button:not(:disabled):active {
   margin-top: auto;
   font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .architecture-list p {
@@ -1747,8 +1915,8 @@ button:not(:disabled):active {
   width: min(390px, calc(100vw - 48px));
   padding: 15px 18px;
   border-left: 3px solid var(--pink);
-  background: var(--ink);
-  color: #ffffff;
+  background: var(--wine);
+  color: #f8f5f3;
   font-size: 10px;
   line-height: 1.6;
 }
@@ -1875,13 +2043,23 @@ button:not(:disabled):active {
     padding: 28px 22px 40px;
   }
 
+    .intake-intro,
   .intake-copy,
   .intake-grid {
     grid-template-columns: 1fr;
   }
-
   .intake-copy {
     gap: 18px;
+  }
+  .intake-collage {
+    min-height: 250px;
+    max-width: 420px;
+  }
+  .profile-brief-photos {
+    float: none;
+    width: min(300px, 70%);
+    height: 190px;
+    margin: 0 0 20px;
   }
 
   .upload-editorial,

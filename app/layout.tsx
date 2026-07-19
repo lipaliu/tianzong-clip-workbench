@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Archivo, Geist, Geist_Mono } from "next/font/google";
+import { Archivo, Cormorant_Garamond, Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 
@@ -17,6 +17,13 @@ const archivo = Archivo({
   variable: "--font-display",
   subsets: ["latin"],
   weight: ["500", "600", "700", "800"],
+});
+
+const cormorant = Cormorant_Garamond({
+  variable: "--font-serif",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600"],
+  style: ["normal", "italic"],
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -58,7 +65,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${geistSans.variable} ${geistMono.variable} ${archivo.variable}`}>{children}</body>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${archivo.variable} ${cormorant.variable}`}>{children}</body>
     </html>
   );
 }

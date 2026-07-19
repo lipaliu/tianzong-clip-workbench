@@ -713,8 +713,23 @@ export default function Home() {
           <div className="intake-intro">
             <div className="intake-copy">
               <span className="edition-label">整场直播 → 内容地图 → 文字精剪</span>
-              <h1 id="intake-title">她不是永远强大，也不是只负责漂亮。她真正让人留下来的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时成立。</h1>
+              <h1 id="intake-title">
+                <span>她不是永远强大，也不是只负责漂亮。</span>
+                <span>她真正让人留下来的，</span>
+                <span>是“有本事、有判断、像姐妹、会发疯、也会受伤”同时成立。</span>
+              </h1>
               <p>先选择聊播或带货。候选数量由直播内容自然决定，不设目标数。</p>
+            </div>
+            <div className="intake-collage" aria-hidden="true">
+              <figure className="collage-photo collage-main">
+                <img src="/photos/tz_neon_tall.jpg" alt="" loading="lazy" />
+                <figcaption>her, live · 01</figcaption>
+              </figure>
+              <figure className="collage-photo collage-side">
+                <img src="/photos/tz_lake_dusk.jpg" alt="" loading="lazy" />
+                <figcaption>off record</figcaption>
+              </figure>
+              <span className="collage-note">她的原话，逐句留证</span>
             </div>
           </div>
 
@@ -783,6 +798,16 @@ export default function Home() {
               <span className="profile-brief-copy">一个有实战能力、嘴很快、主意很正的女老板；她帮姐妹把赚钱、关系和生活讲明白，又总在最有权威感的时候被现实拆台。</span>
             </summary>
             <div className="profile-brief-body">
+              <div className="profile-brief-photos" aria-hidden="true">
+                <figure className="collage-photo brief-photo-a">
+                  <img src="/photos/tz_pink_dress.jpg" alt="" loading="lazy" />
+                  <figcaption>field note · a</figcaption>
+                </figure>
+                <figure className="collage-photo brief-photo-b">
+                  <img src="/photos/tz_city_dress.jpg" alt="" loading="lazy" />
+                  <figcaption>field note · b</figcaption>
+                </figure>
+              </div>
               <div className="persona-mini-list" aria-label="天总五种人物状态">
                 {personaSpectrum.map((item) => (
                   <div key={item.label}><b>{item.label}</b><span>{item.description}</span></div>
@@ -864,6 +889,7 @@ export default function Home() {
               />
             ) : (
               <section className="source-placeholder" aria-label="原片校对说明">
+                <img className="placeholder-atmo" src="/photos/tz_lake_front.jpg" alt="" aria-hidden="true" loading="lazy" />
                 <span>Source review / 原片校对窗</span>
                 <strong>{activeClip.sourceTime}</strong>
                 <p>当前先展示已经完成评审的候选判断。上传本场完整直播后，这里才出现连续原片；系统不会再用无关演示视频代替她的真实上下文。</p>
@@ -969,6 +995,7 @@ export default function Home() {
               />
             ) : (
               <section className="source-placeholder proof" aria-label="逐字校对说明">
+                <img className="placeholder-atmo" src="/photos/tz_lake_dusk.jpg" alt="" aria-hidden="true" loading="lazy" />
                 <span>Proofing view / 逐字校对</span>
                 <strong>{activeClip.sourceTime}</strong>
                 <p>未上传本场原片时，只呈现逐句证据、删留理由与输出判断；不再播放不属于本场直播的演示视频。</p>
