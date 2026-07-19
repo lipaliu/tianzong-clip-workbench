@@ -5,6 +5,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 type Mode = "聊播" | "带货";
 type WorkflowStep = 1 | 2 | 3;
 type Decision = "keep" | "remove";
+type PersonaMode = "实战老板" | "强姐姐" | "视觉吸引" | "搞笑女" | "脆弱真实";
 
 type TranscriptLine = {
   id: string;
@@ -49,19 +50,42 @@ type ClipIdea = {
 
 const corpusBaseline = {
   version: "内测 BETA 1.0",
-  contentUnits: "2,469",
-  transcriptLines: "32,594",
-  materialFiles: "909",
-  uniqueWorks: "827",
-  analysisBatches: "47",
-  calibratedOriginals: "5",
 };
 
-const durationReferences = [
-  { label: "micro", value: "12–27 秒" },
-  { label: "standard", value: "28–35 秒" },
-  { label: "deep_dive", value: "90–130 秒" },
-  { label: "custom", value: "无硬窗口" },
+const personaSpectrum: { label: PersonaMode; description: string }[] = [
+  { label: "实战老板", description: "有公司、品牌、直播、电商、供应链与用人经验。" },
+  { label: "强姐姐", description: "面向女性观众，嘴快、结论直接、主意很正。" },
+  { label: "视觉吸引", description: "漂亮、会穿、会展示，镜头里有稳定吸引力。" },
+  { label: "搞笑女", description: "随时唱跳、做饭翻车、逗猫，也会装逼失败。" },
+  { label: "脆弱真实", description: "会谈自卑、原生家庭、爱情、失去与疲惫。" },
+];
+
+const corePersonality = [
+  "结论先行：常用“不要、先、根本、一定、直接”把立场摆在前面。",
+  "老板视角：习惯讲用户、痛点、数据、成本、效率、复购、供应链与结果。",
+  "姐妹语境：高频称“姐妹、宝贝”，把强势判断包进熟人式照顾。",
+  "自信但不端着：会展示财富、身材、业务和能力，也会马上自嘲或翻车。",
+  "强控制感：主张先行动、先试、看数据、复盘，不把决定权交给伴侣或环境。",
+  "敢露脆弱：会承认自卑、身材焦虑、丧、爱情创伤和家庭距离。",
+];
+
+const stableValues = [
+  "女性先建立经济能力、工作能力与生活掌控感。",
+  "赚钱与事业不同，短期收入与长期价值也不同。",
+  "做事先看真实用户和数据，不只凭想象。",
+  "学历是重要的一张牌，但不是整副人生。",
+  "不把男人、婚姻、别人评价或一次失败当人生中心。",
+  "自媒体不是低门槛捷径，普通日常需要具体观看价值。",
+  "读书、学习和行动应形成闭环，不能只靠听鸡汤获得安慰。",
+  "美和穿衣应服务本人，不用参加女性之间的竞争。",
+];
+
+const coreAudience = [
+  "18–35 岁，处在求学、求职、转岗、创业或自媒体起步期的女性。",
+  "想做直播、电商、个人 IP、穿搭美妆或小生意的人。",
+  "在分手、催婚、关系边界、独处或自我价值上需要明确答案的人。",
+  "喜欢漂亮女性、穿搭、身材、唱跳、做饭和宠物的人。",
+  "把她当“电子闺蜜、强姐姐、会发疯的老板”的长期粉丝。",
 ];
 
 const scoreLabels = [
@@ -672,47 +696,57 @@ export default function Home() {
       {step === 1 && (
         <section className="intake-view" aria-labelledby="intake-title">
           <div className="intake-intro">
-            <span className="edition-label">天总聊播 / 带货校准规则</span>
+            <span className="edition-label">天总人物与直播内容系统</span>
             <h1 id="intake-title">只剪天总，也以她当前的直播逻辑为准。</h1>
-            <p>系统把我们对天总直播的长期研究变成每一步可追溯的判断。近期直播与近期切片拥有最高权重，早期官方作品只作低权重风格参考；候选由自然语义闭环决定，有多少就是多少。</p>
+            <p>一个有实战能力、嘴很快、主意很正的女老板；她帮姐妹把赚钱、关系和生活讲明白，又总在最有权威感的时候被现实拆台。</p>
           </div>
 
-          <section className="research-baseline" aria-labelledby="research-title">
-            <div className="research-heading">
-              <span>研究基线 · {corpusBaseline.version}</span>
-              <h2 id="research-title">不是一句“懂天总”，而是已经拆过、读过、校过的内容资产。</h2>
-              <p>当前基线来自四份逐字稿、四组切片素材、近期直播复盘和五条真实视频时长校准。页面上的类型、分数、候选数量与成片时长，都必须能回到明确证据解释。</p>
-            </div>
-            <div className="research-metrics" aria-label="天总语料统计">
-              <div><b>{corpusBaseline.contentUnits}</b><span>原始段落记录 · 待去重质检</span></div>
-              <div><b>{corpusBaseline.transcriptLines}</b><span>逐字稿行</span></div>
-              <div><b>{corpusBaseline.materialFiles}</b><span>视频素材文件</span></div>
-              <div><b>{corpusBaseline.uniqueWorks}</b><span>去重作品 ID</span></div>
-              <div><b>{corpusBaseline.analysisBatches}</b><span>语料分析批次</span></div>
-              <div><b>{corpusBaseline.calibratedOriginals}</b><span>逐秒校准原片</span></div>
-            </div>
-            <p className="research-disclaimer">47 个分析批次覆盖 97.85% 逐字稿；2,469 是处理器返回的原始段落记录，不等于 2,469 条已验证成片。</p>
-            <div className="persona-evidence">
+          <section className="profile-editorial" aria-labelledby="profile-title">
+            <header className="profile-thesis">
+              <span>天总人物判断 · {corpusBaseline.version}</span>
               <div>
-                <span>稳定人设结论</span>
-                <strong>高能反差型女老板</strong>
-                <p>可以狠，但要有理；可以贵，但要务实；可以美，但要真实；可以卖，但先有证据。</p>
+                <h2 id="profile-title">真正稀缺的，不是某一句商业金句，也不是单纯的颜值、身材或“霸总”人设。</h2>
+                <blockquote>一个有实战能力、嘴很快、主意很正的女老板；她帮姐妹把赚钱、关系和生活讲明白，又总在最有权威感的时候被现实拆台。</blockquote>
               </div>
+            </header>
+
+            <div className="identity-switch">
+              <span>她能在同一个人身上连续切换</span>
               <div>
-                <span>当前权重顺序</span>
-                <strong>近期直播 ＞ 近期切片 ＞ 早期官方作品</strong>
-                <p>她现在不再使用的旧做法不会反向绑架当前判断。</p>
+                {personaSpectrum.map((item) => (
+                  <article className="identity-pill" key={item.label}>
+                    <b>{item.label}</b>
+                    <p>{item.description}</p>
+                  </article>
+                ))}
               </div>
             </div>
-            <div className="duration-reference" aria-label="历史时长参考">
-              <span>类型化时长参考，不是硬裁切线</span>
-              <div>{durationReferences.map((item) => <p key={item.label}><b>{item.label}</b><em>{item.value}</em></p>)}</div>
+
+            <div className="profile-columns">
+              <article className="profile-chapter">
+                <span>01 / 核心人格</span>
+                <h3>她为什么让人相信</h3>
+                <ul className="profile-list">
+                  {corePersonality.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </article>
+              <article className="profile-chapter">
+                <span>02 / 稳定价值观</span>
+                <h3>她反复在讲什么</h3>
+                <ul className="profile-list">
+                  {stableValues.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </article>
+              <article className="profile-chapter">
+                <span>03 / 核心观众</span>
+                <h3>谁会长期留下来</h3>
+                <ul className="profile-list">
+                  {coreAudience.map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </article>
             </div>
-            <div className="calibration-strip" aria-label="真实视频时长校准结果">
-              <div><span>standard · n=4</span><b>28.54–32.07 秒</b><small>均值 30.57 · 中位数 30.84</small></div>
-              <div><span>deep_dive · n=1</span><b>122.34 秒</b><small>完整观点不因超过 75 秒自动拆条</small></div>
-              <p>这是五条真实视频的首轮小样本研究基线，不是平台“最佳时长”，带货类型仍待原片校准。</p>
-            </div>
+
+            <p className="profile-close">她不是永远强大，也不是只负责漂亮。真正让人留下来的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时成立。</p>
           </section>
 
           <div className="intake-grid">
@@ -755,30 +789,6 @@ export default function Home() {
               </div>
             </section>
           </div>
-
-          <section className="knowledge-version" aria-label="天总知识库版本演进">
-            <div>
-              <span>当前学习结果</span>
-              <h2>{corpusBaseline.version}</h2>
-              <p>你在后台持续补充、纠偏和讲解后，系统把已经确认的判断固化进这一版；前台只展示学会后的规则与依据。</p>
-              <div className="release-learnings">
-                <span>这一版已经学会</span>
-                <ul className="learning-list">
-                  <li>近期直播与近期切片最高权重，早期官方作品降权。</li>
-                  <li>候选数量由自然语义闭环决定，不设目标数、不补齐。</li>
-                  <li>聊播保留判断、理由与落点；无效插话不承担语义就删除。</li>
-                  <li>带货先锁定一个购买理由，限制、劝退与实物证明同片保留。</li>
-                  <li>时长是完整表达的结果，不用固定秒数反向切碎观点。</li>
-                </ul>
-              </div>
-            </div>
-            <ol>
-              <li><b>01</b><span>后台研究对话</span><p>你继续讲、继续纠偏，补充新的天总判断</p></li>
-              <li><b>02</b><span>判断修订</span><p>明确新增、修改或废止了哪一条规则</p></li>
-              <li><b>03</b><span>回测校准</span><p>用既有直播与编导回标验证变化是否成立</p></li>
-              <li><b>04</b><span>版本发布</span><p>BETA 1.0 → 正式 1.0 → 2.0 → 3.0 → 5.0 → 10.0</p></li>
-            </ol>
-          </section>
 
           <div className="intake-footer">
             <div>
