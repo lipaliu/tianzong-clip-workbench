@@ -720,16 +720,18 @@ export default function Home() {
               </h1>
               <p>先选择聊播或带货。候选数量由直播内容自然决定，不设目标数。</p>
             </div>
-            <div className="intake-collage" aria-hidden="true">
-              <figure className="collage-photo collage-main">
-                <img src="/photos/tz_neon_tall.jpg" alt="" loading="lazy" />
-                <figcaption>her, live · 01</figcaption>
-              </figure>
-              <figure className="collage-photo collage-side">
-                <img src="/photos/tz_lake_dusk.jpg" alt="" loading="lazy" />
-                <figcaption>off record</figcaption>
-              </figure>
-              <span className="collage-note">她的原话，逐句留证</span>
+            <div className="intake-collage-wrap" aria-hidden="true">
+              <div className="intake-collage">
+                <figure className="collage-photo collage-main">
+                  <img src="/photos/tz_neon_tall.jpg" alt="" loading="lazy" />
+                  <figcaption>her, live · 01</figcaption>
+                </figure>
+                <figure className="collage-photo collage-side">
+                  <img src="/photos/tz_lake_dusk.jpg" alt="" loading="lazy" />
+                  <figcaption>off record</figcaption>
+                </figure>
+                <span className="collage-note">她的原话，逐句留证</span>
+              </div>
             </div>
           </div>
 
