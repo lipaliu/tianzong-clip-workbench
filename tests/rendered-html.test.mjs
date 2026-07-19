@@ -14,7 +14,7 @@ async function render() {
   );
 }
 
-test("server-renders the Tianzong livestream clipping system", async () => {
+test("server-renders a function-first Tianzong clipping intake", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -23,27 +23,33 @@ test("server-renders the Tianzong livestream clipping system", async () => {
   assert.match(html, /<meta name="robots" content="noindex, nofollow, noarchive"\s*\/?>/);
   assert.match(html, /天总直播切片系统/);
   assert.match(html, /内测 BETA 1\.0/);
-  assert.match(html, /01 \/ 核心人格/);
-  assert.match(html, /她为什么让人相信/);
-  assert.match(html, /02 \/ 稳定价值观/);
-  assert.match(html, /她反复在讲什么/);
-  assert.match(html, /03 \/ 核心观众/);
-  assert.match(html, /谁会长期留下来/);
-  assert.match(html, /真正稀缺的，?不是某一句商业金句/);
-  assert.match(html, /实战老板/);
-  assert.match(html, /强姐姐/);
-  assert.match(html, /视觉吸引/);
-  assert.match(html, /搞笑女/);
-  assert.match(html, /脆弱真实/);
-  assert.match(html, /有实战能力、嘴很快、主意很正的女老板/);
+  assert.match(html, /上传整场直播，开始找天总切片/);
+  assert.match(html, /上传天总完整直播/);
+  assert.match(html, /选择直播录屏/);
+  assert.match(html, /选择天总本场直播类型/);
+  assert.match(html, /开始生成内容地图/);
+  assert.match(html, /当前为内部内测/);
+  assert.match(html, /这个系统怎样理解天总/);
+  assert.match(html, /展开人物判断/);
+  assert.match(html, /有实战能力、嘴很快、主意很正/);
   assert.match(html, /帮姐妹把赚钱、关系和生活讲明白/);
   assert.match(html, /最有权威感的时候被现实拆台/);
-  assert.match(html, /电子闺蜜、强姐姐、会发疯的老板/);
   assert.match(html, /上传与类型/);
   assert.match(html, /内容地图/);
   assert.match(html, /文字精剪/);
   assert.match(html, /聊播/);
   assert.match(html, /带货/);
+
+  const uploadPosition = html.indexOf("上传天总完整直播");
+  const modePosition = html.indexOf("选择天总本场直播类型");
+  const ctaPosition = html.indexOf("开始生成内容地图");
+  const prototypePosition = html.indexOf("当前为内部内测");
+  const profilePosition = html.indexOf("这个系统怎样理解天总");
+  assert.ok(uploadPosition >= 0 && uploadPosition < modePosition);
+  assert.ok(modePosition < ctaPosition);
+  assert.ok(ctaPosition < prototypePosition);
+  assert.ok(prototypePosition < profilePosition);
+
   assert.doesNotMatch(html, /CUTLINE/);
   assert.doesNotMatch(html, /codex-preview/);
   assert.doesNotMatch(html, /Your site is taking shape/);
@@ -65,11 +71,22 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.doesNotMatch(page, /demoDiscoveryCounts/);
   assert.match(page, /句级预听/);
   assert.match(page, /uploadedPreviewUrl \? activeClip\.sourceStart : 0/);
+  assert.match(page, /<details className="profile-brief">/);
+  assert.match(page, /这个系统怎样理解天总/);
+  assert.match(page, /展开人物判断/);
   assert.match(page, /实战老板/);
   assert.match(page, /强姐姐/);
   assert.match(page, /视觉吸引/);
   assert.match(page, /搞笑女/);
   assert.match(page, /脆弱真实/);
+  assert.match(page, /className="persona-proof"/);
+  assert.match(page, /为什么是天总/);
+  assert.match(page, /activeClip\.personaModes/);
+  assert.match(page, /activeClip\.personaReason/);
+  assert.match(page, /className="output-persona"/);
+  assert.match(page, /这条保住的人物线/);
+  assert.doesNotMatch(page, /01 \/ 核心人格/);
+  assert.doesNotMatch(page, /profile-editorial/);
   assert.doesNotMatch(page, /research-metrics/);
   assert.doesNotMatch(page, /calibration-strip/);
   assert.doesNotMatch(page, /duration-reference/);

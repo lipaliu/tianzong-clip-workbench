@@ -35,6 +35,8 @@ type ClipIdea = {
   score: number;
   summary: string;
   contentType: string;
+  personaModes: PersonaMode[];
+  personaReason: string;
   durationMode: string;
   durationWindow: string;
   durationReason: string;
@@ -60,32 +62,19 @@ const personaSpectrum: { label: PersonaMode; description: string }[] = [
   { label: "脆弱真实", description: "会谈自卑、原生家庭、爱情、失去与疲惫。" },
 ];
 
-const corePersonality = [
-  "结论先行：常用“不要、先、根本、一定、直接”把立场摆在前面。",
-  "老板视角：习惯讲用户、痛点、数据、成本、效率、复购、供应链与结果。",
-  "姐妹语境：高频称“姐妹、宝贝”，把强势判断包进熟人式照顾。",
-  "自信但不端着：会展示财富、身材、业务和能力，也会马上自嘲或翻车。",
-  "强控制感：主张先行动、先试、看数据、复盘，不把决定权交给伴侣或环境。",
-  "敢露脆弱：会承认自卑、身材焦虑、丧、爱情创伤和家庭距离。",
-];
-
-const stableValues = [
-  "女性先建立经济能力、工作能力与生活掌控感。",
-  "赚钱与事业不同，短期收入与长期价值也不同。",
-  "做事先看真实用户和数据，不只凭想象。",
-  "学历是重要的一张牌，但不是整副人生。",
-  "不把男人、婚姻、别人评价或一次失败当人生中心。",
-  "自媒体不是低门槛捷径，普通日常需要具体观看价值。",
-  "读书、学习和行动应形成闭环，不能只靠听鸡汤获得安慰。",
-  "美和穿衣应服务本人，不用参加女性之间的竞争。",
-];
-
-const coreAudience = [
-  "18–35 岁，处在求学、求职、转岗、创业或自媒体起步期的女性。",
-  "想做直播、电商、个人 IP、穿搭美妆或小生意的人。",
-  "在分手、催婚、关系边界、独处或自我价值上需要明确答案的人。",
-  "喜欢漂亮女性、穿搭、身材、唱跳、做饭和宠物的人。",
-  "把她当“电子闺蜜、强姐姐、会发疯的老板”的长期粉丝。",
+const profileChapters = [
+  {
+    label: "核心人格",
+    text: "结论先行、老板视角、姐妹语境；自信但不端着，敢控制局面，也敢承认脆弱。",
+  },
+  {
+    label: "稳定价值观",
+    text: "女性先建立赚钱与生活能力；看用户和数据，不把男人、婚姻或一次失败当人生中心。",
+  },
+  {
+    label: "核心观众",
+    text: "想把赚钱、关系和生活想明白的女性，把她当电子闺蜜、强姐姐和会发疯的老板。",
+  },
 ];
 
 const scoreLabels = [
@@ -104,6 +93,8 @@ function scoreParts(scores: number[]): ScorePart[] {
 type ClipIdeaBase = Omit<
   ClipIdea,
   | "contentType"
+  | "personaModes"
+  | "personaReason"
   | "durationMode"
   | "durationWindow"
   | "durationReason"
@@ -281,6 +272,57 @@ const ideaEvidence: Record<
   },
 };
 
+const personaEvidence: Record<string, Pick<ClipIdea, "personaModes" | "personaReason">> = {
+  "chat-longterm": {
+    personaModes: ["实战老板", "强姐姐"],
+    personaReason: "卖货的人先劝想赚快钱者停下，再用两年学习成本证明：她的强硬来自做过，不是摆姿态。",
+  },
+  "chat-ip": {
+    personaModes: ["强姐姐", "实战老板"],
+    personaReason: "能创业的老板却先劝普通人稳住工作，用现金流和副业验证给出更现实的行动顺序。",
+  },
+  "chat-rules": {
+    personaModes: ["强姐姐"],
+    personaReason: "把关系里的猜心压成清楚的行为判断，狠话后面仍然有边界和理由。",
+  },
+  "chat-energy": {
+    personaModes: ["脆弱真实", "强姐姐"],
+    personaReason: "一向高能的人承认精力会见底，再替疲惫的姐妹重新命名问题。",
+  },
+  "chat-problems": {
+    personaModes: ["实战老板", "脆弱真实"],
+    personaReason: "老板权威与创业代价同时出现：不是每天都赢，而是每天解决真实问题。",
+  },
+  "chat-money": {
+    personaModes: ["实战老板", "强姐姐"],
+    personaReason: "最会赚钱的人反而说赚钱不是唯一目标，再用经营经验解释动作为什么会变形。",
+  },
+  "sales-dress": {
+    personaModes: ["视觉吸引", "实战老板"],
+    personaReason: "先用上身表现吸引，再让三种穿法、腰线与场景把漂亮变成可验证的购买理由。",
+  },
+  "sales-mainpick": {
+    personaModes: ["实战老板", "强姐姐"],
+    personaReason: "一个卖货的人先劝观众别盲买主推，再站回消费者一边解释库存与利润。",
+  },
+  "sales-bag": {
+    personaModes: ["视觉吸引", "实战老板"],
+    personaReason: "人物动作不是装饰，而是逐项展示八个口袋、完成产品证明的主要语言。",
+  },
+  "sales-shape": {
+    personaModes: ["视觉吸引", "强姐姐"],
+    personaReason: "既展示比例和上身效果，也替女性观众解除对小尺码的执念。",
+  },
+  "sales-fans": {
+    personaModes: ["实战老板", "强姐姐"],
+    personaReason: "老板看清直播系统，再把复杂的用户分层翻译成姐妹能听懂的沟通方式。",
+  },
+  "sales-reason": {
+    personaModes: ["实战老板", "视觉吸引"],
+    personaReason: "经营判断负责只留一个购买理由，镜头展示负责把这个理由证明出来。",
+  },
+};
+
 const baseIdeas: ClipIdeaBase[] = [
   {
     id: "chat-longterm",
@@ -455,6 +497,7 @@ const baseIdeas: ClipIdeaBase[] = [
 const ideas: ClipIdea[] = baseIdeas.map((idea) => ({
   ...idea,
   ...ideaEvidence[idea.id],
+  ...personaEvidence[idea.id],
 }));
 
 const initialDecisions = Object.fromEntries(
@@ -689,65 +732,17 @@ export default function Home() {
               ))}
             </div>
           )}
-          <button className="text-action" onClick={() => setShowArchitecture(true)}>天总切片规则</button>
+          <button className="text-action" onClick={() => setShowArchitecture(true)}>系统说明</button>
         </div>
       </header>
 
       {step === 1 && (
         <section className="intake-view" aria-labelledby="intake-title">
           <div className="intake-intro">
-            <span className="edition-label">天总人物与直播内容系统</span>
-            <h1 id="intake-title">只剪天总，也以她当前的直播逻辑为准。</h1>
-            <p>一个有实战能力、嘴很快、主意很正的女老板；她帮姐妹把赚钱、关系和生活讲明白，又总在最有权威感的时候被现实拆台。</p>
+            <span className="edition-label">整场直播 → 内容地图 → 文字精剪</span>
+            <h1 id="intake-title">上传整场直播，开始找天总切片。</h1>
+            <p>先选择聊播或带货。候选数量由直播内容自然决定，不设目标数。</p>
           </div>
-
-          <section className="profile-editorial" aria-labelledby="profile-title">
-            <header className="profile-thesis">
-              <span>天总人物判断 · {corpusBaseline.version}</span>
-              <div>
-                <h2 id="profile-title">真正稀缺的，不是某一句商业金句，也不是单纯的颜值、身材或“霸总”人设。</h2>
-                <blockquote>一个有实战能力、嘴很快、主意很正的女老板；她帮姐妹把赚钱、关系和生活讲明白，又总在最有权威感的时候被现实拆台。</blockquote>
-              </div>
-            </header>
-
-            <div className="identity-switch">
-              <span>她能在同一个人身上连续切换</span>
-              <div>
-                {personaSpectrum.map((item) => (
-                  <article className="identity-pill" key={item.label}>
-                    <b>{item.label}</b>
-                    <p>{item.description}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-
-            <div className="profile-columns">
-              <article className="profile-chapter">
-                <span>01 / 核心人格</span>
-                <h3>她为什么让人相信</h3>
-                <ul className="profile-list">
-                  {corePersonality.map((item) => <li key={item}>{item}</li>)}
-                </ul>
-              </article>
-              <article className="profile-chapter">
-                <span>02 / 稳定价值观</span>
-                <h3>她反复在讲什么</h3>
-                <ul className="profile-list">
-                  {stableValues.map((item) => <li key={item}>{item}</li>)}
-                </ul>
-              </article>
-              <article className="profile-chapter">
-                <span>03 / 核心观众</span>
-                <h3>谁会长期留下来</h3>
-                <ul className="profile-list">
-                  {coreAudience.map((item) => <li key={item}>{item}</li>)}
-                </ul>
-              </article>
-            </div>
-
-            <p className="profile-close">她不是永远强大，也不是只负责漂亮。真正让人留下来的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时成立。</p>
-          </section>
 
           <div className="intake-grid">
             <section className="upload-editorial" aria-label="上传直播录屏">
@@ -807,6 +802,26 @@ export default function Home() {
           )}
 
           <p className="prototype-note">当前为内部内测：仅演示校准样片、候选依据和句级预听；真实上传、全场转写、候选生成、视频渲染与 ChatCut 写入尚未接通。</p>
+
+          <details className="profile-brief">
+            <summary>
+              <span>这个系统怎样理解天总</span>
+              <span className="profile-brief-copy">一个有实战能力、嘴很快、主意很正的女老板；她帮姐妹把赚钱、关系和生活讲明白，又总在最有权威感的时候被现实拆台。</span>
+              <b>展开人物判断</b>
+            </summary>
+            <div className="profile-brief-body">
+              <div className="persona-mini-list" aria-label="天总五种人物状态">
+                {personaSpectrum.map((item) => (
+                  <div key={item.label}><b>{item.label}</b><span>{item.description}</span></div>
+                ))}
+              </div>
+              <div className="profile-mini-columns">
+                {profileChapters.map((chapter) => (
+                  <article key={chapter.label}><b>{chapter.label}</b><p>{chapter.text}</p></article>
+                ))}
+              </div>
+            </div>
+          </details>
         </section>
       )}
 
@@ -870,6 +885,11 @@ export default function Home() {
                 <span>为什么召回</span>
                 <strong>{activeClip.contentType}</strong>
                 <ol>{activeClip.selectionReasons.map((reason) => <li key={reason}>{reason}</li>)}</ol>
+              </div>
+              <div className="persona-proof">
+                <span>为什么是天总</span>
+                <div>{activeClip.personaModes.map((persona) => <b key={persona}>{persona}</b>)}</div>
+                <p>{activeClip.personaReason}</p>
               </div>
               <div className="score-evidence">
                 <span>为什么是 {activeClip.score} 分</span>
@@ -960,7 +980,12 @@ export default function Home() {
             </div>
             <p className="raw-output-note">目标输出：无字幕 · 无效果 · 保留原声</p>
             <section className="output-rationale" aria-label="最终输出判断依据">
-              <div>
+              <div className="output-persona">
+                <span>这条保住的人物线</span>
+                <h2>{activeClip.personaModes.join(" → ")}</h2>
+                <p>{activeClip.personaReason}</p>
+              </div>
+              <div className="output-duration">
                 <span>为什么这样成片</span>
                 <h2>{activeClip.duration} · {activeClip.durationMode}</h2>
                 <p>{activeClip.durationReason}</p>
