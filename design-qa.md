@@ -115,6 +115,54 @@ No actionable P0, P1, or P2 findings remain for the requested layout change.
 
 final result: passed
 
+## Homepage model separator and horizontal portrait gallery QA · 2026-07-20
+
+### Evidence
+
+- Source visual truth: `.qa/replaced-middle-image-compact-copy-final-desktop.png`, plus the user's explicit instruction to move the model statement between the workflow and imagery and make the portraits horizontally scrollable.
+- Browser-rendered desktop, initial gallery state: `.qa/model-divider-gallery-initial.png` at 1280 × 720.
+- Browser-rendered desktop, horizontally scrolled state: `.qa/model-divider-gallery-scrolled.png` at 1280 × 720.
+- Browser-rendered mobile implementation: `.qa/model-divider-gallery-mobile.png` at 390 × 844.
+- Same-input before/after comparison: `.qa/model-divider-gallery-comparison.png`.
+- Console: browser log checked after desktop, scrolled and mobile states; no application warnings or errors.
+
+### Full-view and interaction comparison
+
+The exact three-line Tianzong model statement is now a dedicated typographic separator after the upload workflow and before the portraits. It no longer covers any face or clothing. The visual area below it is a pure nine-image lookbook whose source colors remain intact.
+
+Desktop interaction was verified by moving the gallery from `scrollLeft: 0` to `scrollLeft: 490.5` against a measured maximum of `1046`. The gallery supports pointer dragging and vertical-wheel-to-horizontal scrolling. Mobile uses the same native overflow surface, shows a partial next portrait as an affordance, and has a measured `scrollWidth` of `2599` against a `clientWidth` of `358` without causing page-level horizontal overflow.
+
+### Required fidelity surfaces
+
+- Fonts and typography: passed. The separator keeps the light oblique display-family treatment established by “今天要剪哪一场直播？”, with a restrained pink mono label and a clear two-line hierarchy.
+- Spacing and layout rhythm: passed. The statement reads as a compact ruled interval; the wider portrait rail begins below it with no overlap. Desktop and mobile preserve a visible transition between function, model premise and imagery.
+- Colors and visual tokens: passed. All portrait images render at opacity `1` with `filter: none`; the gallery uses only a pale neutral backing and a thin pink scrollbar.
+- Image quality and asset fidelity: passed. Nine real Tianzong photographs are used, including close portraits, full looks, lake images and street imagery; no generated or placeholder visual is present.
+- Copy and content: passed. “天总专属模型” and both user-specified sentences remain verbatim, including the duplicated “的的”.
+- Interaction and accessibility: passed. The gallery is a labelled, keyboard-focusable region with descriptive image alt text and an explicit “左右滑动 · 拖动或滚动浏览” cue.
+
+### Comparison history
+
+#### Pass 1 — blocked
+
+- [P1] The statement sat on top of the portraits and obscured the visual content.
+- [P2] Only five static portrait panels were visible, with no way to browse more images.
+- [P2] The previous composition conflated product explanation and decorative imagery instead of separating their roles.
+
+Fixes made: moved the exact model statement into its own ruled section; created a nine-photo native horizontal gallery; added pointer-drag, wheel and touch scrolling; added scroll snapping, a visible next-image cue on mobile and a concise gallery footer.
+
+#### Pass 2 — passed
+
+- Desktop initial and scrolled states confirm that later images are reachable and remain full color.
+- Mobile confirms a horizontally scrollable rail, visible next-image affordance and no document overflow.
+- No actionable P0, P1 or P2 findings remain for this scoped change.
+
+### Follow-up polish
+
+- [P3] Additional Tianzong portraits can be appended to the same data list later without changing the layout or interaction model.
+
+final result: passed
+
 ## Homepage portrait replacement and copy-scale QA · 2026-07-20
 
 ### Evidence

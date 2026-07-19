@@ -3166,17 +3166,75 @@ button:not(:disabled):active {
   margin: 0 auto;
 }
 
+.model-statement {
+  width: min(860px, 100%);
+  margin: clamp(42px, 5vw, 62px) auto 0;
+  padding: 18px 0 20px;
+  display: grid;
+  grid-template-columns: minmax(138px, 0.27fr) minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 52px);
+  align-items: start;
+  border-top: 1px solid rgba(46, 44, 43, 0.22);
+  border-bottom: 1px solid rgba(46, 44, 43, 0.22);
+}
+
+.model-statement-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.model-statement h2 {
+  margin: 0;
+  color: var(--pink-strong);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.11em;
+}
+
+.model-statement small {
+  color: rgba(46, 44, 43, 0.48);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.model-statement p {
+  margin: 0;
+  color: #3f373a;
+  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: clamp(13px, 1.05vw, 15px);
+  font-style: oblique 7deg;
+  font-weight: 340;
+  font-synthesis: style;
+  line-height: 1.42;
+  letter-spacing: -0.025em;
+}
+
+.model-copy-line {
+  display: block;
+}
+
+.model-copy-line + .model-copy-line {
+  margin-top: 5px;
+}
+
+.model-copy-line:first-of-type {
+  font-size: clamp(19px, 1.8vw, 25px);
+  font-weight: 360;
+  line-height: 1.18;
+  letter-spacing: -0.04em;
+}
+
 .model-mini {
   position: relative;
-  isolation: isolate;
   overflow: hidden;
-  min-height: clamp(320px, 29vw, 390px);
-  display: flex;
-  align-items: flex-end;
   width: min(1180px, calc(100vw - 48px));
-  margin-top: clamp(56px, 7vw, 86px);
+  margin-top: clamp(22px, 3vw, 34px);
   margin-left: 50%;
-  padding: 22px 28px;
+  padding: 14px 0 10px;
   border-top: 1px solid rgba(46, 44, 43, 0.16);
   border-bottom: 1px solid rgba(46, 44, 43, 0.16);
   background: #e9e7ec;
@@ -3184,28 +3242,59 @@ button:not(:disabled):active {
   transform: translateX(-50%);
 }
 
-.model-mini::after {
-  content: none;
+.model-mini-gallery {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: clamp(196px, 19vw, 236px);
+  gap: clamp(7px, 0.8vw, 12px);
+  height: clamp(320px, 29vw, 390px);
+  padding: 0 clamp(8px, 0.8vw, 12px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-padding-inline: 12px;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: rgba(191, 117, 145, 0.7) rgba(255, 255, 255, 0.48);
+  scrollbar-width: thin;
+  cursor: grab;
+  user-select: none;
+  -webkit-overflow-scrolling: touch;
 }
 
-.model-mini-gallery {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: clamp(7px, 0.8vw, 12px);
-  padding: 14px 0;
+.model-mini-gallery.dragging {
+  cursor: grabbing;
+  scroll-snap-type: none;
+}
+
+.model-mini-gallery:focus-visible {
+  outline: 2px solid var(--pink-strong);
+  outline-offset: -2px;
+}
+
+.model-mini-gallery::-webkit-scrollbar {
+  height: 7px;
+}
+
+.model-mini-gallery::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.model-mini-gallery::-webkit-scrollbar-thumb {
+  background: rgba(191, 117, 145, 0.7);
 }
 
 .model-mini-gallery img {
   width: 100%;
+  min-width: 0;
   height: 100%;
   display: block;
   object-fit: cover;
   object-position: center 22%;
   opacity: 1;
   filter: none;
+  pointer-events: none;
+  scroll-snap-align: start;
 }
 
 .model-mini-gallery img:nth-child(2) {
@@ -3216,7 +3305,8 @@ button:not(:disabled):active {
   object-position: center 36%;
 }
 
-.model-mini-gallery img:nth-child(4) {
+.model-mini-gallery img:nth-child(4),
+.model-mini-gallery img:nth-child(8) {
   object-position: center 17%;
 }
 
@@ -3224,59 +3314,17 @@ button:not(:disabled):active {
   object-position: center 23%;
 }
 
-.model-mini p {
-  position: relative;
-  z-index: 2;
-  width: fit-content;
-  margin: 0;
-  padding: 10px 15px 12px;
-  color: #3f373a;
-  background: rgba(253, 252, 251, 0.82);
-  max-width: min(440px, calc(100% - 72px));
-  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(12.5px, 0.95vw, 14px);
-  font-style: oblique 7deg;
-  font-weight: 340;
-  font-synthesis: style;
-  line-height: 1.4;
-  letter-spacing: -0.03em;
-}
-
-.model-mini b {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--pink-strong);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
-}
-
-.model-copy-line {
-  display: block;
-}
-
-.model-copy-line + .model-copy-line {
-  margin-top: 3px;
-}
-
-.model-copy-line:first-of-type {
-  font-size: clamp(18px, 1.55vw, 23px);
-  font-weight: 360;
-  line-height: 1.18;
-  letter-spacing: -0.04em;
-}
-
-.model-mini small {
-  position: absolute;
-  top: 22px;
-  right: 24px;
-  z-index: 2;
-  color: rgba(46, 44, 43, 0.52);
+.model-gallery-footer {
+  padding: 9px 12px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  color: rgba(46, 44, 43, 0.54);
   font-family: var(--font-geist-mono), monospace;
   font-size: 9px;
   letter-spacing: 0.08em;
-  white-space: nowrap;
+  text-transform: uppercase;
 }
 
 .home-prompt {
@@ -3858,47 +3906,46 @@ button:not(:disabled):active {
     padding: 24px 16px 34px;
   }
 
-  .model-mini {
-    min-height: 390px;
-    width: calc(100vw - 32px);
-    margin-top: 50px;
-    padding: 0 14px 12px;
+  .model-statement {
+    margin-top: 36px;
+    padding: 14px 0 16px;
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 
-  .model-mini-gallery {
-    inset: 0 auto 126px -28%;
-    width: 160%;
-    grid-template-columns: repeat(5, minmax(120px, 1fr));
-    gap: 5px;
-    padding: 10px 0;
+  .model-statement-meta {
+    padding-top: 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 
-  .model-mini-gallery img {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    border-radius: 0;
-    opacity: 1;
-  }
-
-  .model-mini p {
-    width: 100%;
-    max-width: none;
-    padding: 9px 11px 10px;
+  .model-statement p {
     font-size: 13px;
-    line-height: 1.4;
-  }
-
-  .model-mini b {
-    font-size: 10px;
   }
 
   .model-copy-line:first-of-type {
     font-size: 18px;
   }
 
-  .model-mini small {
-    display: none;
+  .model-mini {
+    width: calc(100vw - 32px);
+    margin-top: 20px;
+    padding: 10px 0 8px;
+  }
+
+  .model-mini-gallery {
+    width: 100%;
+    height: 300px;
+    grid-auto-columns: 72vw;
+    gap: 7px;
+    padding: 0 8px;
+    scroll-padding-inline: 8px;
+  }
+
+  .model-gallery-footer {
+    padding: 8px 9px 0;
+    font-size: 8px;
   }
 
   .home-prompt {

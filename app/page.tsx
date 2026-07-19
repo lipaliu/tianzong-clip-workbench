@@ -1,6 +1,15 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  WheelEvent as ReactWheelEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 type Mode = "聊播" | "带货";
 type IntakeStep = 1 | 2;
@@ -72,6 +81,18 @@ type ImportedSubtitle = {
 const corpusBaseline = {
   version: "内测 BETA 1.0",
 };
+
+const modelGalleryPhotos = [
+  { src: "/photos/tz_street_tall.jpg", alt: "天总街头蓝色穿搭" },
+  { src: "/photos/tz_pose_tall.jpg", alt: "天总街头侧身造型" },
+  { src: "/photos/tz_car_face.jpg", alt: "天总车内近景人像" },
+  { src: "/photos/tz_neon_tall.jpg", alt: "天总霓虹灯下近景人像" },
+  { src: "/photos/tz_pink_dress.jpg", alt: "天总粉色礼服造型" },
+  { src: "/photos/tz_lake_dusk.jpg", alt: "天总湖边黄昏侧脸" },
+  { src: "/photos/tz_lake_front.jpg", alt: "天总湖边正面造型" },
+  { src: "/photos/tz_neon_face.jpg", alt: "天总霓虹灯下脸部特写" },
+  { src: "/photos/tz_street_wide.jpg", alt: "天总街头蓝色造型全景" },
+];
 
 const modeKnowledge: Record<Mode, {
   eyebrow: string;
@@ -561,10 +582,13 @@ export default function Home() {
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [importedSubtitle, setImportedSubtitle] = useState<ImportedSubtitle | null>(null);
   const [selectedLocalExports, setSelectedLocalExports] = useState<LocalExportOption[]>(["mp4"]);
+  const [galleryDragging, setGalleryDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const subtitleRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const deliveryRef = useRef<HTMLElement>(null);
+  const galleryRef = useRef<HTMLDivElement>(null);
+  const galleryDragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
 
   useEffect(() => {
     return () => {
@@ -638,6 +662,59 @@ export default function Home() {
   function showToast(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(""), 3600);
+  }
+
+  function startGalleryDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType === "touch") return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const gallery = galleryRef.current;
+    if (!gallery) return;
+    gallery.setPointerCapture(event.pointerId);
+    galleryDragRef.current = {
+      active: true,
+      startX: event.clientX,
+      scrollLeft: gallery.scrollLeft,
+    };
+    setGalleryDragging(true);
+  }
+
+  function moveGalleryDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const gallery = galleryRef.current;
+    if (!gallery || !galleryDragRef.current.active) return;
+    event.preventDefault();
+    gallery.scrollLeft = galleryDragRef.current.scrollLeft - (event.clientX - galleryDragRef.current.startX);
+  }
+
+  function stopGalleryDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const gallery = galleryRef.current;
+    if (gallery?.hasPointerCapture(event.pointerId)) gallery.releasePointerCapture(event.pointerId);
+    galleryDragRef.current.active = false;
+    setGalleryDragging(false);
+  }
+
+  function scrollGallery(event: ReactWheelEvent<HTMLDivElement>) {
+    const gallery = galleryRef.current;
+    if (!gallery || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+    if (gallery.scrollWidth <= gallery.clientWidth) return;
+    const maxScrollLeft = gallery.scrollWidth - gallery.clientWidth;
+    const canMove = event.deltaY > 0
+      ? gallery.scrollLeft < maxScrollLeft - 1
+      : gallery.scrollLeft > 1;
+    if (!canMove) return;
+    event.preventDefault();
+    gallery.scrollLeft += event.deltaY;
+  }
+
+  function navigateGallery(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const gallery = galleryRef.current;
+    if (!gallery) return;
+    const step = Math.max(220, gallery.clientWidth * 0.72);
+    if (event.key === "ArrowLeft") gallery.scrollBy({ left: -step, behavior: "smooth" });
+    else if (event.key === "ArrowRight") gallery.scrollBy({ left: step, behavior: "smooth" });
+    else if (event.key === "Home") gallery.scrollTo({ left: 0, behavior: "smooth" });
+    else if (event.key === "End") gallery.scrollTo({ left: gallery.scrollWidth, behavior: "smooth" });
+    else return;
+    event.preventDefault();
   }
 
   function switchMode(nextMode: Mode) {
@@ -1144,20 +1221,47 @@ export default function Home() {
 
             <p className="composer-hint">候选有多少就返回多少，不设目标数，也不为凑数补候选。</p>
 
-            <aside className="model-mini" aria-label="天总专属模型说明">
-              <div className="model-mini-gallery" aria-hidden="true">
-                <img src="/photos/tz_street_tall.jpg" alt="" />
-                <img src="/photos/tz_pose_tall.jpg" alt="" />
-                <img src="/photos/tz_car_face.jpg" alt="" />
-                <img src="/photos/tz_neon_tall.jpg" alt="" />
-                <img src="/photos/tz_pink_dress.jpg" alt="" />
+            <section className="model-statement" aria-labelledby="model-statement-title">
+              <div className="model-statement-meta">
+                <h2 id="model-statement-title">天总专属模型</h2>
+                <small>{corpusBaseline.version}</small>
               </div>
               <p>
-                <b>天总专属模型</b>
                 <span className="model-copy-line">她不是永远强大，也不是只负责漂亮。</span>
                 <span className="model-copy-line">她真正珍贵的的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时在一个人身上成立。</span>
               </p>
-              <small>{corpusBaseline.version}</small>
+            </section>
+
+            <aside className="model-mini" aria-label="天总视觉画廊">
+              <div
+                ref={galleryRef}
+                className={`model-mini-gallery${galleryDragging ? " dragging" : ""}`}
+                role="region"
+                tabIndex={0}
+                aria-label="天总照片，可左右滑动浏览"
+                aria-describedby="gallery-scroll-hint"
+                onPointerDown={startGalleryDrag}
+                onPointerMove={moveGalleryDrag}
+                onPointerUp={stopGalleryDrag}
+                onPointerCancel={stopGalleryDrag}
+                onWheel={scrollGallery}
+                onKeyDown={navigateGallery}
+              >
+                {modelGalleryPhotos.map((photo, index) => (
+                  <img
+                    className="model-gallery-photo"
+                    key={photo.src}
+                    src={photo.src}
+                    alt={photo.alt}
+                    draggable={false}
+                    loading={index > 4 ? "lazy" : "eager"}
+                  />
+                ))}
+              </div>
+              <div className="model-gallery-footer" id="gallery-scroll-hint">
+                <span>TIANZONG LOOKBOOK · {String(modelGalleryPhotos.length).padStart(2, "0")}</span>
+                <span>左右滑动 · 拖动或滚动浏览</span>
+              </div>
             </aside>
 
             <section className="project-library" aria-labelledby="projects-title">
