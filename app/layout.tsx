@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Bodoni_Moda, Geist, Geist_Mono } from "next/font/google";
+import { Archivo, Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
 import "./globals.css";
 
@@ -13,10 +13,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const bodoni = Bodoni_Moda({
-  variable: "--font-bodoni",
+const archivo = Archivo({
+  variable: "--font-display",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["500", "600", "700", "800"],
 });
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -58,7 +58,7 @@ export async function generateMetadata(): Promise<Metadata> {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${geistSans.variable} ${geistMono.variable} ${bodoni.variable}`}>{children}</body>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${archivo.variable}`}>{children}</body>
     </html>
   );
 }
