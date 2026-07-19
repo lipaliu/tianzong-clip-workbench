@@ -709,59 +709,39 @@ export default function Home() {
       </header>
 
       {step === 1 && (
-        <section className="intake-view" aria-labelledby="intake-title">
-          <div className="intake-intro">
-            <div className="intake-copy">
-              <span className="edition-label">整场直播 → 内容地图 → 文字精剪</span>
-              <h1 id="intake-title">
-                <span>她不是永远强大，也不是只负责漂亮。</span>
-                <span>她真正让人留下来的，</span>
-                <span>是“有本事、有判断、像姐妹、会发疯、也会受伤”同时成立。</span>
-              </h1>
-              <p>先选择聊播或带货。候选数量由直播内容自然决定，不设目标数。</p>
-            </div>
-            <div className="intake-collage-wrap" aria-hidden="true">
-              <div className="intake-collage">
-                <figure className="collage-photo collage-main">
-                  <img src="/photos/tz_neon_tall.jpg" alt="" loading="lazy" />
-                  <figcaption>her, live · 01</figcaption>
-                </figure>
-                <figure className="collage-photo collage-side">
-                  <img src="/photos/tz_lake_dusk.jpg" alt="" loading="lazy" />
-                  <figcaption>off record</figcaption>
-                </figure>
-                <span className="collage-note">她的原话，逐句留证</span>
-              </div>
-            </div>
+        <section className="intake-view intake-minimal" aria-labelledby="intake-title">
+          <div className="intake-atmosphere" aria-hidden="true">
+            <img src="/photos/tz_neon_tall.jpg" alt="" />
           </div>
 
-          <div className="intake-grid">
-            <section className="upload-editorial" aria-label="上传直播录屏">
-              <div className="section-number">01 / 天总原片</div>
-              <h2>上传天总完整直播</h2>
-              <p>MP4 / MOV · 保留整场上下文，避免只凭单句话误判天总真正想表达的意思。</p>
-              <button className="upload-field" onClick={() => fileRef.current?.click()}>
-                <span>{fileName || "选择直播录屏"}</span>
-                <small>{fileName ? "已在浏览器中读取，尚未上传" : "也可以直接使用校准样片体验"}</small>
-              </button>
-              <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
-              {uploadedPreviewUrl && (
-                <video className="upload-preview" src={uploadedPreviewUrl} controls playsInline preload="metadata" />
-              )}
-            </section>
+          <div className="intake-core">
+            <header className="intake-heading">
+              <span className="edition-label">天总专属 · {corpusBaseline.version}</span>
+              <h1 id="intake-title">上传整场直播</h1>
+              <p>选择聊播或带货，系统会从完整原片里自然找出所有值得剪的内容。</p>
+            </header>
 
-            <section className="mode-editorial" aria-labelledby="mode-title">
-              <div className="section-number">02 / 直播类型</div>
-              <h2 id="mode-title">选择天总本场直播类型</h2>
-              <div className="mode-covers">
+            <button className={`intake-upload ${fileName ? "ready" : ""}`} onClick={() => fileRef.current?.click()}>
+              <span aria-hidden="true">＋</span>
+              <strong>{fileName || "选择直播录屏"}</strong>
+              <small>{fileName ? "已读取本地原片，可以继续选择类型" : "MP4 / MOV · 使用完整直播，不凭一句话误判上下文"}</small>
+            </button>
+            <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
+
+            {uploadedPreviewUrl && (
+              <video className="intake-upload-preview" src={uploadedPreviewUrl} controls playsInline preload="metadata" />
+            )}
+
+            <div className="intake-mode" aria-labelledby="mode-title">
+              <span id="mode-title">选择类型</span>
+              <div>
                 <button
                   className={mode === "聊播" ? "selected" : ""}
                   onClick={() => switchMode("聊播")}
                   aria-pressed={mode === "聊播"}
                 >
                   <b>聊播</b>
-                  <span>保留天总完整观点</span>
-                  <p>先保留会改变答案的问题前提，再保留天总的判断、理由、案例和落点；只删无效寒暄、重复、串场和等待。</p>
+                  <small>完整观点、人物反差与情绪闭环</small>
                 </button>
                 <button
                   className={mode === "带货" ? "selected" : ""}
@@ -769,72 +749,42 @@ export default function Home() {
                   aria-pressed={mode === "带货"}
                 >
                   <b>带货</b>
-                  <span>执行天总带货方法</span>
-                  <p>先锁定一个购买理由：精准人群 → 卖点与场景 → 痛点强化 → 价值收口；劝退、限制和实物证明同片保留。</p>
+                  <small>购买理由、场景证明与限制条件</small>
                 </button>
               </div>
-            </section>
+            </div>
+
+            <div className="intake-submit">
+              <button className="pink-action" onClick={startAnalysis} disabled={!uploadedPreviewUrl || !mode || (analysisProgress > 0 && analysisProgress < 100)}>
+                {analysisProgress > 0 && analysisProgress < 100 ? `正在分析 ${Math.min(analysisProgress, 99)}%` : "开始分析"}
+              </button>
+              <small>候选有多少就返回多少，不设目标数，也不为凑数补候选。</small>
+            </div>
+
+            {analysisProgress > 0 && analysisProgress < 100 && (
+              <div className="analysis-strip" aria-live="polite">
+                <span style={{ width: `${analysisProgress}%` }} />
+              </div>
+            )}
+
+            <p className="prototype-note">内部内测：当前展示候选判断、逐字删留与输出依据；真实转写、渲染和 ChatCut 写入仍待接通。</p>
           </div>
 
-          <div className="intake-footer">
-            <div>
-              <strong>天总切片判断链</strong>
-              <span>完整直播 → 三向分流 → 自然闭环 → 事实门禁 → 逐字复核</span>
-            </div>
-            <button className="pink-action" onClick={startAnalysis} disabled={!mode || (analysisProgress > 0 && analysisProgress < 100)}>
-              {analysisProgress > 0 && analysisProgress < 100 ? `正在生成内容地图 ${Math.min(analysisProgress, 99)}%` : "开始生成内容地图"}
-            </button>
-          </div>
-
-          {analysisProgress > 0 && analysisProgress < 100 && (
-            <div className="analysis-strip" aria-live="polite">
-              <span style={{ width: `${analysisProgress}%` }} />
-            </div>
-          )}
-
-          <p className="prototype-note">当前为内部内测：仅演示校准样片、候选依据和句级预听；真实上传、全场转写、候选生成、视频渲染与 ChatCut 写入尚未接通。</p>
-
-          <details className="profile-brief">
-            <summary>
-              <span>编辑部手记 / 我们怎样理解她</span>
-              <span className="profile-brief-copy">一个有实战能力、嘴很快、主意很正的女老板；她帮姐妹把赚钱、关系和生活讲明白，又总在最有权威感的时候被现实拆台。</span>
-            </summary>
-            <div className="profile-brief-body">
-              <div className="profile-brief-photos" aria-hidden="true">
-                <figure className="collage-photo brief-photo-a">
-                  <img src="/photos/tz_pink_dress.jpg" alt="" loading="lazy" />
-                  <figcaption>field note · a</figcaption>
-                </figure>
-                <figure className="collage-photo brief-photo-b">
-                  <img src="/photos/tz_city_dress.jpg" alt="" loading="lazy" />
-                  <figcaption>field note · b</figcaption>
-                </figure>
+          <footer className="intake-support">
+            <p>她不是永远强大，也不是只负责漂亮。她真正让人留下来的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时成立。</p>
+            <details className="intake-context">
+              <summary>为什么这套系统懂天总 <span>{corpusBaseline.version}</span></summary>
+              <div>
+                <p>长期研究千余条天总素材，近期直播权重最高。人物理解会进入候选理由、时长依据和逐句删留，不单独占据首页。</p>
+                <div className="intake-persona-words" aria-label="天总五种人物状态">
+                  {personaSpectrum.map((item) => <span key={item.label}>{item.label}</span>)}
+                </div>
+                <div className="intake-profile-notes">
+                  {profileChapters.map((chapter) => <p key={chapter.label}><b>{chapter.label}</b>{chapter.text}</p>)}
+                </div>
               </div>
-              <div className="persona-mini-list" aria-label="天总五种人物状态">
-                {personaSpectrum.map((item) => (
-                  <div key={item.label}><b>{item.label}</b><span>{item.description}</span></div>
-                ))}
-              </div>
-              <div className="profile-mini-columns">
-                {profileChapters.map((chapter) => (
-                  <article key={chapter.label}><b>{chapter.label}</b><p>{chapter.text}</p></article>
-                ))}
-              </div>
-            </div>
-          </details>
-
-          <section className="knowledge-note" aria-label="当前知识版本">
-            <header>
-              <span>Research release</span>
-              <b>{corpusBaseline.version}</b>
-            </header>
-            <div className="knowledge-note-grid">
-              <p><span>已经学会</span>不把她剪成单一的“女老板讲干货”。每条候选都要保住能力、判断、姐妹感、反差或脆弱中的至少两层。</p>
-              <p><span>如何进入成品</span>人物理解会变成候选理由、时长依据、逐句删留和最终人物线，而不是留在一份没人看的研究报告里。</p>
-              <p><span>怎样继续升级</span>后台会持续研究新直播与人工成片；新结论经过归因、回测和评审后，才发布为下一知识版本。</p>
-            </div>
-            <small>长期研究千余条天总素材 · 近期直播权重最高 · 研究材料只在后台持续进入</small>
-          </section>
+            </details>
+          </footer>
         </section>
       )}
 

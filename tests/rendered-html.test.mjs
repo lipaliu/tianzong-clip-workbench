@@ -14,7 +14,7 @@ async function render() {
   );
 }
 
-test("server-renders a function-first editorial Tianzong intake", async () => {
+test("server-renders a single-flow Tianzong intake", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -25,41 +25,43 @@ test("server-renders a function-first editorial Tianzong intake", async () => {
   assert.match(html, /内测 BETA 1\.0/);
   assert.match(html, /她不是永远强大，也不是只负责漂亮/);
   assert.match(html, /有本事、有判断、像姐妹、会发疯、也会受伤/);
-  assert.match(html, /上传天总完整直播/);
+  assert.match(html, /上传整场直播/);
   assert.match(html, /选择直播录屏/);
-  assert.match(html, /选择天总本场直播类型/);
-  assert.match(html, /开始生成内容地图/);
-  assert.match(html, /当前为内部内测/);
-  assert.match(html, /编辑部手记 \/ 我们怎样理解她/);
-  assert.match(html, /Research release/);
-  assert.match(html, /已经学会/);
-  assert.match(html, /怎样继续升级/);
+  assert.match(html, /选择类型/);
+  assert.match(html, /开始分析/);
+  assert.match(html, /内部内测/);
+  assert.match(html, /为什么这套系统懂天总/);
   assert.match(html, /长期研究千余条天总素材/);
-  assert.match(html, /有实战能力、嘴很快、主意很正/);
-  assert.match(html, /帮姐妹把赚钱、关系和生活讲明白/);
-  assert.match(html, /最有权威感的时候被现实拆台/);
   assert.match(html, /上传与类型/);
   assert.match(html, /内容地图/);
   assert.match(html, /文字精剪/);
   assert.match(html, /聊播/);
   assert.match(html, /带货/);
 
-  const uploadPosition = html.indexOf("上传天总完整直播");
-  const modePosition = html.indexOf("选择天总本场直播类型");
-  const ctaPosition = html.indexOf("开始生成内容地图");
-  const prototypePosition = html.indexOf("当前为内部内测");
-  const profilePosition = html.indexOf("编辑部手记 / 我们怎样理解她");
-  const releasePosition = html.indexOf("Research release");
-  assert.ok(uploadPosition >= 0 && uploadPosition < modePosition);
+  const headlinePosition = html.indexOf("上传整场直播");
+  const uploadPosition = html.indexOf("选择直播录屏");
+  const modePosition = html.indexOf("选择类型");
+  const ctaPosition = html.indexOf("开始分析");
+  const quotePosition = html.indexOf("她不是永远强大");
+  const contextPosition = html.indexOf("为什么这套系统懂天总");
+  assert.ok(headlinePosition >= 0 && headlinePosition < uploadPosition);
+  assert.ok(uploadPosition < modePosition);
   assert.ok(modePosition < ctaPosition);
-  assert.ok(ctaPosition < prototypePosition);
-  assert.ok(prototypePosition < profilePosition);
-  assert.ok(profilePosition < releasePosition);
+  assert.ok(ctaPosition < quotePosition);
+  assert.ok(quotePosition < contextPosition);
 
   assert.doesNotMatch(html, /天总视觉素材/);
   assert.doesNotMatch(html, /\/editorial\//);
   assert.match(html, /\/photos\/tz_/);
-  assert.match(html, /intake-collage/);
+  assert.match(html, /intake-core/);
+  assert.match(html, /intake-upload/);
+  assert.match(html, /intake-mode/);
+  assert.match(html, /intake-support/);
+  assert.doesNotMatch(html, /intake-collage/);
+  assert.doesNotMatch(html, /intake-grid/);
+  assert.doesNotMatch(html, /profile-brief/);
+  assert.doesNotMatch(html, /knowledge-note/);
+  assert.doesNotMatch(html, /Research release/);
 
   assert.doesNotMatch(html, /CUTLINE/);
   assert.doesNotMatch(html, /codex-preview/);
@@ -85,17 +87,21 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /不设目标、不设保底，也不补齐/);
   assert.match(page, /const discoveredCount = analysisReady \? modeIdeas\.length : 0/);
   assert.doesNotMatch(page, /demoDiscoveryCounts/);
-  assert.match(page, /句级预听/);
+  assert.match(page, /句级依据/);
   assert.match(page, /确认本条剪辑决定/);
   assert.match(page, /这次选择如何反哺系统/);
   assert.match(page, /后台研究归因/);
   assert.match(page, /固定评测集回测/);
   assert.match(page, /通过评审后才改变生产规则/);
   assert.match(page, /uploadedPreviewUrl \? activeClip\.sourceStart : 0/);
-  assert.match(page, /<details className="profile-brief">/);
-  assert.match(page, /编辑部手记 \/ 我们怎样理解她/);
-  assert.match(page, /Research release/);
+  assert.match(page, /<details className="intake-context">/);
+  assert.match(page, /为什么这套系统懂天总/);
   assert.match(page, /长期研究千余条天总素材/);
+  assert.match(page, /disabled=\{!uploadedPreviewUrl \|\| !mode/);
+  assert.doesNotMatch(page, /className="intake-intro"/);
+  assert.doesNotMatch(page, /className="intake-grid"/);
+  assert.doesNotMatch(page, /className="profile-brief"/);
+  assert.doesNotMatch(page, /className="knowledge-note"/);
   assert.doesNotMatch(page, /editorialImages/);
   assert.match(page, /实战老板/);
   assert.match(page, /强姐姐/);
