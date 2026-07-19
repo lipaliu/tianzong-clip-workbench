@@ -3185,13 +3185,7 @@ button:not(:disabled):active {
 }
 
 .model-mini::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0;
-  height: 69%;
-  z-index: 1;
-  background: linear-gradient(0deg, rgba(253, 252, 251, 0.96) 0%, rgba(253, 252, 251, 0.66) 63%, rgba(253, 252, 251, 0) 100%);
-  pointer-events: none;
+  content: none;
 }
 
 .model-mini-gallery {
@@ -3210,8 +3204,8 @@ button:not(:disabled):active {
   display: block;
   object-fit: cover;
   object-position: center 22%;
-  opacity: 0.64;
-  filter: saturate(0.82) contrast(1.02);
+  opacity: 1;
+  filter: none;
 }
 
 .model-mini-gallery img:nth-child(2) {
@@ -3233,14 +3227,19 @@ button:not(:disabled):active {
 .model-mini p {
   position: relative;
   z-index: 2;
-  width: 100%;
+  width: fit-content;
   margin: 0;
-  color: var(--ink);
-  max-width: 1080px;
+  padding: 17px 22px 19px;
+  color: #3f373a;
+  background: rgba(253, 252, 251, 0.88);
+  max-width: min(1080px, 100%);
+  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: clamp(17px, 1.55vw, 21px);
-  font-weight: 420;
+  font-style: oblique 7deg;
+  font-weight: 340;
+  font-synthesis: style;
   line-height: 1.46;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.03em;
 }
 
 .model-mini b {
@@ -3263,7 +3262,7 @@ button:not(:disabled):active {
 
 .model-copy-line:first-of-type {
   font-size: clamp(24px, 2.7vw, 36px);
-  font-weight: 470;
+  font-weight: 360;
   line-height: 1.18;
   letter-spacing: -0.04em;
 }
@@ -3866,11 +3865,6 @@ button:not(:disabled):active {
     padding: 58px 18px 22px;
   }
 
-  .model-mini::after {
-    height: 76%;
-    background: linear-gradient(0deg, rgba(253, 252, 251, 0.97) 0%, rgba(253, 252, 251, 0.7) 66%, rgba(253, 252, 251, 0) 100%);
-  }
-
   .model-mini-gallery {
     inset: 0 auto 0 -28%;
     width: 160%;
@@ -3884,10 +3878,13 @@ button:not(:disabled):active {
     height: 100%;
     margin: 0;
     border-radius: 0;
-    opacity: 0.48;
+    opacity: 1;
   }
 
   .model-mini p {
+    width: calc(100% - 8px);
+    max-width: none;
+    padding: 14px 15px 16px;
     font-size: 15px;
     line-height: 1.46;
   }

@@ -114,3 +114,50 @@ No actionable P0, P1, or P2 findings remain for the requested layout change.
 - [P3] If the photo library expands later, the first two blue-outfit images can be alternated with a stronger behavior or live-room portrait for more narrative contrast.
 
 final result: passed
+
+## Homepage solid-color portrait wall QA · 2026-07-20
+
+### Evidence
+
+- Source visual truth: `/var/folders/lh/m1tb_dms7cv5htnh9fkqsz1w0000gn/T/codex-clipboard-522bcd8f-c06d-4189-b9d8-ada2d6c0babf.png`.
+- Browser-rendered desktop implementation: `.qa/solid-color-typography-banner-viewport.png` at 1280 × 720.
+- Focused desktop implementation: `.qa/solid-color-typography-banner-crop.png`.
+- Browser-rendered mobile implementation: `.qa/solid-color-typography-mobile.png` at 390 × 844.
+- Same-input reference/implementation comparison: `.qa/reference-solid-color-typography-comparison.png`.
+- State: first-step empty upload state, scrolled to the Tianzong model statement.
+- Console: checked after the desktop and mobile renders; no application errors.
+
+### Full-view and focused comparison
+
+The focused comparison directly tests the two changes requested in the marked-up source. The implementation removes the full-field white veil: every portrait is rendered at opacity 1 with no saturation or contrast filter, so the blue clothes, warm street lighting, neon background and pink dress retain their source color. Readability is handled by a localized warm-paper caption only behind the two lines instead of changing the image layer.
+
+The heavy upright sans-serif treatment has been replaced with the same display-family direction used by “今天要剪哪一场直播？”, at a substantially lighter optical weight and a 7-degree oblique style. The two sentences and explicit line break remain unchanged. A focused region was required because the photo opacity and character slant cannot be judged reliably from a full-page screenshot.
+
+### Required fidelity surfaces
+
+- Fonts and typography: passed. Desktop renders the lead line at 36px/360 and the supporting line at 21px/340, both oblique; mobile uses 23px and 15px without clipping.
+- Spacing and layout rhythm: passed. The five-column billboard and original vertical crops remain unchanged; the caption occupies only the lower-left reading zone. Mobile deliberately crops the oversized photo strip while retaining recognizable faces and no page-level horizontal overflow.
+- Colors and visual tokens: passed. Image opacity is computed as `1`, image filter is `none`, and there is no full-banner pseudo-element wash. The warm paper caption is local to the copy.
+- Image quality and asset fidelity: passed. All five supplied Tianzong raster portraits remain sharp, full-color and free of generated replacements or CSS artwork.
+- Copy and content: passed. Both user-specified sentences, punctuation, quotation marks, duplicated “的的”, and line separation are preserved verbatim.
+
+### Primary checks
+
+- Verified computed desktop and mobile image styles: opacity `1`, filter `none`.
+- Verified computed copy styles: display-family stack, `oblique 7deg`, light weights 340/360.
+- Verified 1280 × 720 desktop and 390 × 844 mobile layouts.
+- Verified the upload workflow remains before the model statement and no interaction was displaced.
+- Verified the mobile document width stays within the viewport.
+- Verified browser console has no application errors.
+
+### Comparison history
+
+#### Pass 1 — passed
+
+No actionable P0, P1, or P2 differences remain for the requested solid-color photography and lighter slanted typography. No post-comparison visual fix was required.
+
+### Follow-up polish
+
+- No P3 follow-up is required for this scoped change.
+
+final result: passed
