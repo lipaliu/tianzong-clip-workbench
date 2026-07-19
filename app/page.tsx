@@ -48,32 +48,22 @@ type ClipIdea = {
   transcript: TranscriptLine[];
 };
 
+type ProjectStatus = "analyzing" | "ready";
+
+type ProjectRecord = {
+  id: string;
+  title: string;
+  projectDate: string;
+  sourceName: string;
+  mode: Mode;
+  status: ProjectStatus;
+  clipCount: number;
+  createdAt: string;
+};
+
 const corpusBaseline = {
   version: "内测 BETA 1.0",
 };
-
-const personaSpectrum: { label: PersonaMode; description: string }[] = [
-  { label: "实战老板", description: "有公司、品牌、直播、电商、供应链与用人经验。" },
-  { label: "强姐姐", description: "面向女性观众，嘴快、结论直接、主意很正。" },
-  { label: "视觉吸引", description: "漂亮、会穿、会展示，镜头里有稳定吸引力。" },
-  { label: "搞笑女", description: "随时唱跳、做饭翻车、逗猫，也会装逼失败。" },
-  { label: "脆弱真实", description: "会谈自卑、原生家庭、爱情、失去与疲惫。" },
-];
-
-const profileChapters = [
-  {
-    label: "核心人格",
-    text: "结论先行、老板视角、姐妹语境；自信但不端着，敢控制局面，也敢承认脆弱。",
-  },
-  {
-    label: "稳定价值观",
-    text: "女性先建立赚钱与生活能力；看用户和数据，不把男人、婚姻或一次失败当人生中心。",
-  },
-  {
-    label: "核心观众",
-    text: "想把赚钱、关系和生活想明白的女性，把她当电子闺蜜、强姐姐和会发疯的老板。",
-  },
-];
 
 const scoreLabels = [
   { label: "前三秒", max: 20 },
@@ -484,6 +474,26 @@ const stepLabels: { step: WorkflowStep; label: string }[] = [
   { step: 3, label: "文字精剪" },
 ];
 
+function projectDateFromFile(file: File) {
+  const chineseDate = file.name.match(/((?:19|20)\d{2})年(\d{1,2})月(\d{1,2})日/);
+  const dashedDate = file.name.match(/((?:19|20)\d{2})[-_.](\d{1,2})[-_.](\d{1,2})/);
+  const match = chineseDate ?? dashedDate;
+  const fallback = new Date(file.lastModified || Date.now());
+  const year = match ? Number(match[1]) : fallback.getFullYear();
+  const month = match ? Number(match[2]) : fallback.getMonth() + 1;
+  const day = match ? Number(match[3]) : fallback.getDate();
+
+  return {
+    iso: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    label: `${month}月${day}日`,
+  };
+}
+
+function formatProjectDate(value: string) {
+  const [, month = "", day = ""] = value.split("-");
+  return month && day ? `${Number(month)}月${Number(day)}日` : value;
+}
+
 export default function Home() {
   const [step, setStep] = useState<WorkflowStep>(1);
   const [mode, setMode] = useState<Mode | null>(null);
@@ -500,6 +510,9 @@ export default function Home() {
   const [highPotentialOnly, setHighPotentialOnly] = useState(false);
   const [toast, setToast] = useState("");
   const [showArchitecture, setShowArchitecture] = useState(false);
+  const [projectDate, setProjectDate] = useState<{ iso: string; label: string } | null>(null);
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -508,6 +521,27 @@ export default function Home() {
       if (uploadedPreviewUrl) URL.revokeObjectURL(uploadedPreviewUrl);
     };
   }, [uploadedPreviewUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void fetch("/api/projects")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("project history unavailable");
+        return response.json() as Promise<{ projects?: ProjectRecord[] }>;
+      })
+      .then((payload) => {
+        if (!cancelled) setProjects(payload.projects ?? []);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setProjectsLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const modeIdeas = useMemo(
     () => ideas.filter((idea) => idea.kind === (mode ?? "聊播")),
@@ -571,14 +605,62 @@ export default function Home() {
     if (!file) return;
     if (uploadedPreviewUrl) URL.revokeObjectURL(uploadedPreviewUrl);
     setFileName(file.name);
+    setProjectDate(projectDateFromFile(file));
     setUploadedPreviewUrl(URL.createObjectURL(file));
+    setAnalysisReady(false);
+    setAnalysisProgress(0);
+    setStep(1);
   }
 
-  function startAnalysis() {
+  async function startAnalysis() {
+    if (!uploadedPreviewUrl || !projectDate) {
+      showToast("请先上传一场完整直播。");
+      return;
+    }
     if (!mode) {
       showToast("请先选择聊播切片或带货切片。");
       return;
     }
+
+    const selectedMode = mode;
+    const optimisticId = `local-${Date.now()}`;
+    const optimisticProject: ProjectRecord = {
+      id: optimisticId,
+      title: `${projectDate.label} · ${selectedMode}切片`,
+      projectDate: projectDate.iso,
+      sourceName: fileName,
+      mode: selectedMode,
+      status: "analyzing",
+      clipCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    setProjects((current) => [optimisticProject, ...current]);
+    setAnalysisProgress(4);
+
+    let projectId = optimisticId;
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: optimisticProject.title,
+          projectDate: optimisticProject.projectDate,
+          sourceName: optimisticProject.sourceName,
+          mode: optimisticProject.mode,
+        }),
+      });
+      if (response.ok) {
+        const payload = await response.json() as { project?: ProjectRecord };
+        if (payload.project) {
+          projectId = payload.project.id;
+          setProjects((current) => current.map((project) => project.id === optimisticId ? payload.project! : project));
+        }
+      }
+    } catch {
+      // Keep the optimistic project visible for this session if persistence is unavailable.
+    }
+
     setAnalysisProgress(8);
     let value = 8;
     const timer = window.setInterval(() => {
@@ -587,11 +669,23 @@ export default function Home() {
         window.clearInterval(timer);
         setAnalysisProgress(100);
         setAnalysisReady(true);
-        const modelResultCandidates = ideas.filter((idea) => idea.kind === mode);
+        const modelResultCandidates = ideas.filter((idea) => idea.kind === selectedMode);
         const modelResultCount = modelResultCandidates.length;
         const first = modelResultCandidates[0] ?? ideas[0];
         setActiveClipId(first.id);
         setSelectedIds([first.id]);
+        setProjects((current) => current.map((project) => project.id === projectId ? {
+          ...project,
+          status: "ready",
+          clipCount: modelResultCount,
+        } : project));
+        if (!projectId.startsWith("local-")) {
+          void fetch("/api/projects", {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ id: projectId, status: "ready", clipCount: modelResultCount }),
+          }).catch(() => undefined);
+        }
         window.setTimeout(() => setStep(2), 320);
         showToast(`天总内容地图初筛完成：本场识别 ${modelResultCount} 条候选，待逐字和原片复核。`);
         return;
@@ -668,26 +762,28 @@ export default function Home() {
 
   return (
     <main className="cutline-app">
-      <header className="masthead">
+      <header className={`masthead ${step === 1 ? "home" : ""}`}>
         <div className="masthead-brand">
           <button className="wordmark" onClick={() => setStep(1)} aria-label="返回上传步骤">天总直播切片系统</button>
           <span>KNOWLEDGE EDITION 01 · BETA 1.0</span>
         </div>
 
-        <nav className="step-rail" aria-label="切片工作流">
-          {stepLabels.map((item) => (
-            <button
-              key={item.step}
-              className={step === item.step ? "active" : step > item.step ? "complete" : ""}
-              disabled={item.step > 1 && !analysisReady}
-              onClick={() => openStep(item.step)}
-              aria-current={step === item.step ? "step" : undefined}
-            >
-              <b>{item.step}</b>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
+        {step > 1 && (
+          <nav className="step-rail" aria-label="切片工作流">
+            {stepLabels.map((item) => (
+              <button
+                key={item.step}
+                className={step === item.step ? "active" : step > item.step ? "complete" : ""}
+                disabled={item.step > 1 && !analysisReady}
+                onClick={() => openStep(item.step)}
+                aria-current={step === item.step ? "step" : undefined}
+              >
+                <b>{item.step}</b>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        )}
 
         <div className="masthead-actions">
           {step > 1 && (
@@ -709,82 +805,119 @@ export default function Home() {
       </header>
 
       {step === 1 && (
-        <section className="intake-view intake-minimal" aria-labelledby="intake-title">
-          <div className="intake-atmosphere" aria-hidden="true">
-            <img src="/photos/tz_neon_tall.jpg" alt="" />
-          </div>
+        <section className="workspace-home" aria-labelledby="intake-title">
+          <div className="home-shell">
+            <aside className="model-mini" aria-label="天总专属模型说明">
+              <img src="/photos/tz_neon_face.jpg" alt="" aria-hidden="true" />
+              <p>
+                <b>天总专属模型</b>
+                <span>她不是永远强大，也不是只负责漂亮。我们保住她的本事、判断、姐妹感、发疯和真实。</span>
+              </p>
+              <small>{corpusBaseline.version}</small>
+            </aside>
 
-          <div className="intake-core">
-            <header className="intake-heading">
-              <span className="edition-label">天总专属 · {corpusBaseline.version}</span>
-              <h1 id="intake-title">上传整场直播</h1>
-              <p>选择聊播或带货，系统会从完整原片里自然找出所有值得剪的内容。</p>
+            <header className="home-prompt">
+              <h1 id="intake-title">今天要剪哪一场直播？</h1>
+              <p>上传完整原片，选择聊播或带货；这一场会成为一个独立切片项目。</p>
             </header>
 
-            <button className={`intake-upload ${fileName ? "ready" : ""}`} onClick={() => fileRef.current?.click()}>
-              <span aria-hidden="true">＋</span>
-              <strong>{fileName || "选择直播录屏"}</strong>
-              <small>{fileName ? "已读取本地原片，可以继续选择类型" : "MP4 / MOV · 使用完整直播，不凭一句话误判上下文"}</small>
-            </button>
-            <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
-
-            {uploadedPreviewUrl && (
-              <video className="intake-upload-preview" src={uploadedPreviewUrl} controls playsInline preload="metadata" />
-            )}
-
-            <div className="intake-mode" aria-labelledby="mode-title">
-              <span id="mode-title">选择类型</span>
-              <div>
-                <button
-                  className={mode === "聊播" ? "selected" : ""}
-                  onClick={() => switchMode("聊播")}
-                  aria-pressed={mode === "聊播"}
-                >
-                  <b>聊播</b>
-                  <small>完整观点、人物反差与情绪闭环</small>
-                </button>
-                <button
-                  className={mode === "带货" ? "selected" : ""}
-                  onClick={() => switchMode("带货")}
-                  aria-pressed={mode === "带货"}
-                >
-                  <b>带货</b>
-                  <small>购买理由、场景证明与限制条件</small>
-                </button>
-              </div>
-            </div>
-
-            <div className="intake-submit">
-              <button className="pink-action" onClick={startAnalysis} disabled={!uploadedPreviewUrl || !mode || (analysisProgress > 0 && analysisProgress < 100)}>
-                {analysisProgress > 0 && analysisProgress < 100 ? `正在分析 ${Math.min(analysisProgress, 99)}%` : "开始分析"}
+            <form
+              className={`workflow-composer ${fileName ? "has-file" : ""}`}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void startAnalysis();
+              }}
+            >
+              <button
+                type="button"
+                className="composer-input"
+                onClick={() => fileRef.current?.click()}
+                aria-label={fileName ? `更换直播原片：${fileName}` : "上传整场直播"}
+              >
+                {fileName ? (
+                  <span className="composer-file">
+                    <span aria-hidden="true">▶</span>
+                    <span>
+                      <strong>{fileName}</strong>
+                      <small>{projectDate?.label} · {mode ? `${mode}切片` : "请选择切片类型"}</small>
+                    </span>
+                  </span>
+                ) : (
+                  <span className="composer-placeholder">
+                    <strong>上传整场直播，开始找天总切片</strong>
+                    <small>支持 MP4 / MOV；完整上下文会用于判断哪些内容值得剪。</small>
+                  </span>
+                )}
               </button>
-              <small>候选有多少就返回多少，不设目标数，也不为凑数补候选。</small>
-            </div>
+              <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
 
-            {analysisProgress > 0 && analysisProgress < 100 && (
-              <div className="analysis-strip" aria-live="polite">
-                <span style={{ width: `${analysisProgress}%` }} />
+              <div className="composer-toolbar">
+                <button type="button" className="composer-add" onClick={() => fileRef.current?.click()}>
+                  <span aria-hidden="true">＋</span>{fileName ? "更换原片" : "上传原片"}
+                </button>
+                <div className="composer-modes" role="radiogroup" aria-label="选择切片类型">
+                  {(["聊播", "带货"] as Mode[]).map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      className={mode === item ? "selected" : ""}
+                      onClick={() => switchMode(item)}
+                      aria-pressed={mode === item}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="submit"
+                  className="composer-send"
+                  aria-label="开始分析这场直播"
+                  disabled={!uploadedPreviewUrl || !mode || (analysisProgress > 0 && analysisProgress < 100)}
+                >
+                  {analysisProgress > 0 && analysisProgress < 100 ? Math.min(analysisProgress, 99) : <span aria-hidden="true">↑</span>}
+                </button>
               </div>
-            )}
 
-            <p className="prototype-note">内部内测：当前展示候选判断、逐字删留与输出依据；真实转写、渲染和 ChatCut 写入仍待接通。</p>
+              {analysisProgress > 0 && analysisProgress < 100 && (
+                <div className="composer-progress" aria-live="polite">
+                  <span style={{ width: `${analysisProgress}%` }} />
+                </div>
+              )}
+            </form>
+
+            <p className="composer-hint">候选有多少就返回多少，不设目标数，也不为凑数补候选。</p>
+
+            <section className="project-library" aria-labelledby="projects-title">
+              <header>
+                <h2 id="projects-title">项目</h2>
+                <span>{projects.length ? `${projects.length} 场直播` : "每场直播一个项目"}</span>
+              </header>
+
+              {!projectsLoaded ? (
+                <p className="projects-empty">正在读取项目…</p>
+              ) : projects.length === 0 ? (
+                <p className="projects-empty">上传一场完整直播后，这里会按日期保存项目，并显示最终拆出的切片数。</p>
+              ) : (
+                <div className="project-list">
+                  {projects.map((project) => (
+                    <article className="project-row" key={project.id}>
+                      <time dateTime={project.projectDate}>{formatProjectDate(project.projectDate)}</time>
+                      <div>
+                        <strong>{project.title}</strong>
+                        <small>{project.sourceName} · {project.mode}</small>
+                      </div>
+                      <span className={`project-status ${project.status}`}>
+                        {project.status === "ready" ? "已完成" : "分析中"}
+                      </span>
+                      <b>{project.status === "ready" ? `${project.clipCount} 条切片` : "正在找切片"}</b>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <p className="home-prototype-note">内测：项目记录已保存；真实转写、渲染和 ChatCut 写入仍待接通。</p>
           </div>
-
-          <footer className="intake-support">
-            <p>她不是永远强大，也不是只负责漂亮。她真正让人留下来的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时成立。</p>
-            <details className="intake-context">
-              <summary>为什么这套系统懂天总 <span>{corpusBaseline.version}</span></summary>
-              <div>
-                <p>长期研究千余条天总素材，近期直播权重最高。人物理解会进入候选理由、时长依据和逐句删留，不单独占据首页。</p>
-                <div className="intake-persona-words" aria-label="天总五种人物状态">
-                  {personaSpectrum.map((item) => <span key={item.label}>{item.label}</span>)}
-                </div>
-                <div className="intake-profile-notes">
-                  {profileChapters.map((chapter) => <p key={chapter.label}><b>{chapter.label}</b>{chapter.text}</p>)}
-                </div>
-              </div>
-            </details>
-          </footer>
         </section>
       )}
 

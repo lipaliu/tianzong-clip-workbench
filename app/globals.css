@@ -2916,3 +2916,525 @@ button:not(:disabled):active {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* ──────────────────────────────
+   Step 01 · Project workbench
+   One unmistakable AI-style composer, then a quiet project history.
+   ────────────────────────────── */
+
+.masthead.home {
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 54px;
+  background: rgba(253, 252, 251, 0.94);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.masthead.home .wordmark {
+  font-size: 15px;
+  font-weight: 520;
+  letter-spacing: 0.02em;
+}
+
+.masthead.home .masthead-brand > span {
+  color: var(--faint);
+}
+
+.workspace-home {
+  min-height: calc(100svh - 54px);
+  padding: clamp(30px, 6vh, 68px) 24px 44px;
+  background:
+    radial-gradient(circle at 50% 12%, rgba(232, 196, 208, 0.16), transparent 31%),
+    var(--paper);
+}
+
+.home-shell {
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+.model-mini {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: min(610px, 100%);
+  margin: 0 auto;
+  color: var(--muted);
+}
+
+.model-mini img {
+  width: 36px;
+  height: 36px;
+  display: block;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center 28%;
+  filter: saturate(0.82);
+}
+
+.model-mini p {
+  min-width: 0;
+  margin: 0;
+  font-size: 9px;
+  font-weight: 350;
+  line-height: 1.45;
+}
+
+.model-mini b {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 540;
+}
+
+.model-mini span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-mini small {
+  color: var(--faint);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 6px;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.home-prompt {
+  margin-top: clamp(30px, 5vh, 52px);
+  text-align: center;
+}
+
+.home-prompt h1 {
+  margin: 0;
+  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: clamp(28px, 4.2vw, 42px);
+  font-weight: 390;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+}
+
+.home-prompt p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 350;
+  line-height: 1.6;
+}
+
+.workflow-composer {
+  position: relative;
+  overflow: hidden;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  margin-top: 27px;
+  padding: 0 15px 14px;
+  border: 1px solid rgba(46, 44, 43, 0.2);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 16px 45px rgba(62, 48, 53, 0.08), 0 2px 7px rgba(62, 48, 53, 0.04);
+  transition: border-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out);
+}
+
+.workflow-composer:focus-within {
+  border-color: rgba(184, 132, 154, 0.78);
+  box-shadow: 0 18px 50px rgba(184, 132, 154, 0.12), 0 2px 8px rgba(62, 48, 53, 0.05);
+}
+
+.composer-input {
+  width: 100%;
+  min-height: 112px;
+  display: flex;
+  align-items: flex-start;
+  padding: 22px 9px 14px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.composer-placeholder {
+  display: grid;
+  gap: 6px;
+}
+
+.composer-placeholder strong {
+  font-size: 17px;
+  font-weight: 410;
+  line-height: 1.45;
+}
+
+.composer-placeholder small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 350;
+  line-height: 1.55;
+}
+
+.composer-file {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  max-width: 100%;
+  padding: 9px 12px 9px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 13px;
+  background: var(--sheet);
+}
+
+.composer-file > span:first-child {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--pink-pale);
+  color: var(--pink-deep);
+  font-size: 10px;
+}
+
+.composer-file > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.composer-file strong {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 520;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-file small {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-add,
+.composer-modes button {
+  min-height: 32px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.composer-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 11px 0 9px;
+}
+
+.composer-add span {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.composer-modes {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.composer-modes button {
+  min-width: 54px;
+  padding: 0 14px;
+}
+
+.composer-add:hover,
+.composer-modes button:hover {
+  border-color: var(--line);
+  background: var(--sheet);
+  color: var(--ink);
+}
+
+.composer-modes button.selected {
+  border-color: rgba(184, 132, 154, 0.45);
+  background: var(--pink-pale);
+  color: var(--ink);
+}
+
+.composer-send {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  font-weight: 500;
+}
+
+.composer-send span {
+  transform: translateY(-1px);
+  font-family: var(--font-geist-sans), sans-serif;
+  font-size: 20px;
+  font-weight: 320;
+}
+
+.composer-send:hover:not(:disabled) {
+  background: var(--pink-deep);
+}
+
+.composer-progress {
+  position: absolute;
+  right: 20px;
+  bottom: 8px;
+  left: 20px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line-soft);
+}
+
+.composer-progress span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--pink-deep);
+  transition: width 260ms linear;
+}
+
+.composer-hint {
+  margin: 10px 0 0;
+  color: var(--faint);
+  font-size: 8px;
+  font-weight: 350;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.project-library {
+  margin-top: clamp(44px, 7vh, 72px);
+}
+
+.project-library > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 2px 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+.project-library h2 {
+  margin: 0;
+  font-family: var(--font-display), "PingFang SC", sans-serif;
+  font-size: 15px;
+  font-weight: 480;
+  letter-spacing: 0.01em;
+}
+
+.project-library > header span {
+  color: var(--faint);
+  font-size: 8px;
+}
+
+.projects-empty {
+  margin: 0;
+  padding: 21px 2px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 350;
+  line-height: 1.6;
+}
+
+.project-list {
+  display: grid;
+}
+
+.project-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) auto 86px;
+  align-items: center;
+  gap: 16px;
+  min-height: 66px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.project-row time {
+  color: var(--muted);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+}
+
+.project-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.project-row strong {
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 520;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-row small {
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 7px;
+  font-weight: 350;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-status {
+  position: relative;
+  padding-left: 10px;
+  color: var(--muted);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.project-status::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--faint);
+  transform: translateY(-50%);
+}
+
+.project-status.ready::before {
+  background: var(--positive);
+}
+
+.project-status.analyzing::before {
+  background: var(--pink-deep);
+  box-shadow: 0 0 0 3px rgba(184, 132, 154, 0.11);
+}
+
+.project-row > b {
+  color: var(--ink);
+  font-size: 8px;
+  font-weight: 520;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.home-prototype-note {
+  margin: 16px 0 0;
+  color: var(--faint);
+  font-size: 7px;
+  font-weight: 350;
+  line-height: 1.5;
+  text-align: right;
+}
+
+@media (max-width: 680px) {
+  .masthead.home {
+    padding: 0 17px;
+  }
+
+  .masthead.home .masthead-brand > span {
+    display: none;
+  }
+
+  .workspace-home {
+    padding: 24px 16px 34px;
+  }
+
+  .model-mini {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .model-mini img {
+    width: 32px;
+    height: 32px;
+  }
+
+  .model-mini small {
+    display: none;
+  }
+
+  .home-prompt {
+    margin-top: 34px;
+  }
+
+  .home-prompt h1 {
+    font-size: 30px;
+  }
+
+  .workflow-composer {
+    min-height: 176px;
+    margin-top: 23px;
+    border-radius: 22px;
+  }
+
+  .composer-input {
+    min-height: 105px;
+  }
+
+  .composer-placeholder strong {
+    font-size: 15px;
+  }
+
+  .composer-add {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+    overflow: hidden;
+    color: transparent;
+    white-space: nowrap;
+  }
+
+  .composer-add span {
+    color: var(--ink);
+  }
+
+  .composer-modes {
+    gap: 4px;
+  }
+
+  .composer-modes button {
+    min-width: 48px;
+    padding: 0 10px;
+  }
+
+  .project-row {
+    grid-template-columns: 58px minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .project-status {
+    display: none;
+  }
+
+  .project-row > b {
+    font-size: 7px;
+  }
+}

@@ -1,62 +1,113 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import test from "node:test";
 
-async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    new Request("http://localhost/", { headers: { accept: "text/html" } }),
-    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
-    { waitUntil() {}, passThroughOnException() {} },
-  );
+async function openPort() {
+  const server = createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
 }
 
-test("server-renders a single-flow Tianzong intake", async () => {
+async function render() {
+  const port = await openPort();
+  const cwd = new URL("../dist/server/", import.meta.url);
+  const wrangler = new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url);
+  const wranglerLog = new URL("../.wrangler/wrangler-test.log", import.meta.url);
+  const child = spawn(
+    process.execPath,
+    [wrangler.pathname, "dev", "--config", "wrangler.json", "--port", String(port)],
+    {
+      cwd: cwd.pathname,
+      env: { ...process.env, NO_COLOR: "1", WRANGLER_LOG_PATH: wranglerLog.pathname },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+
+  let output = "";
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`wrangler did not start:\n${output}`)), 15_000);
+      const onData = (chunk) => {
+        output += chunk.toString();
+        if (output.includes("Ready on")) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      };
+      child.stdout.on("data", onData);
+      child.stderr.on("data", onData);
+      child.once("exit", (code) => {
+        clearTimeout(timeout);
+        reject(new Error(`wrangler exited with ${code}:\n${output}`));
+      });
+    });
+  } catch (error) {
+    child.kill("SIGTERM");
+    throw error;
+  }
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/`, {
+      headers: { accept: "text/html" },
+    });
+    return {
+      status: response.status,
+      headers: response.headers,
+      text: await response.text(),
+    };
+  } finally {
+    child.kill("SIGTERM");
+  }
+}
+
+test("server-renders the Tianzong project workbench", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
-  const html = await response.text();
+  const html = response.text;
   assert.match(html, /<meta name="robots" content="noindex, nofollow, noarchive"\s*\/?>/);
   assert.match(html, /天总直播切片系统/);
   assert.match(html, /内测 BETA 1\.0/);
   assert.match(html, /她不是永远强大，也不是只负责漂亮/);
-  assert.match(html, /有本事、有判断、像姐妹、会发疯、也会受伤/);
-  assert.match(html, /上传整场直播/);
-  assert.match(html, /选择直播录屏/);
-  assert.match(html, /选择类型/);
-  assert.match(html, /开始分析/);
-  assert.match(html, /内部内测/);
-  assert.match(html, /为什么这套系统懂天总/);
-  assert.match(html, /长期研究千余条天总素材/);
-  assert.match(html, /上传与类型/);
-  assert.match(html, /内容地图/);
-  assert.match(html, /文字精剪/);
+  assert.match(html, /本事、判断、姐妹感、发疯和真实/);
+  assert.match(html, /今天要剪哪一场直播/);
+  assert.match(html, /上传整场直播，开始找天总切片/);
+  assert.match(html, /上传原片/);
+  assert.match(html, /开始分析这场直播/);
+  assert.match(html, /每场直播一个项目/);
+  assert.match(html, /项目记录已保存/);
   assert.match(html, /聊播/);
   assert.match(html, /带货/);
 
-  const headlinePosition = html.indexOf("上传整场直播");
-  const uploadPosition = html.indexOf("选择直播录屏");
-  const modePosition = html.indexOf("选择类型");
-  const ctaPosition = html.indexOf("开始分析");
-  const quotePosition = html.indexOf("她不是永远强大");
-  const contextPosition = html.indexOf("为什么这套系统懂天总");
-  assert.ok(headlinePosition >= 0 && headlinePosition < uploadPosition);
+  const modelPosition = html.indexOf("她不是永远强大");
+  const headlinePosition = html.indexOf("今天要剪哪一场直播");
+  const uploadPosition = html.indexOf("上传整场直播，开始找天总切片");
+  const modePosition = html.indexOf("选择切片类型");
+  const projectPosition = html.indexOf("每场直播一个项目");
+  assert.ok(modelPosition >= 0 && modelPosition < headlinePosition);
+  assert.ok(headlinePosition < uploadPosition);
   assert.ok(uploadPosition < modePosition);
-  assert.ok(modePosition < ctaPosition);
-  assert.ok(ctaPosition < quotePosition);
-  assert.ok(quotePosition < contextPosition);
+  assert.ok(modePosition < projectPosition);
 
   assert.doesNotMatch(html, /天总视觉素材/);
   assert.doesNotMatch(html, /\/editorial\//);
-  assert.match(html, /\/photos\/tz_/);
-  assert.match(html, /intake-core/);
-  assert.match(html, /intake-upload/);
-  assert.match(html, /intake-mode/);
-  assert.match(html, /intake-support/);
+  assert.match(html, /\/photos\/tz_neon_face\.jpg/);
+  assert.match(html, /model-mini/);
+  assert.match(html, /workflow-composer/);
+  assert.match(html, /composer-toolbar/);
+  assert.match(html, /project-library/);
+  assert.doesNotMatch(html, /intake-atmosphere/);
+  assert.doesNotMatch(html, /intake-upload-preview/);
+  assert.doesNotMatch(html, /intake-support/);
   assert.doesNotMatch(html, /intake-collage/);
   assert.doesNotMatch(html, /intake-grid/);
   assert.doesNotMatch(html, /profile-brief/);
@@ -94,10 +145,20 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /固定评测集回测/);
   assert.match(page, /通过评审后才改变生产规则/);
   assert.match(page, /uploadedPreviewUrl \? activeClip\.sourceStart : 0/);
-  assert.match(page, /<details className="intake-context">/);
-  assert.match(page, /为什么这套系统懂天总/);
-  assert.match(page, /长期研究千余条天总素材/);
+  assert.match(page, /className="model-mini"/);
+  assert.match(page, /className=\{`workflow-composer/);
+  assert.match(page, /className="project-library"/);
+  assert.match(page, /按日期保存项目/);
+  assert.match(page, /projectDateFromFile/);
+  assert.match(page, /formatProjectDate/);
+  assert.match(page, /fetch\("\/api\/projects"/);
+  assert.match(page, /method: "POST"/);
+  assert.match(page, /method: "PATCH"/);
+  assert.match(page, /\$\{projectDate\.label\} · \$\{selectedMode\}切片/);
+  assert.match(page, /\$\{project\.clipCount\} 条切片/);
   assert.match(page, /disabled=\{!uploadedPreviewUrl \|\| !mode/);
+  assert.doesNotMatch(page, /className="intake-upload-preview"/);
+  assert.doesNotMatch(page, /className="intake-support"/);
   assert.doesNotMatch(page, /className="intake-intro"/);
   assert.doesNotMatch(page, /className="intake-grid"/);
   assert.doesNotMatch(page, /className="profile-brief"/);
@@ -133,4 +194,26 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.doesNotMatch(layout, /og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
+});
+
+test("persists dated project metadata in D1", async () => {
+  const [schema, route, hosting, migration] = await Promise.all([
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/projects/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0000_blushing_morg.sql", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(schema, /sqliteTable\(\s*"projects"/);
+  assert.match(schema, /projectDate: text\("project_date"\)/);
+  assert.match(schema, /sourceName: text\("source_name"\)/);
+  assert.match(schema, /clipCount: integer\("clip_count"\)/);
+  assert.match(route, /export async function GET/);
+  assert.match(route, /export async function POST/);
+  assert.match(route, /export async function PATCH/);
+  assert.match(route, /crypto\.randomUUID\(\)/);
+  assert.match(hosting, /"d1"\s*:\s*"DB"/);
+  assert.match(hosting, /"r2"\s*:\s*null/);
+  assert.match(migration, /CREATE TABLE `projects`/);
+  assert.match(migration, /CREATE INDEX `projects_created_at_idx`/);
 });
