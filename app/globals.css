@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --paper: #f1ede5;
-  --sheet: #fbfaf6;
+  --paper: #f5f3f1;
+  --sheet: #fbfaf8;
   --sheet-strong: #ffffff;
-  --ink: #171310;
-  --muted: #756d67;
-  --faint: #a49c95;
-  --line: rgba(23, 19, 16, 0.2);
-  --line-soft: rgba(23, 19, 16, 0.1);
-  --wine: #6f2135;
-  --wine-deep: #541526;
-  --wine-soft: #ead9dd;
-  --wine-wash: #f3e9eb;
+  --ink: #151314;
+  --muted: #706b6d;
+  --faint: #aaa4a6;
+  --line: rgba(21, 19, 20, 0.14);
+  --line-soft: rgba(21, 19, 20, 0.07);
+  --wine: #7a2445;
+  --wine-deep: #4d1129;
+  --wine-soft: #e6d5de;
+  --wine-wash: #f1e8ec;
   --positive: #405b49;
   --danger: #8a3f3f;
-  --shadow: 0 24px 80px rgba(35, 27, 22, 0.08);
+  --shadow: 0 26px 80px rgba(42, 28, 35, 0.06);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
@@ -37,6 +37,8 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-weight: 400;
+  font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -51,6 +53,7 @@ input,
 textarea,
 a {
   font: inherit;
+  font-weight: 400;
 }
 
 button,
@@ -105,15 +108,15 @@ button:not(:disabled):active {
   position: sticky;
   top: 0;
   z-index: 50;
-  min-height: 74px;
+  min-height: 58px;
   display: grid;
-  grid-template-columns: minmax(230px, 0.85fr) minmax(380px, 1.3fr) minmax(230px, 0.85fr);
+  grid-template-columns: minmax(190px, 0.9fr) minmax(300px, 1.2fr) minmax(190px, 0.9fr);
   align-items: center;
-  gap: 24px;
-  padding: 13px 36px 11px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(251, 250, 246, 0.94);
-  backdrop-filter: blur(18px);
+  gap: 28px;
+  padding: 10px clamp(20px, 3vw, 42px) 9px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(251, 250, 248, 0.92);
+  backdrop-filter: blur(20px);
 }
 
 .masthead-brand {
@@ -126,40 +129,40 @@ button:not(:disabled):active {
   background: transparent;
   color: var(--ink);
   font-family: var(--font-bodoni), "Songti SC", "STSong", Didot, serif;
-  font-size: clamp(21px, 2vw, 28px);
+  font-size: clamp(16px, 1.45vw, 20px);
   font-weight: 400;
-  line-height: 0.95;
-  letter-spacing: -0.035em;
+  line-height: 1;
+  letter-spacing: -0.02em;
   white-space: nowrap;
 }
 
 .masthead-brand > span {
   display: block;
-  margin-top: 7px;
+  margin-top: 5px;
   color: var(--muted);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
-  font-weight: 500;
-  letter-spacing: 0.15em;
+  font-size: 6px;
+  font-weight: 400;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
 }
 
 .step-rail {
   display: flex;
   justify-content: center;
-  align-items: stretch;
+  align-items: center;
+  gap: clamp(18px, 3vw, 44px);
   min-width: 0;
 }
 
 .step-rail button {
   position: relative;
-  min-width: 128px;
-  display: grid;
-  grid-template-columns: 22px auto;
+  min-width: 0;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 13px 15px 12px;
+  gap: 7px;
+  padding: 5px 0 4px;
   border-bottom: 1px solid transparent;
   background: transparent;
   color: var(--faint);
@@ -167,28 +170,21 @@ button:not(:disabled):active {
 }
 
 .step-rail button + button::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 1px;
-  height: 18px;
-  background: var(--line-soft);
-  transform: translateY(-50%);
+  content: none;
 }
 
 .step-rail b {
   color: currentColor;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
+  font-size: 6px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
 }
 
 .step-rail span {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
 }
 
 .step-rail button.active,
@@ -216,12 +212,12 @@ button:not(:disabled):active {
 
 .mode-switch button {
   position: relative;
-  padding: 8px 12px;
+  padding: 6px 9px;
   background: transparent;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
 }
 
 .mode-switch button + button::before {
@@ -236,12 +232,13 @@ button:not(:disabled):active {
 }
 
 .text-action {
-  padding: 8px 0 5px;
-  border-bottom: 1px solid var(--line);
+  padding: 6px 0 4px;
+  border-bottom: 1px solid transparent;
   background: transparent;
   color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
 }
 
 .text-action:hover {
