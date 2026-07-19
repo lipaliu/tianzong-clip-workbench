@@ -85,6 +85,11 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /const discoveredCount = analysisReady \? modeIdeas\.length : 0/);
   assert.doesNotMatch(page, /demoDiscoveryCounts/);
   assert.match(page, /句级预听/);
+  assert.match(page, /确认本条剪辑决定/);
+  assert.match(page, /这次选择如何反哺系统/);
+  assert.match(page, /后台研究归因/);
+  assert.match(page, /固定评测集回测/);
+  assert.match(page, /通过评审后才改变生产规则/);
   assert.match(page, /uploadedPreviewUrl \? activeClip\.sourceStart : 0/);
   assert.match(page, /<details className="profile-brief">/);
   assert.match(page, /编辑部手记 \/ 我们怎样理解她/);

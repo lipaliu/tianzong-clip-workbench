@@ -1430,6 +1430,66 @@ button:not(:disabled):active {
   line-height: 1.6;
 }
 
+.feedback-path {
+  padding: 19px 0 4px;
+  border-top: 1px solid var(--line);
+}
+
+.feedback-path > span {
+  color: var(--wine);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.feedback-path ol {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 14px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  list-style: none;
+}
+
+.feedback-path li {
+  min-width: 0;
+  padding: 13px 12px;
+}
+
+.feedback-path li + li {
+  border-left: 1px solid var(--line-soft);
+}
+
+.feedback-path li.active {
+  background: var(--wine-wash);
+}
+
+.feedback-path li > b {
+  color: var(--wine);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7px;
+  font-weight: 500;
+}
+
+.feedback-path li > p {
+  margin: 10px 0 0;
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.feedback-path li strong {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 7px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
 .transcript-editor {
   display: flex;
   flex-direction: column;
@@ -1941,6 +2001,18 @@ button:not(:disabled):active {
     padding: 24px 22px 0;
   }
 
+  .feedback-path ol {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .feedback-path li:nth-child(3) {
+    border-left: 0;
+  }
+
+  .feedback-path li:nth-child(n + 3) {
+    border-top: 1px solid var(--line-soft);
+  }
+
   .architecture-list {
     grid-template-columns: 1fr;
   }
@@ -2073,6 +2145,16 @@ button:not(:disabled):active {
 
   .score-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .feedback-path ol {
+    grid-template-columns: 1fr;
+  }
+
+  .feedback-path li + li,
+  .feedback-path li:nth-child(3) {
+    border-top: 1px solid var(--line-soft);
+    border-left: 0;
   }
 
   .transcript-head {

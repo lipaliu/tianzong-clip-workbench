@@ -645,8 +645,8 @@ export default function Home() {
     window.setTimeout(() => {
       setGenerationState("done");
       setFeedbackQueued(true);
-      showToast(`句级预听已更新；${reviewChangeCount} 项人工纠偏已记为本次回标演示，当前不会写入后台或生成正式 MP4。`);
-    }, 1300);
+      showToast(`本条剪辑决定已确认；${reviewChangeCount} 项人工差异已进入本次回标演示，正式版会在归因、评审和回测后决定是否进入下一知识版本。`);
+    }, 900);
   }
 
   function handoffToChatCut() {
@@ -975,7 +975,7 @@ export default function Home() {
               </section>
             )}
             <div className="generation-proof" aria-live="polite">
-              <span>{generationState === "done" ? "句级预听已更新 · 不代表最终落刀" : "当前播放器为原片上下文预览"}</span>
+              <span>{generationState === "done" ? "本条剪辑决定已确认 · 等待真实原片落刀" : uploadedPreviewUrl ? "当前为原片上下文与逐字校样" : "当前为逐字、理由与输出判断校样"}</span>
               <b>{keptCount} 段保留 · {activeClip.transcript.length - keptCount} 段删除</b>
             </div>
             <p className="raw-output-note">目标输出：无字幕 · 无效果 · 保留原声</p>
@@ -997,6 +997,15 @@ export default function Home() {
                 <p><span>人工回标</span><b>{reviewChangeCount} 项本条差异 · {totalReviewChangeCount} 项本场累计</b></p>
               </div>
               <small>{feedbackQueued ? "本次差异已记录为本地回标演示；正式版需后台评审与回测后才影响下一知识版本。" : "当编导改写系统建议时，差异将成为回标候选；不会立即覆盖当前全局规则。"}</small>
+              <div className="feedback-path" aria-label="人工回标进入下一知识版本的路径">
+                <span>这次选择如何反哺系统</span>
+                <ol>
+                  <li className={reviewChangeCount > 0 ? "active" : ""}><b>01</b><p>记录人工差异<strong>{reviewChangeCount} 项本条修改</strong></p></li>
+                  <li><b>02</b><p>后台研究归因<strong>判断是规则、样本还是原片问题</strong></p></li>
+                  <li><b>03</b><p>固定评测集回测<strong>确认没有破坏已有正确判断</strong></p></li>
+                  <li><b>04</b><p>发布下一版本<strong>通过评审后才改变生产规则</strong></p></li>
+                </ol>
+              </div>
             </section>
           </section>
 
@@ -1048,7 +1057,7 @@ export default function Home() {
                 </div>
               ) : (
                 <button className="pink-action" onClick={generateClip} disabled={generationState === "working"}>
-                  {generationState === "working" ? "正在更新句级预听…" : "更新句级预听"}
+                  {generationState === "working" ? "正在汇总剪辑决定…" : "确认本条剪辑决定"}
                 </button>
               )}
             </div>
