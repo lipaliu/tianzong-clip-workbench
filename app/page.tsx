@@ -62,6 +62,11 @@ type ProjectRecord = {
   createdAt: string;
 };
 
+type ImportedSubtitle = {
+  name: string;
+  cueCount: number;
+};
+
 const corpusBaseline = {
   version: "内测 BETA 1.0",
 };
@@ -515,6 +520,23 @@ function formatProjectDate(value: string) {
   return month && day ? `${Number(month)}月${Number(day)}日` : value;
 }
 
+function durationToSeconds(value: string) {
+  const units = value.split(":").map(Number);
+  if (units.some(Number.isNaN)) return 0;
+  if (units.length === 3) return units[0] * 3600 + units[1] * 60 + units[2];
+  if (units.length === 2) return units[0] * 60 + units[1];
+  return units[0] ?? 0;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 export default function Home() {
   const [step, setStep] = useState<WorkflowStep>(1);
   const [intakeStep, setIntakeStep] = useState<IntakeStep>(1);
@@ -535,8 +557,11 @@ export default function Home() {
   const [projectDate, setProjectDate] = useState<{ iso: string; label: string } | null>(null);
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [importedSubtitle, setImportedSubtitle] = useState<ImportedSubtitle | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const subtitleRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const deliveryRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     return () => {
@@ -564,6 +589,15 @@ export default function Home() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (generationState !== "done") return;
+    const frame = window.requestAnimationFrame(() => {
+      deliveryRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      deliveryRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [generationState]);
 
   const modeIdeas = useMemo(
     () => ideas.filter((idea) => idea.kind === (mode ?? "聊播")),
@@ -733,6 +767,7 @@ export default function Home() {
     setCurrentTime(0);
     setGenerationState("idle");
     setFeedbackQueued(false);
+    setImportedSubtitle(null);
   }
 
   function enterTranscript() {
@@ -756,6 +791,7 @@ export default function Home() {
     setDecisions((current) => ({ ...current, [id]: decision }));
     setGenerationState("idle");
     setFeedbackQueued(false);
+    setImportedSubtitle(null);
   }
 
   function generateClip() {
@@ -763,12 +799,87 @@ export default function Home() {
     window.setTimeout(() => {
       setGenerationState("done");
       setFeedbackQueued(true);
-      showToast(`本条剪辑决定已确认；${reviewChangeCount} 项人工差异已进入本次回标演示，正式版会在归因、评审和回测后决定是否进入下一知识版本。`);
+      showToast(`本条剪辑决定已确认；现在可以选择下载成片、导出 XML 时间线，或进入 ChatCut 继续精修。当前真实渲染与 ChatCut 写入仍待接通。`);
     }, 900);
   }
 
+  function requestClipDownload() {
+    showToast("当前尚未接入真实媒体裁切与渲染，不能把整场原片冒充成片下载。正式版会在这里输出无字幕、无效果、保留原声的 MP4。");
+  }
+
   function handoffToChatCut() {
-    showToast("演示：已准备可编辑时间线。正式版连接 ChatCut 后会写入用户工程。");
+    showToast(`当前尚未接通 ChatCut 授权。正式版会创建可编辑时间线，并带入删留决定${importedSubtitle ? `和 ${importedSubtitle.name}` : ""}。`);
+  }
+
+  async function importSrt(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".srt")) {
+      showToast("请选择 .srt 字幕文件。");
+      event.target.value = "";
+      return;
+    }
+
+    const content = await file.text();
+    const cueCount = content.match(/\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,.]\d{3}/g)?.length ?? 0;
+    if (!cueCount) {
+      showToast("没有识别到标准 SRT 时间码，请检查字幕文件格式。");
+      event.target.value = "";
+      return;
+    }
+
+    setImportedSubtitle({ name: file.name, cueCount });
+    showToast(`已在本地读入 ${file.name}，识别 ${cueCount} 条字幕；正式渲染接通后可用于成片或继续带入 ChatCut。`);
+  }
+
+  function exportXmlTimeline() {
+    if (!uploadedPreviewUrl || !fileName) {
+      showToast("请先上传原片，再导出 XML 时间线。");
+      return;
+    }
+
+    const frameRate = 30;
+    const clipDuration = Math.max(durationToSeconds(activeClip.duration), 1);
+    const exclusions = excludedRanges
+      .map(({ start, end }) => ({ start: Math.max(0, start), end: Math.min(clipDuration, end) }))
+      .filter(({ start, end }) => end > start)
+      .sort((a, b) => a.start - b.start);
+    const keptRanges: { start: number; end: number }[] = [];
+    let cursor = 0;
+    for (const range of exclusions) {
+      if (range.start > cursor) keptRanges.push({ start: cursor, end: range.start });
+      cursor = Math.max(cursor, range.end);
+    }
+    if (cursor < clipDuration) keptRanges.push({ start: cursor, end: clipDuration });
+    if (!keptRanges.length) keptRanges.push({ start: 0, end: clipDuration });
+
+    let timelineFrame = 0;
+    const videoItems: string[] = [];
+    const audioItems: string[] = [];
+    keptRanges.forEach((range, index) => {
+      const sourceIn = Math.round((activeClip.sourceStart + range.start) * frameRate);
+      const segmentFrames = Math.max(Math.round((range.end - range.start) * frameRate), 1);
+      const timelineStart = timelineFrame;
+      const timelineEnd = timelineStart + segmentFrames;
+      const sourceOut = sourceIn + segmentFrames;
+      const fileNode = index === 0
+        ? `<file id="source-file"><name>${escapeXml(fileName)}</name><pathurl>file://localhost/${encodeURIComponent(fileName)}</pathurl><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate><duration>${Math.max(sourceOut, segmentFrames)}</duration><media><video/><audio><channelcount>2</channelcount></audio></media></file>`
+        : `<file id="source-file"/>`;
+      videoItems.push(`<clipitem id="video-${index + 1}"><name>${escapeXml(activeClip.title)}</name><duration>${segmentFrames}</duration><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate><start>${timelineStart}</start><end>${timelineEnd}</end><in>${sourceIn}</in><out>${sourceOut}</out>${fileNode}<link><linkclipref>video-${index + 1}</linkclipref><mediatype>video</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link><link><linkclipref>audio-${index + 1}</linkclipref><mediatype>audio</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link></clipitem>`);
+      audioItems.push(`<clipitem id="audio-${index + 1}"><name>${escapeXml(activeClip.title)}</name><duration>${segmentFrames}</duration><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate><start>${timelineStart}</start><end>${timelineEnd}</end><in>${sourceIn}</in><out>${sourceOut}</out><file id="source-file"/><sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack><link><linkclipref>video-${index + 1}</linkclipref><mediatype>video</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link><link><linkclipref>audio-${index + 1}</linkclipref><mediatype>audio</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link></clipitem>`);
+      timelineFrame = timelineEnd;
+    });
+
+    const sequenceName = `${projectDate?.label ?? "天总"} · ${activeClip.title}`;
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<xmeml version="5"><sequence><name>${escapeXml(sequenceName)}</name><duration>${timelineFrame}</duration><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate><media><video><format><samplecharacteristics><width>1080</width><height>1920</height><pixelaspectratio>square</pixelaspectratio><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate></samplecharacteristics></format><track>${videoItems.join("")}</track></video><audio><track>${audioItems.join("")}</track></audio></media></sequence></xmeml>`;
+    const blobUrl = URL.createObjectURL(new Blob([xml], { type: "application/xml;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    const safeTitle = activeClip.title.replace(/[\\/:*?"<>|]/g, "-");
+    anchor.href = blobUrl;
+    anchor.download = `${projectDate?.label ?? "天总"}-${safeTitle}.xml`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
+    showToast("XML 时间线草案已导出，可在 Premiere 或 DaVinci Resolve 中按原片文件名重新链接。当前时间码仍来自内测演示数据。");
   }
 
   function toggleIdeaFilter() {
@@ -1183,7 +1294,7 @@ export default function Home() {
               </section>
             )}
             <div className="generation-proof" aria-live="polite">
-              <span>{generationState === "done" ? "本条剪辑决定已确认 · 等待真实原片落刀" : uploadedPreviewUrl ? "当前为原片上下文与逐字校样" : "当前为逐字、理由与输出判断校样"}</span>
+              <span>{generationState === "done" ? "本条剪辑决定已确认 · 请选择输出方式" : uploadedPreviewUrl ? "当前为原片上下文与逐字校样" : "当前为逐字、理由与输出判断校样"}</span>
               <b>{keptCount} 段保留 · {activeClip.transcript.length - keptCount} 段删除</b>
             </div>
             <p className="raw-output-note">目标输出：无字幕 · 无效果 · 保留原声</p>
@@ -1256,13 +1367,50 @@ export default function Home() {
                 );
               })}
             </div>
+
+            {generationState === "done" && (
+              <section ref={deliveryRef} className="delivery-panel" aria-labelledby="delivery-title" tabIndex={-1}>
+                <header>
+                  <span>FINAL DELIVERY / 本条已定稿</span>
+                  <h3 id="delivery-title">现在怎么输出？</h3>
+                  <p>直接拿无包装成片，或者把同一份删留时间线送进 ChatCut 继续做字幕、包装和精修。</p>
+                </header>
+
+                <div className="delivery-main-actions">
+                  <button type="button" onClick={requestClipDownload}>
+                    <span>MP4 · 待渲染</span>
+                    <strong>直接下载成片</strong>
+                    <small>无字幕 · 无效果 · 保留原声</small>
+                  </button>
+                  <button type="button" className="chatcut" onClick={handoffToChatCut}>
+                    <span>EDITABLE · 待授权</span>
+                    <strong>进入 ChatCut 精修</strong>
+                    <small>继续加字幕、包装与效果</small>
+                  </button>
+                </div>
+
+                <div className="delivery-utilities">
+                  <button type="button" onClick={() => subtitleRef.current?.click()}>
+                    <span>SRT 字幕</span>
+                    <strong>{importedSubtitle ? importedSubtitle.name : "导入 SRT 字幕"}</strong>
+                    <small>{importedSubtitle ? `已识别 ${importedSubtitle.cueCount} 条字幕 · 本地校验通过` : "带入成片或 ChatCut 可编辑时间线"}</small>
+                  </button>
+                  <button type="button" onClick={exportXmlTimeline}>
+                    <span>XML 时间线</span>
+                    <strong>导出到专业剪辑软件</strong>
+                    <small>Premiere / DaVinci Resolve · 按原片名重连</small>
+                  </button>
+                </div>
+                <input ref={subtitleRef} type="file" accept=".srt,application/x-subrip,text/plain" hidden onChange={importSrt} />
+
+                <p className="delivery-boundary">当前 XML 草案与 SRT 本地校验可用；真实 MP4 渲染和 ChatCut 工程写入尚未接通，按钮不会把整场原片伪装成最终成片。</p>
+              </section>
+            )}
+
             <div className="cut-actions">
               <button className="outline-action" onClick={() => setStep(2)}>返回内容地图</button>
               {generationState === "done" ? (
-                <div className="output-actions">
-                  <button className="outline-action" onClick={() => showToast("当前只记录剪辑决定与输出依据；正式成片需接入服务端渲染。")}>查看输出依据</button>
-                  <button className="pink-action" onClick={handoffToChatCut}>送入 ChatCut 精修（演示）</button>
-                </div>
+                <span className="delivery-ready">已确认 · 在上方选择输出方式</span>
               ) : (
                 <button className="pink-action" onClick={generateClip} disabled={generationState === "working"}>
                   {generationState === "working" ? "正在汇总剪辑决定…" : "确认本条剪辑决定"}

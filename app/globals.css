@@ -623,14 +623,14 @@ button:not(:disabled):active {
 
 .pink-action,
 .outline-action {
-  min-height: 44px;
+  min-height: 48px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0 26px;
   border: 2px solid var(--pink-deep);
   border-radius: 0;
-  font-size: 10px;
+  font-size: 15px;
   font-weight: 500;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -953,7 +953,7 @@ button:not(:disabled):active {
 .output-duration > span {
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.13em;
   line-height: 1.5;
@@ -1003,14 +1003,14 @@ button:not(:disabled):active {
 .version-context span {
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 10px;
   letter-spacing: 0.1em;
 }
 
 .version-context p {
   margin: 0;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.45;
   text-align: right;
 }
@@ -1027,7 +1027,7 @@ button:not(:disabled):active {
 .story-header b {
   color: var(--muted);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.08em;
 }
@@ -1045,7 +1045,7 @@ button:not(:disabled):active {
 .evidence-status span {
   padding: 9px 13px 9px 0;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -1118,7 +1118,7 @@ button:not(:disabled):active {
 .compact-idea span {
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.08em;
 }
@@ -1126,7 +1126,7 @@ button:not(:disabled):active {
 .idea-row > button strong,
 .compact-idea strong {
   overflow: hidden;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 1.45;
   text-overflow: ellipsis;
@@ -1136,7 +1136,7 @@ button:not(:disabled):active {
 .compact-idea small {
   color: var(--muted);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 10px;
 }
 
 /* 候选行 hover/active：整行脏粉底 */
@@ -1428,7 +1428,7 @@ button:not(:disabled):active {
   padding: 12px 0;
   border-bottom: 1px solid var(--pink-block);
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .snapshot-lines,
@@ -1493,7 +1493,8 @@ button:not(:disabled):active {
   display: block;
   margin-top: 7px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 14px;
+  font-weight: 400;
   line-height: 1.55;
   text-decoration: none;
 }
@@ -1524,6 +1525,7 @@ button:not(:disabled):active {
   display: grid;
   grid-template-columns: minmax(220px, 0.58fr) minmax(470px, 1.2fr) minmax(410px, 1fr);
   background: var(--sheet);
+  font-weight: 400;
 }
 
 .idea-index.compact {
@@ -1572,20 +1574,20 @@ button:not(:disabled):active {
 
 .generation-proof span {
   color: var(--muted);
-  font-size: 8px;
+  font-size: 14px;
 }
 
 .generation-proof b {
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 14px;
   font-weight: 500;
 }
 
 .raw-output-note {
   margin: 12px 0 0;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 14px;
   letter-spacing: 0.06em;
 }
 
@@ -1605,7 +1607,7 @@ button:not(:disabled):active {
   margin: 10px 0 0;
   color: var(--ink);
   font-family: var(--serif);
-  font-size: clamp(19px, 1.9vw, 28px);
+  font-size: clamp(28px, 2.2vw, 34px);
   font-weight: 400;
   font-style: italic;
   line-height: 1.35;
@@ -1616,7 +1618,8 @@ button:not(:disabled):active {
 .output-duration p {
   margin: 11px 0 0;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 16px;
+  font-weight: 400;
   line-height: 1.7;
 }
 
@@ -1646,13 +1649,13 @@ button:not(:disabled):active {
 .output-rationale-grid span {
   display: block;
   color: var(--muted);
-  font-size: 7px;
+  font-size: 13px;
 }
 
 .output-rationale-grid b {
   display: block;
   margin-top: 6px;
-  font-size: 9px;
+  font-size: 16px;
   font-weight: 500;
   line-height: 1.5;
 }
@@ -1661,7 +1664,8 @@ button:not(:disabled):active {
   display: block;
   padding: 14px 0;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 14px;
+  font-weight: 400;
   line-height: 1.6;
 }
 
@@ -1674,7 +1678,7 @@ button:not(:disabled):active {
 .feedback-path > span {
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -1708,13 +1712,13 @@ button:not(:disabled):active {
 .feedback-path li > b {
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 12px;
   font-weight: 500;
 }
 
 .feedback-path li > p {
   margin: 10px 0 0;
-  font-size: 8px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.45;
 }
@@ -1723,7 +1727,7 @@ button:not(:disabled):active {
   display: block;
   margin-top: 5px;
   color: var(--muted);
-  font-size: 7px;
+  font-size: 14px;
   font-weight: 400;
   line-height: 1.45;
 }
@@ -1759,14 +1763,14 @@ button:not(:disabled):active {
   max-width: 290px;
   margin: 8px 0 0;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 15px;
   line-height: 1.55;
 }
 
 .transcript-head > span {
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-align: right;
 }
@@ -1811,13 +1815,13 @@ button:not(:disabled):active {
   padding-top: 2px;
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .transcript-seek p {
   margin: 0;
   font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 500;
   line-height: 1.55;
 }
@@ -1827,7 +1831,7 @@ button:not(:disabled):active {
   display: inline-block;
   margin: 0 8px 6px 0;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 12px;
   vertical-align: middle;
 }
 
@@ -1856,7 +1860,7 @@ button:not(:disabled):active {
   border-bottom: 1px solid var(--line);
   background: transparent;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 14px;
 }
 
 .transcript-lines article > div button.active {
@@ -1882,10 +1886,133 @@ button:not(:disabled):active {
   background: var(--wine-wash);
 }
 
-.output-actions {
+.delivery-panel {
+  margin: 20px 0 18px;
+  padding: 20px;
+  border: 2px solid var(--pink-deep);
+  background: var(--paper);
+}
+
+.delivery-panel > header {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--pink-block);
+}
+
+.delivery-panel > header > span {
+  color: var(--pink-strong);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+}
+
+.delivery-panel h3 {
+  margin: 7px 0 0;
+  font-family: var(--serif);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+.delivery-panel > header p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.delivery-main-actions,
+.delivery-utilities {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.delivery-main-actions {
+  margin-top: 14px;
+}
+
+.delivery-main-actions button,
+.delivery-utilities button {
+  min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  border: 1px solid var(--pink-block);
+  background: white;
+  color: var(--ink);
+  text-align: left;
+}
+
+.delivery-main-actions button {
+  min-height: 145px;
+  padding: 16px;
+}
+
+.delivery-main-actions button:hover:not(:disabled),
+.delivery-utilities button:hover:not(:disabled) {
+  border-color: var(--pink-deep);
+  background: var(--pink-pale);
+}
+
+.delivery-main-actions span,
+.delivery-utilities span {
+  color: var(--pink-strong);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.delivery-main-actions strong {
+  margin-top: auto;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.delivery-main-actions small,
+.delivery-utilities small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.delivery-utilities {
+  margin-top: 9px;
+}
+
+.delivery-utilities button {
+  min-height: 92px;
+  padding: 13px 14px;
+}
+
+.delivery-utilities strong {
+  width: 100%;
+  overflow: hidden;
+  margin-top: 7px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delivery-boundary {
+  margin: 13px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.delivery-ready {
+  color: var(--pink-strong);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 /* ──────────────────────────────
@@ -2390,13 +2517,21 @@ button:not(:disabled):active {
 
   .intake-footer .pink-action,
   .cut-actions > button,
-  .output-actions,
-  .output-actions > * {
-    width: 100%;
+  .delivery-panel {
+    padding: 17px;
   }
 
-  .output-actions {
-    display: grid;
+  .delivery-main-actions,
+  .delivery-utilities {
+    grid-template-columns: 1fr;
+  }
+
+  .delivery-main-actions button {
+    min-height: 112px;
+  }
+
+  .delivery-panel h3 {
+    font-size: 24px;
   }
 
   .persona-mini-list,

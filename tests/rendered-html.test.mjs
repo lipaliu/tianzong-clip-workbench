@@ -124,18 +124,28 @@ test("server-renders the Tianzong project workbench", async () => {
 });
 
 test("ships product metadata and removes the disposable starter preview", async () => {
-  const [page, layout, packageJson] = await Promise.all([
+  const [page, layout, packageJson, styles] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /本场自然发现/);
   assert.match(page, /目标输出：无字幕 · 无效果 · 保留原声/);
   assert.match(page, /Source review \/ 原片校对窗/);
   assert.match(page, /Proofing view \/ 逐字校对/);
-  assert.match(page, /查看输出依据/);
-  assert.match(page, /送入 ChatCut 精修（演示）/);
+  assert.match(page, /直接下载成片/);
+  assert.match(page, /进入 ChatCut 精修/);
+  assert.match(page, /导出到专业剪辑软件/);
+  assert.match(page, /导入 SRT 字幕/);
+  assert.match(page, /Premiere \/ DaVinci Resolve/);
+  assert.match(page, /真实 MP4 渲染和 ChatCut 工程写入尚未接通/);
+  assert.match(page, /function exportXmlTimeline/);
+  assert.match(page, /function importSrt/);
+  assert.match(page, /application\/xml;charset=utf-8/);
+  assert.match(page, /application\/x-subrip/);
+  assert.match(page, /scrollIntoView\(\{ behavior: "smooth", block: "nearest" \}\)/);
   assert.doesNotMatch(page, /下载演示样片/);
   assert.doesNotMatch(page, /\/previews\//);
   assert.doesNotMatch(page, /\/thumbnails\//);
@@ -207,6 +217,11 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(layout, /noarchive: true/);
   assert.doesNotMatch(layout, /og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+  assert.match(styles, /\.output-persona p,[\s\S]*?font-size: 16px/);
+  assert.match(styles, /\.output-rationale-grid b[\s\S]*?font-size: 16px/);
+  assert.match(styles, /\.feedback-path li > p[\s\S]*?font-size: 16px/);
+  assert.match(styles, /\.delivery-main-actions strong[\s\S]*?font-size: 18px/);
+  assert.doesNotMatch(styles, /\.delivery-main-actions button\.chatcut/);
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
 });
 
