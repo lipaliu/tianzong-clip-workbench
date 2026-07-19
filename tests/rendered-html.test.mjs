@@ -77,7 +77,13 @@ test("server-renders the Tianzong project workbench", async () => {
   assert.match(html, /<meta name="robots" content="noindex, nofollow, noarchive"\s*\/?>/);
   assert.match(html, /天总直播切片系统/);
   assert.match(html, /内测 BETA 1\.0/);
-  assert.match(html, /她不是永远强大，也不是只负责漂亮。她真正珍贵的的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时在一个人身上成立。/);
+  assert.match(html, /她不是永远强大，也不是只负责漂亮。/);
+  assert.match(html, /她真正珍贵的的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时在一个人身上成立。/);
+  assert.equal(html.match(/class="model-copy-line"/g)?.length, 2);
+  assert.match(html, /\/photos\/tz_neon_face\.jpg/);
+  assert.match(html, /\/photos\/tz_street_tall\.jpg/);
+  assert.match(html, /\/photos\/tz_pose_tall\.jpg/);
+  assert.match(html, /\/photos\/tz_city_dress\.jpg/);
   assert.match(html, /今天要剪哪一场直播/);
   assert.match(html, /上传整场直播，开始找天总切片/);
   assert.match(html, /STEP 1/);
@@ -171,6 +177,8 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /通过评审后才改变生产规则/);
   assert.match(page, /uploadedPreviewUrl \? activeClip\.sourceStart : 0/);
   assert.match(page, /className="model-mini"/);
+  assert.match(page, /className="model-mini-gallery"/);
+  assert.equal(page.match(/className="model-copy-line"/g)?.length, 2);
   assert.match(page, /className=\{`workflow-composer/);
   assert.match(page, /className="intake-stepper"/);
   assert.match(page, /className="intake-stage"/);
@@ -229,6 +237,9 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.doesNotMatch(layout, /og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(styles, /\.output-persona p,[\s\S]*?font-size: 16px/);
+  assert.match(styles, /\.model-mini p[\s\S]*?font-size: 15px/);
+  assert.match(styles, /\.model-copy-line[\s\S]*?display: block/);
+  assert.match(styles, /\.model-mini-gallery img[\s\S]*?width: 44px[\s\S]*?height: 58px/);
   assert.match(styles, /\.output-rationale-grid b[\s\S]*?font-size: 16px/);
   assert.match(styles, /\.feedback-path li > p[\s\S]*?font-size: 16px/);
   assert.match(styles, /\.delivery-option > label > strong,[\s\S]*?font-size: 18px/);

@@ -3169,49 +3169,78 @@ button:not(:disabled):active {
 .model-mini {
   min-width: 0;
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) auto;
+  grid-template-columns: 118px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 15px;
-  width: min(760px, 100%);
+  gap: 18px;
+  width: min(860px, 100%);
   margin: 0 auto;
   color: var(--muted);
 }
 
-.model-mini img {
-  width: 54px;
-  height: 54px;
+.model-mini-gallery {
+  display: flex;
+  align-items: center;
+  padding-left: 2px;
+}
+
+.model-mini-gallery img {
+  width: 44px;
+  height: 58px;
   display: block;
-  border-radius: 50%;
+  flex: 0 0 auto;
+  margin-left: -20px;
+  border: 2px solid var(--paper);
+  border-radius: 14px;
   object-fit: cover;
-  object-position: center 28%;
-  filter: saturate(0.82);
-  box-shadow: 0 0 0 4px var(--pink-pale);
+  object-position: center 24%;
+  filter: saturate(0.86);
+  box-shadow: 0 5px 14px rgba(86, 59, 68, 0.13);
+}
+
+.model-mini-gallery img:first-child {
+  margin-left: 0;
+}
+
+.model-mini-gallery img:nth-child(2) {
+  transform: translateY(3px);
+}
+
+.model-mini-gallery img:nth-child(3) {
+  transform: translateY(-2px);
+}
+
+.model-mini-gallery img:nth-child(4) {
+  transform: translateY(2px);
 }
 
 .model-mini p {
   min-width: 0;
   margin: 0;
-  font-size: 12px;
-  font-weight: 360;
-  line-height: 1.65;
+  font-size: 15px;
+  font-weight: 380;
+  line-height: 1.55;
 }
 
 .model-mini b {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: 5px;
   color: var(--ink);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 560;
 }
 
-.model-mini span {
+.model-copy-line {
   display: block;
+}
+
+.model-copy-line + .model-copy-line {
+  margin-top: 2px;
 }
 
 .model-mini small {
   color: var(--faint);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 7px;
+  font-size: 8px;
   letter-spacing: 0.08em;
   white-space: nowrap;
 }
@@ -3796,22 +3825,24 @@ button:not(:disabled):active {
   }
 
   .model-mini {
-    grid-template-columns: 46px minmax(0, 1fr);
-    gap: 12px;
+    grid-template-columns: 94px minmax(0, 1fr);
+    gap: 14px;
   }
 
-  .model-mini img {
-    width: 46px;
-    height: 46px;
+  .model-mini-gallery img {
+    width: 36px;
+    height: 48px;
+    margin-left: -17px;
+    border-radius: 11px;
   }
 
   .model-mini p {
-    font-size: 10px;
-    line-height: 1.55;
+    font-size: 13px;
+    line-height: 1.5;
   }
 
   .model-mini b {
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .model-mini small {

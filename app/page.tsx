@@ -1002,10 +1002,16 @@ export default function Home() {
         <section className="workspace-home" aria-labelledby="intake-title">
           <div className="home-shell">
             <aside className="model-mini" aria-label="天总专属模型说明">
-              <img src="/photos/tz_neon_face.jpg" alt="" aria-hidden="true" />
+              <div className="model-mini-gallery" aria-hidden="true">
+                <img src="/photos/tz_neon_face.jpg" alt="" />
+                <img src="/photos/tz_street_tall.jpg" alt="" />
+                <img src="/photos/tz_pose_tall.jpg" alt="" />
+                <img src="/photos/tz_city_dress.jpg" alt="" />
+              </div>
               <p>
                 <b>天总专属模型</b>
-                <span>她不是永远强大，也不是只负责漂亮。她真正珍贵的的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时在一个人身上成立。</span>
+                <span className="model-copy-line">她不是永远强大，也不是只负责漂亮。</span>
+                <span className="model-copy-line">她真正珍贵的的，是“有本事、有判断、像姐妹、会发疯、也会受伤”同时在一个人身上成立。</span>
               </p>
               <small>{corpusBaseline.version}</small>
             </aside>
