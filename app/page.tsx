@@ -7,8 +7,6 @@ type WorkflowStep = 1 | 2 | 3;
 type Decision = "keep" | "remove";
 type PersonaMode = "实战老板" | "强姐姐" | "视觉吸引" | "搞笑女" | "脆弱真实";
 
-type EditorialImage = { src: string; alt: string; label: string; crop: string };
-
 type TranscriptLine = {
   id: string;
   time: string;
@@ -76,27 +74,6 @@ const profileChapters = [
   {
     label: "核心观众",
     text: "想把赚钱、关系和生活想明白的女性，把她当电子闺蜜、强姐姐和会发疯的老板。",
-  },
-];
-
-const editorialImages: EditorialImage[] = [
-  {
-    src: "/editorial/tianzong-street-full.jpg",
-    alt: "天总在街头回身看向镜头的全身照片",
-    label: "外景肖像 · 人物识别",
-    crop: "street-full",
-  },
-  {
-    src: "/editorial/tianzong-korea-close.jpg",
-    alt: "天总在餐厅看向镜头的近景照片",
-    label: "近景肖像 · 表情状态",
-    crop: "korea-close",
-  },
-  {
-    src: "/editorial/tianzong-street-close.jpg",
-    alt: "天总在街头整理头发的半身照片",
-    label: "人物细节 · 穿搭表现",
-    crop: "street-close",
   },
 ];
 
@@ -722,7 +699,7 @@ export default function Home() {
       <header className="masthead">
         <div className="masthead-brand">
           <button className="wordmark" onClick={() => setStep(1)} aria-label="返回上传步骤">天总直播切片系统</button>
-          <span>内测 BETA 1.0</span>
+          <span>KNOWLEDGE EDITION 01 · BETA 1.0</span>
         </div>
 
         <nav className="step-rail" aria-label="切片工作流">
@@ -826,28 +803,12 @@ export default function Home() {
             </div>
           )}
 
-          <section className="editorial-media-deck" aria-label="天总视觉素材">
-            <header>
-              <span>天总视觉素材</span>
-              <p>三张人物照片只负责建立形象、表情与穿搭识别，不代替本场直播原片。</p>
-            </header>
-            <div className="editorial-media-track">
-              {editorialImages.map((item) => (
-                <figure className={`editorial-media-card ${item.crop}`} key={item.src}>
-                  <img src={item.src} alt={item.alt} loading="lazy" decoding="async" />
-                  <figcaption>{item.label}</figcaption>
-                </figure>
-              ))}
-            </div>
-          </section>
-
           <p className="prototype-note">当前为内部内测：仅演示校准样片、候选依据和句级预听；真实上传、全场转写、候选生成、视频渲染与 ChatCut 写入尚未接通。</p>
 
           <details className="profile-brief">
             <summary>
-              <span>这个系统怎样理解天总</span>
+              <span>编辑部手记 / 我们怎样理解她</span>
               <span className="profile-brief-copy">一个有实战能力、嘴很快、主意很正的女老板；她帮姐妹把赚钱、关系和生活讲明白，又总在最有权威感的时候被现实拆台。</span>
-              <b>展开人物判断</b>
             </summary>
             <div className="profile-brief-body">
               <div className="persona-mini-list" aria-label="天总五种人物状态">
@@ -862,6 +823,19 @@ export default function Home() {
               </div>
             </div>
           </details>
+
+          <section className="knowledge-note" aria-label="当前知识版本">
+            <header>
+              <span>Research release</span>
+              <b>{corpusBaseline.version}</b>
+            </header>
+            <div className="knowledge-note-grid">
+              <p><span>已经学会</span>不把她剪成单一的“女老板讲干货”。每条候选都要保住能力、判断、姐妹感、反差或脆弱中的至少两层。</p>
+              <p><span>如何进入成品</span>人物理解会变成候选理由、时长依据、逐句删留和最终人物线，而不是留在一份没人看的研究报告里。</p>
+              <p><span>怎样继续升级</span>后台会持续研究新直播与人工成片；新结论经过归因、回测和评审后，才发布为下一知识版本。</p>
+            </div>
+            <small>长期研究千余条天总素材 · 近期直播权重最高 · 研究材料只在后台持续进入</small>
+          </section>
         </section>
       )}
 

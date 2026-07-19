@@ -1,19 +1,6 @@
 import assert from "node:assert/strict";
-import { access, readFile, stat } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
-
-const editorialAssets = [
-  "editorial/tianzong-korea-close.jpg",
-  "editorial/tianzong-street-close.jpg",
-  "editorial/tianzong-street-full.jpg",
-];
-
-function mediaTag(html, tagName, assetPath) {
-  const tags = html.match(new RegExp(`<${tagName}\\b[^>]*>`, "g")) ?? [];
-  const tag = tags.find((candidate) => candidate.includes(`src="${assetPath}"`));
-  assert.ok(tag, `expected a server-rendered <${tagName}> for ${assetPath}`);
-  return tag;
-}
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -27,7 +14,7 @@ async function render() {
   );
 }
 
-test("server-renders a function-first Tianzong clipping intake", async () => {
+test("server-renders a function-first editorial Tianzong intake", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -42,11 +29,12 @@ test("server-renders a function-first Tianzong clipping intake", async () => {
   assert.match(html, /选择直播录屏/);
   assert.match(html, /选择天总本场直播类型/);
   assert.match(html, /开始生成内容地图/);
-  assert.match(html, /天总视觉素材/);
-  assert.match(html, /aria-label="天总视觉素材"/);
   assert.match(html, /当前为内部内测/);
-  assert.match(html, /这个系统怎样理解天总/);
-  assert.match(html, /展开人物判断/);
+  assert.match(html, /编辑部手记 \/ 我们怎样理解她/);
+  assert.match(html, /Research release/);
+  assert.match(html, /已经学会/);
+  assert.match(html, /怎样继续升级/);
+  assert.match(html, /长期研究千余条天总素材/);
   assert.match(html, /有实战能力、嘴很快、主意很正/);
   assert.match(html, /帮姐妹把赚钱、关系和生活讲明白/);
   assert.match(html, /最有权威感的时候被现实拆台/);
@@ -59,40 +47,22 @@ test("server-renders a function-first Tianzong clipping intake", async () => {
   const uploadPosition = html.indexOf("上传天总完整直播");
   const modePosition = html.indexOf("选择天总本场直播类型");
   const ctaPosition = html.indexOf("开始生成内容地图");
-  const mediaPosition = html.indexOf("天总视觉素材");
   const prototypePosition = html.indexOf("当前为内部内测");
-  const profilePosition = html.indexOf("这个系统怎样理解天总");
+  const profilePosition = html.indexOf("编辑部手记 / 我们怎样理解她");
+  const releasePosition = html.indexOf("Research release");
   assert.ok(uploadPosition >= 0 && uploadPosition < modePosition);
   assert.ok(modePosition < ctaPosition);
-  assert.ok(ctaPosition < mediaPosition);
-  assert.ok(mediaPosition < prototypePosition);
+  assert.ok(ctaPosition < prototypePosition);
   assert.ok(prototypePosition < profilePosition);
+  assert.ok(profilePosition < releasePosition);
 
-  for (const asset of editorialAssets) {
-    assert.match(html, new RegExp(`(?:src|poster)="/${asset.replaceAll(".", "\\.")}"`));
-  }
-
-  assert.match(mediaTag(html, "img", "/editorial/tianzong-street-full.jpg"), /alt="天总在街头回身看向镜头的全身照片"/);
-  assert.match(mediaTag(html, "img", "/editorial/tianzong-korea-close.jpg"), /alt="天总在餐厅看向镜头的近景照片"/);
-  assert.match(mediaTag(html, "img", "/editorial/tianzong-street-close.jpg"), /alt="天总在街头整理头发的半身照片"/);
-
-  assert.doesNotMatch(html, /\/editorial\/[^"']+\.mp4/);
+  assert.doesNotMatch(html, /天总视觉素材/);
+  assert.doesNotMatch(html, /\/editorial\//);
+  assert.doesNotMatch(html, /<img\b/);
 
   assert.doesNotMatch(html, /CUTLINE/);
   assert.doesNotMatch(html, /codex-preview/);
   assert.doesNotMatch(html, /Your site is taking shape/);
-});
-
-test("ships every Tianzong editorial image as a non-empty public file", async () => {
-  const assetStats = await Promise.all(
-    editorialAssets.map((asset) => stat(new URL(`../public/${asset}`, import.meta.url))),
-  );
-
-  assert.equal(assetStats.length, 3);
-  for (const [index, assetStat] of assetStats.entries()) {
-    assert.ok(assetStat.isFile(), `${editorialAssets[index]} must be a file`);
-    assert.ok(assetStat.size > 0, `${editorialAssets[index]} must not be empty`);
-  }
 });
 
 test("ships product metadata and removes the disposable starter preview", async () => {
@@ -112,8 +82,10 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /句级预听/);
   assert.match(page, /uploadedPreviewUrl \? activeClip\.sourceStart : 0/);
   assert.match(page, /<details className="profile-brief">/);
-  assert.match(page, /这个系统怎样理解天总/);
-  assert.match(page, /展开人物判断/);
+  assert.match(page, /编辑部手记 \/ 我们怎样理解她/);
+  assert.match(page, /Research release/);
+  assert.match(page, /长期研究千余条天总素材/);
+  assert.doesNotMatch(page, /editorialImages/);
   assert.match(page, /实战老板/);
   assert.match(page, /强姐姐/);
   assert.match(page, /视觉吸引/);
