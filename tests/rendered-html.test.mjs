@@ -74,8 +74,13 @@ test("ships product metadata and removes the disposable starter preview", async 
 
   assert.match(page, /本场自然发现/);
   assert.match(page, /目标输出：无字幕 · 无效果 · 保留原声/);
-  assert.match(page, /下载演示样片/);
+  assert.match(page, /Source review \/ 原片校对窗/);
+  assert.match(page, /Proofing view \/ 逐字校对/);
+  assert.match(page, /查看输出依据/);
   assert.match(page, /送入 ChatCut 精修（演示）/);
+  assert.doesNotMatch(page, /下载演示样片/);
+  assert.doesNotMatch(page, /\/previews\//);
+  assert.doesNotMatch(page, /\/thumbnails\//);
   assert.match(page, /不设目标、不设保底，也不补齐/);
   assert.match(page, /const discoveredCount = analysisReady \? modeIdeas\.length : 0/);
   assert.doesNotMatch(page, /demoDiscoveryCounts/);

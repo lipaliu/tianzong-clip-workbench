@@ -45,8 +45,6 @@ type ClipIdea = {
   priority: "S" | "A" | "B";
   factGate: string;
   calibrationStatus: string;
-  thumbnail: string;
-  video: string;
   transcript: TranscriptLine[];
 };
 
@@ -334,8 +332,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 3586,
     score: 98,
     summary: "保留天总的完整判断，删除连麦人的问题，直接接“起码两年”。",
-    thumbnail: "/thumbnails/chat-longterm.png",
-    video: "/previews/chat-rules.mp4",
     transcript: longTermTranscript,
   },
   {
@@ -348,8 +344,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 1821,
     score: 96,
     summary: "从二选一误区切入，给出边工作边验证个人 IP 的执行路径。",
-    thumbnail: "/thumbnails/chat-selfmedia.png",
-    video: "/previews/chat-problems.mp4",
     transcript: planningTranscript("ip", "策划摘要：本职工作与个人 IP 可以并行，不是非二选一。", "策划摘要：先用本职工作稳定现金流，再把真实经验拆成内容验证个人 IP。"),
   },
   {
@@ -362,8 +356,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 4930,
     score: 95,
     summary: "观点结论先行，删除来回确认，只保留天总的完整逻辑链。",
-    thumbnail: "/thumbnails/sales-value.png",
-    video: "/previews/chat-rules.mp4",
     transcript: planningTranscript("rules", "策划摘要：成年人相处先看行动，不替别人解释。", "策划摘要：用“君子论迹不论心”落到长期、稳定的行为判断。"),
   },
   {
@@ -376,8 +368,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 7533,
     score: 93,
     summary: "从“道理都懂”切入，把解决办法落到恢复精力与降低内耗。",
-    thumbnail: "/thumbnails/chat-selfmedia.png",
-    video: "/previews/chat-energy.mp4",
     transcript: planningTranscript("energy", "策划摘要：不是不知道怎么办，而是已经没有精力去做。", "策划摘要：先恢复睡眠、身体和注意力，再谈执行力。"),
   },
   {
@@ -390,8 +380,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 9978,
     score: 91,
     summary: "把创业的真实感讲清楚，不包装成励志口号。",
-    thumbnail: "/thumbnails/chat-longterm.png",
-    video: "/previews/chat-problems.mp4",
     transcript: planningTranscript("problems", "策划摘要：创业不是每天都在赢，而是每天都在解决问题。", "策划摘要：持续解决问题会锻炼心态，也会沉淀成团队能力。"),
   },
   {
@@ -404,8 +392,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 4509,
     score: 89,
     summary: "保留反常识结论，再解释能力、作品和长期回报的关系。",
-    thumbnail: "/thumbnails/chat-selfmedia.png",
-    video: "/previews/chat-energy.mp4",
     transcript: planningTranscript("money", "策划摘要：赚钱可以是结果，但不能成为做每件事的唯一目标。", "策划摘要：先把事情做好，能力和作品形成复利后，钱才会成为稳定奖励。"),
   },
   {
@@ -418,8 +404,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 18960,
     score: 97,
     summary: "一个视频只讲三穿、收腰和度假场景，画面必须跟上口播。",
-    thumbnail: "/thumbnails/sales-detail.png",
-    video: "/previews/sales-mainpick.mp4",
     transcript: planningTranscript("dress", "策划摘要：一条度假裙用“三种穿法”作为唯一购买理由。", "策划摘要：长袖、一字肩、吊带与腰线效果都必须由上身画面逐项证明。"),
   },
   {
@@ -432,8 +416,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 3151,
     score: 95,
     summary: "用反常识钩子建立信任，再把选择标准说清楚。",
-    thumbnail: "/thumbnails/sales-value.png",
-    video: "/previews/sales-mainpick.mp4",
     transcript: planningTranscript("mainpick", "策划摘要：不要因为商品是主推，就默认它最适合自己。", "策划摘要：先解释库存或利润动机，再回到使用场景、预算和真实需求。"),
   },
   {
@@ -446,8 +428,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 9225,
     score: 92,
     summary: "按口袋顺序展示，删除与母子包结构无关的岔题。",
-    thumbnail: "/thumbnails/sales-value.png",
-    video: "/previews/sales-mainpick.mp4",
     transcript: planningTranscript("bag", "策划摘要：猫包的购买理由是把出门所需物品有序装下。", "策划摘要：八个口袋的数量、位置和用途都要跟随实物展示逐项核验。"),
   },
   {
@@ -460,8 +440,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 11930,
     score: 90,
     summary: "用上身效果证明腰线与肩颈比例，不做无法验证的身材承诺。",
-    thumbnail: "/thumbnails/sales-detail.png",
-    video: "/previews/sales-mainpick.mp4",
     transcript: planningTranscript("shape", "策划摘要：显瘦的重点是比例，不是把人塞进更小尺码。", "策划摘要：腰线与肩颈留白必须有上身画面证明，并保留不适合人群。"),
   },
   {
@@ -474,8 +452,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 4092,
     score: 88,
     summary: "把人群分层讲清楚，只保留与成交路径直接相关的部分。",
-    thumbnail: "/thumbnails/chat-longterm.png",
-    video: "/previews/chat-rules.mp4",
     transcript: planningTranscript("fans", "策划摘要：直播间粉丝不是同一种人，不能用同一句话沟通。", "策划摘要：先区分新客、老客和高黏性用户，再决定每一段的内容与行动。"),
   },
   {
@@ -488,8 +464,6 @@ const baseIdeas: ClipIdeaBase[] = [
     sourceStart: 16863,
     score: 86,
     summary: "删除卖点堆砌，让一个核心理由贯穿口播和展示。",
-    thumbnail: "/thumbnails/sales-detail.png",
-    video: "/previews/sales-mainpick.mp4",
     transcript: planningTranscript("reason", "策划摘要：一条切片不堆十个卖点，只建立一个购买理由。", "策划摘要：锁定最能解决问题的一点，再让口播与画面共同证明。"),
   },
 ];
@@ -692,8 +666,6 @@ export default function Home() {
     showToast(`本场共 ${discoveredCount} 条候选。数量由完整语义闭环、同题去重和风险门禁决定，不设目标条数。`);
   }
 
-  const previewSource = uploadedPreviewUrl || activeClip.video;
-
   return (
     <main className="cutline-app">
       <header className="masthead">
@@ -880,16 +852,23 @@ export default function Home() {
               <span>{activeClip.factGate}</span>
               <span>{activeClip.calibrationStatus}</span>
             </div>
-            <VideoPreview
-              videoRef={videoRef}
-              source={previewSource}
-              poster={activeClip.thumbnail}
-              uploaded={Boolean(uploadedPreviewUrl)}
-              sourceStart={activeClip.sourceStart}
-              excludedRanges={excludedRanges}
-              roughPreview={false}
-              onTimeUpdate={setCurrentTime}
-            />
+            {uploadedPreviewUrl ? (
+              <VideoPreview
+                videoRef={videoRef}
+                source={uploadedPreviewUrl}
+                uploaded
+                sourceStart={activeClip.sourceStart}
+                excludedRanges={excludedRanges}
+                roughPreview={false}
+                onTimeUpdate={setCurrentTime}
+              />
+            ) : (
+              <section className="source-placeholder" aria-label="原片校对说明">
+                <span>Source review / 原片校对窗</span>
+                <strong>{activeClip.sourceTime}</strong>
+                <p>当前先展示已经完成评审的候选判断。上传本场完整直播后，这里才出现连续原片；系统不会再用无关演示视频代替她的真实上下文。</p>
+              </section>
+            )}
             <div className="source-facts">
               <span>原片位置</span><strong>{activeClip.sourceTime}</strong>
               <span>预计成片</span><strong>{activeClip.duration}</strong>
@@ -978,16 +957,23 @@ export default function Home() {
               <span>优先级 {activeClip.priority}</span>
               <span>{activeClip.factGate}</span>
             </div>
-            <VideoPreview
-              videoRef={videoRef}
-              source={previewSource}
-              poster={activeClip.thumbnail}
-              uploaded={Boolean(uploadedPreviewUrl)}
-              sourceStart={activeClip.sourceStart}
-              excludedRanges={excludedRanges}
-              roughPreview={generationState === "done"}
-              onTimeUpdate={setCurrentTime}
-            />
+            {uploadedPreviewUrl ? (
+              <VideoPreview
+                videoRef={videoRef}
+                source={uploadedPreviewUrl}
+                uploaded
+                sourceStart={activeClip.sourceStart}
+                excludedRanges={excludedRanges}
+                roughPreview={generationState === "done"}
+                onTimeUpdate={setCurrentTime}
+              />
+            ) : (
+              <section className="source-placeholder proof" aria-label="逐字校对说明">
+                <span>Proofing view / 逐字校对</span>
+                <strong>{activeClip.sourceTime}</strong>
+                <p>未上传本场原片时，只呈现逐句证据、删留理由与输出判断；不再播放不属于本场直播的演示视频。</p>
+              </section>
+            )}
             <div className="generation-proof" aria-live="polite">
               <span>{generationState === "done" ? "句级预听已更新 · 不代表最终落刀" : "当前播放器为原片上下文预览"}</span>
               <b>{keptCount} 段保留 · {activeClip.transcript.length - keptCount} 段删除</b>
@@ -1057,7 +1043,7 @@ export default function Home() {
               <button className="outline-action" onClick={() => setStep(2)}>返回内容地图</button>
               {generationState === "done" ? (
                 <div className="output-actions">
-                  <a className="outline-action" href={activeClip.video} download>下载演示样片</a>
+                  <button className="outline-action" onClick={() => showToast("当前只记录剪辑决定与输出依据；正式成片需接入服务端渲染。")}>查看输出依据</button>
                   <button className="pink-action" onClick={handoffToChatCut}>送入 ChatCut 精修（演示）</button>
                 </div>
               ) : (
@@ -1095,7 +1081,6 @@ export default function Home() {
 function VideoPreview({
   videoRef,
   source,
-  poster,
   uploaded,
   sourceStart,
   excludedRanges,
@@ -1104,7 +1089,6 @@ function VideoPreview({
 }: {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   source: string;
-  poster: string;
   uploaded: boolean;
   sourceStart: number;
   excludedRanges: { start: number; end: number }[];
@@ -1117,7 +1101,6 @@ function VideoPreview({
       ref={videoRef}
       className="main-video"
       src={source}
-      poster={poster}
       controls
       playsInline
       preload="metadata"
