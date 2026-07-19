@@ -82,7 +82,7 @@ test("server-renders the Tianzong project workbench", async () => {
   assert.equal(html.match(/class="model-copy-line"/g)?.length, 2);
   assert.match(html, /\/photos\/tz_street_tall\.jpg/);
   assert.match(html, /\/photos\/tz_pose_tall\.jpg/);
-  assert.match(html, /\/photos\/tz_city_dress\.jpg/);
+  assert.match(html, /\/photos\/tz_car_face\.jpg/);
   assert.match(html, /\/photos\/tz_neon_tall\.jpg/);
   assert.match(html, /\/photos\/tz_pink_dress\.jpg/);
   assert.match(html, /今天要剪哪一场直播/);
@@ -237,9 +237,9 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.doesNotMatch(layout, /og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(styles, /\.output-persona p,[\s\S]*?font-size: 16px/);
-  assert.match(styles, /\.model-mini p[\s\S]*?font-family: var\(--font-display\)[\s\S]*?font-size: clamp\(17px, 1\.55vw, 21px\)[\s\S]*?font-style: oblique 7deg/);
+  assert.match(styles, /\.model-mini p[\s\S]*?max-width: min\(440px, calc\(100% - 72px\)\)[\s\S]*?font-family: var\(--font-display\)[\s\S]*?font-size: clamp\(12\.5px, 0\.95vw, 14px\)[\s\S]*?font-style: oblique 7deg/);
   assert.match(styles, /\.model-copy-line[\s\S]*?display: block/);
-  assert.match(styles, /\.model-mini-gallery[\s\S]*?grid-template-columns: 1\.08fr 0\.9fr 1\.22fr 0\.88fr 1\.1fr/);
+  assert.match(styles, /\.model-mini-gallery[\s\S]*?grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.model-mini-gallery img[\s\S]*?width: 100%[\s\S]*?height: 100%[\s\S]*?opacity: 1[\s\S]*?filter: none/);
   assert.match(styles, /\.model-mini::after[\s\S]*?content: none/);
   assert.doesNotMatch(styles, /\.model-mini-gallery img[\s\S]*?margin-left: -20px/);

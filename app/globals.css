@@ -3176,7 +3176,7 @@ button:not(:disabled):active {
   width: min(1180px, calc(100vw - 48px));
   margin-top: clamp(56px, 7vw, 86px);
   margin-left: 50%;
-  padding: 32px 42px 31px;
+  padding: 22px 28px;
   border-top: 1px solid rgba(46, 44, 43, 0.16);
   border-bottom: 1px solid rgba(46, 44, 43, 0.16);
   background: #e9e7ec;
@@ -3193,7 +3193,7 @@ button:not(:disabled):active {
   inset: 0;
   z-index: 0;
   display: grid;
-  grid-template-columns: 1.08fr 0.9fr 1.22fr 0.88fr 1.1fr;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: clamp(7px, 0.8vw, 12px);
   padding: 14px 0;
 }
@@ -3213,7 +3213,7 @@ button:not(:disabled):active {
 }
 
 .model-mini-gallery img:nth-child(3) {
-  object-position: center 26%;
+  object-position: center 36%;
 }
 
 .model-mini-gallery img:nth-child(4) {
@@ -3229,25 +3229,25 @@ button:not(:disabled):active {
   z-index: 2;
   width: fit-content;
   margin: 0;
-  padding: 17px 22px 19px;
+  padding: 10px 15px 12px;
   color: #3f373a;
-  background: rgba(253, 252, 251, 0.88);
-  max-width: min(1080px, 100%);
+  background: rgba(253, 252, 251, 0.82);
+  max-width: min(440px, calc(100% - 72px));
   font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: clamp(17px, 1.55vw, 21px);
+  font-size: clamp(12.5px, 0.95vw, 14px);
   font-style: oblique 7deg;
   font-weight: 340;
   font-synthesis: style;
-  line-height: 1.46;
+  line-height: 1.4;
   letter-spacing: -0.03em;
 }
 
 .model-mini b {
   display: block;
-  margin-bottom: 9px;
+  margin-bottom: 5px;
   color: var(--pink-strong);
   font-family: var(--font-geist-mono), monospace;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 650;
   letter-spacing: 0.1em;
 }
@@ -3257,11 +3257,11 @@ button:not(:disabled):active {
 }
 
 .model-copy-line + .model-copy-line {
-  margin-top: 7px;
+  margin-top: 3px;
 }
 
 .model-copy-line:first-of-type {
-  font-size: clamp(24px, 2.7vw, 36px);
+  font-size: clamp(18px, 1.55vw, 23px);
   font-weight: 360;
   line-height: 1.18;
   letter-spacing: -0.04em;
@@ -3859,14 +3859,14 @@ button:not(:disabled):active {
   }
 
   .model-mini {
-    min-height: 300px;
+    min-height: 390px;
     width: calc(100vw - 32px);
     margin-top: 50px;
-    padding: 58px 18px 22px;
+    padding: 0 14px 12px;
   }
 
   .model-mini-gallery {
-    inset: 0 auto 0 -28%;
+    inset: 0 auto 126px -28%;
     width: 160%;
     grid-template-columns: repeat(5, minmax(120px, 1fr));
     gap: 5px;
@@ -3882,11 +3882,11 @@ button:not(:disabled):active {
   }
 
   .model-mini p {
-    width: calc(100% - 8px);
+    width: 100%;
     max-width: none;
-    padding: 14px 15px 16px;
-    font-size: 15px;
-    line-height: 1.46;
+    padding: 9px 11px 10px;
+    font-size: 13px;
+    line-height: 1.4;
   }
 
   .model-mini b {
@@ -3894,7 +3894,7 @@ button:not(:disabled):active {
   }
 
   .model-copy-line:first-of-type {
-    font-size: 23px;
+    font-size: 18px;
   }
 
   .model-mini small {

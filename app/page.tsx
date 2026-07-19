@@ -1148,7 +1148,7 @@ export default function Home() {
               <div className="model-mini-gallery" aria-hidden="true">
                 <img src="/photos/tz_street_tall.jpg" alt="" />
                 <img src="/photos/tz_pose_tall.jpg" alt="" />
-                <img src="/photos/tz_city_dress.jpg" alt="" />
+                <img src="/photos/tz_car_face.jpg" alt="" />
                 <img src="/photos/tz_neon_tall.jpg" alt="" />
                 <img src="/photos/tz_pink_dress.jpg" alt="" />
               </div>

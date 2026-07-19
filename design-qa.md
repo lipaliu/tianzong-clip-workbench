@@ -115,6 +115,53 @@ No actionable P0, P1, or P2 findings remain for the requested layout change.
 
 final result: passed
 
+## Homepage portrait replacement and copy-scale QA · 2026-07-20
+
+### Evidence
+
+- Source visual truth: `/var/folders/lh/m1tb_dms7cv5htnh9fkqsz1w0000gn/T/codex-clipboard-522bcd8f-c06d-4189-b9d8-ada2d6c0babf.png`, with the user's follow-up direction to replace—not remove—the center portrait.
+- Browser-rendered desktop implementation: `.qa/replaced-middle-image-compact-copy-final-desktop.png` at 1280 × 720.
+- Browser-rendered mobile implementation: `.qa/replaced-middle-image-compact-copy-mobile.png` at 390 × 844.
+- Same-input focused comparison: `.qa/replaced-middle-image-copy-comparison.png`.
+- State: first-step empty upload state, scrolled to the Tianzong model statement.
+- Console: browser log checked after desktop and mobile renders; no application errors.
+
+### Full-view and focused comparison
+
+The former center image showed a small, dark full-body subject and made the middle advertising panel visually weak. It is replaced with the supplied `tz_car_face` portrait: the face is bright, sharp, and large enough to remain legible at the five-column banner scale. All five panels now use equal vertical tracks, removing the earlier oversized center-column proportion.
+
+The caption has been reduced to a 440px lower-left editorial card on desktop. Its computed horizontal overlap with the center image is zero, so it no longer covers the replacement portrait. On mobile, the caption moves into a dedicated paper strip below the image row; computed vertical overlap with the center portrait is zero.
+
+### Required fidelity surfaces
+
+- Fonts and typography: passed. The display-family oblique treatment is retained, while the lead line is reduced to 18–23px and supporting copy to 12.5–14px on desktop.
+- Spacing and layout rhythm: passed. Five equal vertical tracks create a consistent advertising-panel rhythm. The desktop caption stays within the first two panels; mobile separates copy from imagery.
+- Colors and visual tokens: passed. The replacement portrait is full color with computed opacity `1` and filter `none`; the localized warm-paper caption remains the only readability surface.
+- Image quality and asset fidelity: passed. The replacement uses a real supplied Tianzong close-up with a clear face, brighter exposure, and materially larger subject scale.
+- Copy and content: passed. Both sentences remain verbatim and retain their explicit line hierarchy.
+
+### Comparison history
+
+#### Pass 1 — blocked
+
+- [P1] The original middle image was dark and showed the person too small to read as a portrait panel.
+- [P2] The caption extended into the middle portrait and visually covered the subject.
+- [P2] The unequal column proportions made the center slot feel wider without improving subject visibility.
+
+Fixes made: replaced the middle asset with `tz_car_face.jpg`; changed the gallery to five equal columns; reduced the caption's typography and maximum width; separated mobile text from the image row.
+
+#### Pass 2 — passed
+
+- Desktop: replacement face is bright and dominant, and the caption has zero horizontal overlap with the middle portrait.
+- Mobile: the center portrait remains clear and the caption has zero vertical overlap with the image row.
+- No actionable P0, P1, or P2 findings remain for this scoped change.
+
+### Follow-up polish
+
+- No P3 follow-up is required for the requested replacement and scale correction.
+
+final result: passed
+
 ## Homepage solid-color portrait wall QA · 2026-07-20
 
 ### Evidence
