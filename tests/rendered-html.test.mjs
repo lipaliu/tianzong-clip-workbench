@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { access, readFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 async function openPort() {
@@ -16,14 +18,67 @@ async function openPort() {
   return port;
 }
 
+async function runCommand(command, args, options) {
+  const child = spawn(command, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  child.stdout.on("data", (chunk) => { output += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { output += chunk.toString(); });
+  const code = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  if (code !== 0) throw new Error(`command exited with ${code}:\n${output}`);
+}
+
 async function render() {
   const port = await openPort();
   const cwd = new URL("../dist/server/", import.meta.url);
   const wrangler = new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url);
   const wranglerLog = new URL("../.wrangler/wrangler-test.log", import.meta.url);
+  const testUsername = "test-editor";
+  const testPassword = "Strong-test-password-2026";
+  const raceUsername = "race-editor";
+  const persistencePath = await mkdtemp(join(tmpdir(), "tianzong-auth-test-"));
+
+  for (const migration of ["0000_blushing_morg.sql", "0001_chemical_salo.sql"]) {
+    await runCommand(
+      process.execPath,
+      [
+        wrangler.pathname,
+        "d1",
+        "execute",
+        "DB",
+        "--local",
+        "--config",
+        "wrangler.json",
+        "--persist-to",
+        persistencePath,
+        "--file",
+        new URL(`../drizzle/${migration}`, import.meta.url).pathname,
+      ],
+      { cwd: cwd.pathname, env: { ...process.env, NO_COLOR: "1" } },
+    );
+  }
+
   const child = spawn(
     process.execPath,
-    [wrangler.pathname, "dev", "--config", "wrangler.json", "--port", String(port)],
+    [
+      wrangler.pathname,
+      "dev",
+      "--config",
+      "wrangler.json",
+      "--port",
+      String(port),
+      "--persist-to",
+      persistencePath,
+      "--var",
+      `INTERNAL_AUTH_CREDENTIALS:${JSON.stringify({
+        [testUsername]: testPassword,
+        [raceUsername]: "Another-strong-test-password-2026",
+      })}`,
+      "--var",
+      "INTERNAL_AUTH_SESSION_SECRET:test-session-secret-with-at-least-32-characters",
+    ],
     {
       cwd: cwd.pathname,
       env: { ...process.env, NO_COLOR: "1", WRANGLER_LOG_PATH: wranglerLog.pathname },
@@ -55,23 +110,181 @@ async function render() {
   }
 
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/`, {
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const manifest = JSON.parse(
+      await readFile(new URL("../dist/client/.vite/manifest.json", import.meta.url), "utf8"),
+    );
+    const builtAsset = Object.values(manifest).find(
+      (entry) => typeof entry?.file === "string" && entry.file.endsWith(".js"),
+    )?.file;
+    assert.ok(builtAsset, "the built client manifest should contain a JavaScript asset");
+
+    const loginPageResponse = await fetch(`${baseUrl}/`, {
       headers: { accept: "text/html" },
     });
+    const loginPage = {
+      status: loginPageResponse.status,
+      headers: loginPageResponse.headers,
+      text: await loginPageResponse.text(),
+    };
+
+    const [apiWithoutLogin, photoWithoutLogin, assetWithoutLogin] = await Promise.all([
+      fetch(`${baseUrl}/api/projects`),
+      fetch(`${baseUrl}/photos/tz_street_tall.jpg`),
+      fetch(`${baseUrl}/${builtAsset}`),
+    ]);
+
+    const missingOriginResponse = await fetch(`${baseUrl}/__auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: testUsername, password: testPassword }),
+    });
+
+    const invalidLoginStatuses = [];
+    for (let index = 0; index < 5; index += 1) {
+      const invalidLogin = await fetch(`${baseUrl}/__auth/login`, {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": `198.51.100.${index + 1}`,
+          "content-type": "application/json",
+          origin: baseUrl,
+        },
+        body: JSON.stringify({ username: `unknown-${index}`, password: "not-the-password" }),
+      });
+      invalidLoginStatuses.push(invalidLogin.status);
+    }
+    const blockedUnknownLogin = await fetch(`${baseUrl}/__auth/login`, {
+      method: "POST",
+      headers: {
+        "cf-connecting-ip": "198.51.100.200",
+        "content-type": "application/json",
+        origin: baseUrl,
+      },
+      body: JSON.stringify({ username: "another-unknown", password: "not-the-password" }),
+    });
+
+    const concurrentRaceLogins = await Promise.all(
+      Array.from({ length: 10 }, (_, index) => fetch(`${baseUrl}/__auth/login`, {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": `203.0.113.${index + 1}`,
+          "content-type": "application/json",
+          origin: baseUrl,
+        },
+        body: JSON.stringify({ username: raceUsername, password: `wrong-${index}` }),
+      })),
+    );
+    const concurrentRaceStatuses = concurrentRaceLogins.map((item) => item.status);
+
+    const concurrentSuccessfulLogins = await Promise.all(
+      Array.from({ length: 5 }, (_, index) => fetch(`${baseUrl}/__auth/login`, {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": `192.0.2.${index + 1}`,
+          "content-type": "application/json",
+          origin: baseUrl,
+        },
+        body: JSON.stringify({ username: testUsername, password: testPassword }),
+      })),
+    );
+    const concurrentSuccessfulStatuses = concurrentSuccessfulLogins.map((item) => item.status);
+
+    const loginResponse = await fetch(`${baseUrl}/__auth/login`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: baseUrl,
+      },
+      body: JSON.stringify({ username: testUsername, password: testPassword }),
+    });
+    const cookie = loginResponse.headers.get("set-cookie")?.split(";", 1)[0];
+    assert.equal(loginResponse.status, 200);
+    assert.ok(cookie, "successful login should set a session cookie");
+
+    const response = await fetch(`${baseUrl}/`, {
+      headers: { accept: "text/html", cookie },
+    });
+    const responseText = await response.text();
+
+    const [missingWriteOrigin, crossOriginWrite, nonJsonWrite] = await Promise.all([
+      fetch(`${baseUrl}/api/projects`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: "{}",
+      }),
+      fetch(`${baseUrl}/api/projects`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json", origin: "https://evil.example" },
+        body: "{}",
+      }),
+      fetch(`${baseUrl}/api/projects`, {
+        method: "POST",
+        headers: { cookie, "content-type": "text/plain", origin: baseUrl },
+        body: "{}",
+      }),
+    ]);
+
+    const logoutResponse = await fetch(`${baseUrl}/__auth/logout`, {
+      method: "POST",
+      headers: { cookie, origin: baseUrl },
+    });
+
     return {
+      protectedWithoutLogin: {
+        api: apiWithoutLogin.status,
+        asset: assetWithoutLogin.status,
+        photo: photoWithoutLogin.status,
+      },
+      missingOriginStatus: missingOriginResponse.status,
+      invalidLoginStatuses,
+      blockedUnknownStatus: blockedUnknownLogin.status,
+      concurrentRaceStatuses,
+      concurrentSuccessfulStatuses,
+      protectedWriteStatuses: {
+        crossOrigin: crossOriginWrite.status,
+        missingOrigin: missingWriteOrigin.status,
+        nonJson: nonJsonWrite.status,
+      },
+      logoutCookie: logoutResponse.headers.get("set-cookie"),
+      logoutStatus: logoutResponse.status,
+      loginPage,
       status: response.status,
       headers: response.headers,
-      text: await response.text(),
+      text: responseText,
     };
   } finally {
     child.kill("SIGTERM");
+    await rm(persistencePath, { force: true, recursive: true });
   }
 }
 
 test("server-renders the Tianzong project workbench", async () => {
   const response = await render();
+  assert.equal(response.loginPage.status, 401);
+  assert.match(response.loginPage.headers.get("content-type") ?? "", /^text\/html\b/i);
+  assert.match(response.loginPage.text, /内部工作台，请使用团队账号进入。/);
+  assert.match(response.loginPage.text, /用户名/);
+  assert.match(response.loginPage.text, /密码/);
+  assert.doesNotMatch(response.loginPage.text, /Strong-test-password-2026/);
+  assert.deepEqual(response.protectedWithoutLogin, { api: 401, asset: 401, photo: 401 });
+  assert.equal(response.missingOriginStatus, 403);
+  assert.deepEqual(response.invalidLoginStatuses, [401, 401, 401, 401, 401]);
+  assert.equal(response.blockedUnknownStatus, 429);
+  assert.equal(response.concurrentRaceStatuses.filter((status) => status === 401).length, 5);
+  assert.equal(response.concurrentRaceStatuses.filter((status) => status === 429).length, 5);
+  assert.deepEqual(response.concurrentSuccessfulStatuses, [200, 200, 200, 200, 200]);
+  assert.deepEqual(response.protectedWriteStatuses, {
+    crossOrigin: 403,
+    missingOrigin: 403,
+    nonJson: 415,
+  });
+  assert.equal(response.logoutStatus, 200);
+  assert.match(response.logoutCookie ?? "", /Max-Age=0/);
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.match(response.headers.get("vary") ?? "", /Cookie/i);
+  assert.equal(response.headers.get("x-frame-options"), "DENY");
 
   const html = response.text;
   assert.match(html, /<meta name="robots" content="noindex, nofollow, noarchive"\s*\/?>/);
@@ -277,11 +490,12 @@ test("ships product metadata and removes the disposable starter preview", async 
 });
 
 test("persists dated project metadata in D1", async () => {
-  const [schema, route, hosting, migration] = await Promise.all([
+  const [schema, route, hosting, migration, authMigration] = await Promise.all([
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/projects/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0000_blushing_morg.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0001_chemical_salo.sql", import.meta.url), "utf8"),
   ]);
 
   assert.match(schema, /sqliteTable\(\s*"projects"/);
@@ -296,4 +510,15 @@ test("persists dated project metadata in D1", async () => {
   assert.match(hosting, /"r2"\s*:\s*null/);
   assert.match(migration, /CREATE TABLE `projects`/);
   assert.match(migration, /CREATE INDEX `projects_created_at_idx`/);
+  assert.match(schema, /sqliteTable\(\s*"auth_login_attempts"/);
+  assert.match(authMigration, /CREATE TABLE `auth_login_attempts`/);
+  assert.match(authMigration, /CREATE INDEX `auth_login_attempts_updated_at_idx`/);
+});
+
+test("routes every static request through the authentication worker", async () => {
+  const wrangler = JSON.parse(
+    await readFile(new URL("../dist/server/wrangler.json", import.meta.url), "utf8"),
+  );
+  assert.equal(wrangler.assets?.binding, "ASSETS");
+  assert.equal(wrangler.assets?.run_worker_first, true);
 });
