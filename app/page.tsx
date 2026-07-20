@@ -85,10 +85,9 @@ const modelGalleryPhotos = [
   { src: "/photos/tz_car_face.jpg", alt: "天总车内近景人像" },
   { src: "/photos/tz_neon_tall.jpg", alt: "天总霓虹灯下近景人像" },
   { src: "/photos/tz_pink_dress.jpg", alt: "天总粉色礼服造型" },
+  { src: "/photos/tz_city_dress.jpg", alt: "天总城市黑色礼服造型" },
   { src: "/photos/tz_lake_dusk.jpg", alt: "天总湖边黄昏侧脸" },
   { src: "/photos/tz_lake_front.jpg", alt: "天总湖边正面造型" },
-  { src: "/photos/tz_neon_face.jpg", alt: "天总霓虹灯下脸部特写" },
-  { src: "/photos/tz_street_wide.jpg", alt: "天总街头蓝色造型全景" },
 ];
 
 const modeKnowledge: Record<Mode, {
@@ -581,7 +580,6 @@ export default function Home() {
   const [selectedLocalExports, setSelectedLocalExports] = useState<LocalExportOption[]>(["mp4"]);
   const [galleryMotionAllowed, setGalleryMotionAllowed] = useState(false);
   const [galleryVisible, setGalleryVisible] = useState(false);
-  const [galleryUserPaused, setGalleryUserPaused] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const subtitleRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -589,8 +587,7 @@ export default function Home() {
   const galleryRef = useRef<HTMLDivElement>(null);
 
   const galleryAutoPlaying = galleryMotionAllowed
-    && galleryVisible
-    && !galleryUserPaused;
+    && galleryVisible;
 
   useEffect(() => {
     return () => {
@@ -1209,8 +1206,7 @@ export default function Home() {
                 ref={galleryRef}
                 className="model-mini-gallery"
                 role="region"
-                aria-label="天总照片，从左向右自动渐进播放"
-                aria-describedby="gallery-scroll-hint"
+                aria-label="天总人物影像画廊"
               >
                 <div className={`model-gallery-track${galleryAutoPlaying ? " is-playing" : ""}`}>
                   {[0, 1].flatMap((cycle) =>
@@ -1229,21 +1225,6 @@ export default function Home() {
                     )),
                   )}
                 </div>
-              </div>
-              <div className="model-gallery-footer" id="gallery-scroll-hint">
-                <span>TIANZONG LOOKBOOK · {String(modelGalleryPhotos.length).padStart(2, "0")}</span>
-                <span className="model-gallery-controls">
-                  <span>从左向右 · 自动渐进播放</span>
-                  <button
-                    type="button"
-                    className="model-gallery-toggle"
-                    aria-pressed={galleryUserPaused}
-                    disabled={!galleryMotionAllowed}
-                    onClick={() => setGalleryUserPaused((paused) => !paused)}
-                  >
-                    {!galleryMotionAllowed ? "动态已关闭" : galleryUserPaused ? "继续播放" : "暂停"}
-                  </button>
-                </span>
               </div>
             </aside>
 
