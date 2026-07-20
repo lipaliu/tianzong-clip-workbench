@@ -109,6 +109,11 @@ async function render() {
     throw error;
   }
 
+  // Wrangler can announce its proxy before the first local Worker isolate has
+  // finished settling. Give that one-time dev-only reload a brief window so a
+  // state-changing auth request is never mistaken for an application 503.
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+
   try {
     const baseUrl = `http://127.0.0.1:${port}`;
     const manifest = JSON.parse(
@@ -140,6 +145,57 @@ async function render() {
       body: JSON.stringify({ username: testUsername, password: testPassword }),
     });
 
+    const loginResponse = await fetch(`${baseUrl}/__auth/login`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: baseUrl,
+      },
+      body: JSON.stringify({ username: testUsername, password: testPassword }),
+    });
+    const cookie = loginResponse.headers.get("set-cookie")?.split(";", 1)[0];
+    assert.equal(loginResponse.status, 200);
+    assert.ok(cookie, "successful login should set a session cookie");
+
+    const response = await fetch(`${baseUrl}/`, {
+      headers: { accept: "text/html", cookie },
+    });
+    const responseText = await response.text();
+
+    const [missingWriteOrigin, crossOriginWrite, nonJsonWrite] = await Promise.all([
+      fetch(`${baseUrl}/api/projects`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: "{}",
+      }),
+      fetch(`${baseUrl}/api/projects`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json", origin: "https://evil.example" },
+        body: "{}",
+      }),
+      fetch(`${baseUrl}/api/projects`, {
+        method: "POST",
+        headers: { cookie, "content-type": "text/plain", origin: baseUrl },
+        body: "{}",
+      }),
+    ]);
+
+    let logoutResponse = await fetch(`${baseUrl}/__auth/logout`, {
+      method: "POST",
+      headers: { cookie, origin: baseUrl },
+    });
+    if (logoutResponse.status === 503) {
+      const firstLogoutBody = await logoutResponse.text();
+      if (/worker restarted mid-request/i.test(firstLogoutBody)) {
+        logoutResponse = await fetch(`${baseUrl}/__auth/logout`, {
+          method: "POST",
+          headers: { cookie, origin: baseUrl },
+        });
+      }
+    }
+
+    // Run rate-limit and concurrency pressure after the ordinary login lifecycle.
+    // This keeps a Wrangler-local isolate recycle from obscuring logout behavior.
     const invalidLoginStatuses = [];
     for (let index = 0; index < 5; index += 1) {
       const invalidLogin = await fetch(`${baseUrl}/__auth/login`, {
@@ -189,46 +245,6 @@ async function render() {
     );
     const concurrentSuccessfulStatuses = concurrentSuccessfulLogins.map((item) => item.status);
 
-    const loginResponse = await fetch(`${baseUrl}/__auth/login`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        origin: baseUrl,
-      },
-      body: JSON.stringify({ username: testUsername, password: testPassword }),
-    });
-    const cookie = loginResponse.headers.get("set-cookie")?.split(";", 1)[0];
-    assert.equal(loginResponse.status, 200);
-    assert.ok(cookie, "successful login should set a session cookie");
-
-    const response = await fetch(`${baseUrl}/`, {
-      headers: { accept: "text/html", cookie },
-    });
-    const responseText = await response.text();
-
-    const [missingWriteOrigin, crossOriginWrite, nonJsonWrite] = await Promise.all([
-      fetch(`${baseUrl}/api/projects`, {
-        method: "POST",
-        headers: { cookie, "content-type": "application/json" },
-        body: "{}",
-      }),
-      fetch(`${baseUrl}/api/projects`, {
-        method: "POST",
-        headers: { cookie, "content-type": "application/json", origin: "https://evil.example" },
-        body: "{}",
-      }),
-      fetch(`${baseUrl}/api/projects`, {
-        method: "POST",
-        headers: { cookie, "content-type": "text/plain", origin: baseUrl },
-        body: "{}",
-      }),
-    ]);
-
-    const logoutResponse = await fetch(`${baseUrl}/__auth/logout`, {
-      method: "POST",
-      headers: { cookie, origin: baseUrl },
-    });
-
     return {
       protectedWithoutLogin: {
         api: apiWithoutLogin.status,
@@ -253,7 +269,12 @@ async function render() {
       text: responseText,
     };
   } finally {
-    child.kill("SIGTERM");
+    if (child.exitCode === null) {
+      await new Promise((resolve) => {
+        child.once("exit", resolve);
+        child.kill("SIGTERM");
+      });
+    }
     await rm(persistencePath, { force: true, recursive: true });
   }
 }
