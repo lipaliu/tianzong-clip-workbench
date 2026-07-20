@@ -2,9 +2,6 @@
 
 import {
   ChangeEvent,
-  KeyboardEvent as ReactKeyboardEvent,
-  PointerEvent as ReactPointerEvent,
-  WheelEvent as ReactWheelEvent,
   useEffect,
   useMemo,
   useRef,
@@ -582,10 +579,6 @@ export default function Home() {
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [importedSubtitle, setImportedSubtitle] = useState<ImportedSubtitle | null>(null);
   const [selectedLocalExports, setSelectedLocalExports] = useState<LocalExportOption[]>(["mp4"]);
-  const [galleryDragging, setGalleryDragging] = useState(false);
-  const [galleryHovered, setGalleryHovered] = useState(false);
-  const [galleryFocused, setGalleryFocused] = useState(false);
-  const [galleryTouching, setGalleryTouching] = useState(false);
   const [galleryMotionAllowed, setGalleryMotionAllowed] = useState(false);
   const [galleryVisible, setGalleryVisible] = useState(false);
   const [galleryUserPaused, setGalleryUserPaused] = useState(false);
@@ -594,18 +587,10 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const deliveryRef = useRef<HTMLElement>(null);
   const galleryRef = useRef<HTMLDivElement>(null);
-  const galleryDragRef = useRef({ active: false, startX: 0, scrollLeft: 0 });
-  const galleryResumeTimerRef = useRef<number | null>(null);
-  const galleryCycleWidthRef = useRef(0);
-  const galleryLastAutoScrollRef = useRef(0);
 
   const galleryAutoPlaying = galleryMotionAllowed
     && galleryVisible
-    && !galleryUserPaused
-    && !galleryDragging
-    && !galleryHovered
-    && !galleryFocused
-    && !galleryTouching;
+    && !galleryUserPaused;
 
   useEffect(() => {
     return () => {
@@ -625,67 +610,14 @@ export default function Home() {
     const gallery = galleryRef.current;
     if (!gallery) return;
 
-    const measureCycle = () => {
-      const firstPhoto = gallery.querySelector<HTMLElement>('[data-gallery-cycle="0"]');
-      const repeatedFirstPhoto = gallery.querySelector<HTMLElement>('[data-gallery-cycle="1"]');
-      galleryCycleWidthRef.current = firstPhoto && repeatedFirstPhoto
-        ? repeatedFirstPhoto.offsetLeft - firstPhoto.offsetLeft
-        : 0;
-    };
-
-    measureCycle();
-    const resizeObserver = new ResizeObserver(measureCycle);
     const intersectionObserver = new IntersectionObserver(
       ([entry]) => setGalleryVisible(entry?.isIntersecting ?? false),
       { threshold: 0.08 },
     );
-    resizeObserver.observe(gallery);
     intersectionObserver.observe(gallery);
 
     return () => {
-      resizeObserver.disconnect();
       intersectionObserver.disconnect();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!galleryAutoPlaying) return;
-    const gallery = galleryRef.current;
-    if (!gallery) return;
-
-    const cycleWidth = galleryCycleWidthRef.current;
-    if (cycleWidth > 0 && gallery.scrollLeft >= cycleWidth) {
-      gallery.scrollLeft %= cycleWidth;
-    }
-
-    let animationFrame = 0;
-    let previousTime = window.performance.now();
-
-    const advanceGallery = (time: number) => {
-      const elapsed = Math.min(time - previousTime, 64);
-      previousTime = time;
-
-      if (!document.hidden && gallery.scrollWidth > gallery.clientWidth) {
-        galleryLastAutoScrollRef.current = time;
-        gallery.scrollLeft += elapsed * 0.026;
-        const measuredCycleWidth = galleryCycleWidthRef.current;
-        if (measuredCycleWidth > 0 && gallery.scrollLeft >= measuredCycleWidth) {
-          gallery.scrollLeft -= measuredCycleWidth;
-        }
-      }
-
-      animationFrame = window.requestAnimationFrame(advanceGallery);
-    };
-
-    animationFrame = window.requestAnimationFrame(advanceGallery);
-    return () => window.cancelAnimationFrame(animationFrame);
-  }, [galleryAutoPlaying]);
-
-  useEffect(() => {
-    return () => {
-      if (galleryResumeTimerRef.current !== null) {
-        window.clearTimeout(galleryResumeTimerRef.current);
-      }
     };
   }, []);
 
@@ -755,104 +687,6 @@ export default function Home() {
   function showToast(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(""), 3600);
-  }
-
-  function startGalleryDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === "touch") return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    const gallery = galleryRef.current;
-    if (!gallery) return;
-    gallery.setPointerCapture(event.pointerId);
-    galleryDragRef.current = {
-      active: true,
-      startX: event.clientX,
-      scrollLeft: gallery.scrollLeft,
-    };
-    setGalleryDragging(true);
-  }
-
-  function moveGalleryDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const gallery = galleryRef.current;
-    if (!gallery || !galleryDragRef.current.active) return;
-    event.preventDefault();
-    gallery.scrollLeft = galleryDragRef.current.scrollLeft - (event.clientX - galleryDragRef.current.startX);
-  }
-
-  function stopGalleryDrag(event: ReactPointerEvent<HTMLDivElement>) {
-    const gallery = galleryRef.current;
-    if (gallery?.hasPointerCapture(event.pointerId)) gallery.releasePointerCapture(event.pointerId);
-    galleryDragRef.current.active = false;
-    setGalleryDragging(false);
-  }
-
-  function scrollGallery(event: ReactWheelEvent<HTMLDivElement>) {
-    const gallery = galleryRef.current;
-    if (!gallery || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
-    if (gallery.scrollWidth <= gallery.clientWidth) return;
-    const maxScrollLeft = gallery.scrollWidth - gallery.clientWidth;
-    const canMove = event.deltaY > 0
-      ? gallery.scrollLeft < maxScrollLeft - 1
-      : gallery.scrollLeft > 1;
-    if (!canMove) return;
-    event.preventDefault();
-    gallery.scrollLeft += event.deltaY;
-  }
-
-  function navigateGallery(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const gallery = galleryRef.current;
-    if (!gallery) return;
-    const step = Math.max(220, gallery.clientWidth * 0.72);
-    const cycleWidth = galleryCycleWidthRef.current;
-    const currentPosition = cycleWidth > 0 ? gallery.scrollLeft % cycleWidth : gallery.scrollLeft;
-    const finalPosition = cycleWidth > 0
-      ? Math.max(0, cycleWidth - gallery.clientWidth)
-      : gallery.scrollWidth - gallery.clientWidth;
-    if (event.key === "ArrowLeft") {
-      gallery.scrollTo({ left: Math.max(0, currentPosition - step), behavior: "smooth" });
-    } else if (event.key === "ArrowRight") {
-      gallery.scrollTo({ left: Math.min(finalPosition, currentPosition + step), behavior: "smooth" });
-    } else if (event.key === "Home") gallery.scrollTo({ left: 0, behavior: "smooth" });
-    else if (event.key === "End") gallery.scrollTo({ left: finalPosition, behavior: "smooth" });
-    else return;
-    event.preventDefault();
-  }
-
-  function normalizeGalleryPosition() {
-    const gallery = galleryRef.current;
-    const cycleWidth = galleryCycleWidthRef.current;
-    if (gallery && cycleWidth > 0 && gallery.scrollLeft >= cycleWidth) {
-      gallery.scrollLeft %= cycleWidth;
-    }
-  }
-
-  function scheduleGalleryResume(delay = 2400) {
-    if (galleryResumeTimerRef.current !== null) {
-      window.clearTimeout(galleryResumeTimerRef.current);
-    }
-    galleryResumeTimerRef.current = window.setTimeout(() => {
-      normalizeGalleryPosition();
-      setGalleryTouching(false);
-      galleryResumeTimerRef.current = null;
-    }, delay);
-  }
-
-  function pauseGalleryForTouch() {
-    if (galleryResumeTimerRef.current !== null) {
-      window.clearTimeout(galleryResumeTimerRef.current);
-      galleryResumeTimerRef.current = null;
-    }
-    setGalleryTouching(true);
-  }
-
-  function resumeGalleryAfterTouch() {
-    scheduleGalleryResume(2600);
-  }
-
-  function handleGalleryScroll() {
-    if (window.performance.now() - galleryLastAutoScrollRef.current < 100) return;
-    if (galleryDragging) return;
-    setGalleryTouching(true);
-    scheduleGalleryResume();
   }
 
   function switchMode(nextMode: Mode) {
@@ -1370,53 +1204,36 @@ export default function Home() {
               </p>
             </section>
 
-            <aside
-              className="model-mini"
-              aria-label="天总视觉画廊"
-              onMouseEnter={() => setGalleryHovered(true)}
-              onMouseLeave={() => setGalleryHovered(false)}
-              onFocus={() => setGalleryFocused(true)}
-              onBlur={() => setGalleryFocused(false)}
-            >
+            <aside className="model-mini" aria-label="天总视觉画廊">
               <div
                 ref={galleryRef}
-                className={`model-mini-gallery${galleryDragging ? " dragging" : ""}${galleryAutoPlaying ? " auto-scrolling" : ""}`}
+                className="model-mini-gallery"
                 role="region"
-                tabIndex={0}
-                aria-label="天总照片，自动滚动播放，可左右滑动浏览"
+                aria-label="天总照片，从左向右自动渐进播放"
                 aria-describedby="gallery-scroll-hint"
-                onPointerDown={startGalleryDrag}
-                onPointerMove={moveGalleryDrag}
-                onPointerUp={stopGalleryDrag}
-                onPointerCancel={stopGalleryDrag}
-                onLostPointerCapture={stopGalleryDrag}
-                onWheel={scrollGallery}
-                onScroll={handleGalleryScroll}
-                onKeyDown={navigateGallery}
-                onTouchStart={pauseGalleryForTouch}
-                onTouchEnd={resumeGalleryAfterTouch}
-                onTouchCancel={resumeGalleryAfterTouch}
               >
-                {[0, 1].flatMap((cycle) =>
-                  modelGalleryPhotos.map((photo, index) => (
-                    <img
-                      className="model-gallery-photo"
-                      key={`${cycle}-${photo.src}`}
-                      src={photo.src}
-                      alt={cycle === 0 ? photo.alt : ""}
-                      aria-hidden={cycle === 1}
-                      data-gallery-cycle={cycle}
-                      data-gallery-index={index}
-                      draggable={false}
-                      loading={cycle === 0 && index <= 4 ? "eager" : "lazy"}
-                    />
-                  )),
-                )}
+                <div className={`model-gallery-track${galleryAutoPlaying ? " is-playing" : ""}`}>
+                  {[0, 1].flatMap((cycle) =>
+                    modelGalleryPhotos.map((photo, index) => (
+                      <img
+                        className="model-gallery-photo"
+                        key={`${cycle}-${photo.src}`}
+                        src={photo.src}
+                        alt={cycle === 0 ? photo.alt : ""}
+                        aria-hidden={cycle === 1}
+                        data-gallery-cycle={cycle}
+                        data-gallery-index={index}
+                        draggable={false}
+                        loading={cycle === 0 && index <= 4 ? "eager" : "lazy"}
+                      />
+                    )),
+                  )}
+                </div>
               </div>
               <div className="model-gallery-footer" id="gallery-scroll-hint">
                 <span>TIANZONG LOOKBOOK · {String(modelGalleryPhotos.length).padStart(2, "0")}</span>
                 <span className="model-gallery-controls">
-                  <span>自动播放 · 悬停或触摸暂停 · 可左右滑动</span>
+                  <span>从左向右 · 自动渐进播放</span>
                   <button
                     type="button"
                     className="model-gallery-toggle"
