@@ -1000,6 +1000,14 @@ export default function Home() {
     showToast(`本场共 ${discoveredCount} 条候选。数量由完整语义闭环、同题去重和风险门禁决定，不设目标条数。`);
   }
 
+  async function signOut() {
+    try {
+      await fetch("/__auth/logout", { method: "POST" });
+    } finally {
+      window.location.replace("/");
+    }
+  }
+
   return (
     <main className="cutline-app">
       <header className={`masthead ${step === 1 ? "home" : ""}`}>
@@ -1041,6 +1049,7 @@ export default function Home() {
             </div>
           )}
           <button className="text-action" onClick={() => setShowArchitecture(true)}>系统说明</button>
+          <button className="text-action" onClick={() => void signOut()}>退出登录</button>
         </div>
       </header>
 
