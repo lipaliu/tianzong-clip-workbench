@@ -22,3 +22,15 @@ export const projects = sqliteTable(
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
+
+export const authLoginAttempts = sqliteTable(
+  "auth_login_attempts",
+  {
+    key: text("key").primaryKey(),
+    windowStartedAt: integer("window_started_at").notNull(),
+    failureCount: integer("failure_count").notNull().default(0),
+    blockedUntil: integer("blocked_until"),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [index("auth_login_attempts_updated_at_idx").on(table.updatedAt)],
+);
