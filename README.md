@@ -144,6 +144,15 @@ API + PostgreSQL + 任务队列
 
 用户登录产品自己的账号，不需要登录 Codex。若要把片段继续送进个人 ChatCut，再单独完成 ChatCut 授权。
 
+## 内部登录
+
+正式站点在 Cloudflare Worker 最外层执行内部账号校验。未登录访问首页、接口、静态脚本或媒体资源时，都只会收到登录窗口或 `401`；账号配置不会进入浏览器脚本。
+
+- `INTERNAL_AUTH_CREDENTIALS`：服务端 Secret，JSON 对象格式，可配置多个内部用户名，例如 `{\"editor-a\":\"strong-password\"}`。
+- `INTERNAL_AUTH_SESSION_SECRET`：服务端 Secret，至少 32 个随机字符，用于签发 12 小时有效的 HttpOnly、SameSite 会话 Cookie。
+- 登录尝试会按访问来源和用户名分别写入 D1 原子限流记录，15 分钟窗口内达到 5 次后暂时锁定。
+- 生产值只通过 Sites 运行时变量配置；仓库和 `.env.example` 不保存真实账号或密码。
+
 模型层应通过可配置网关按任务选择当前可用、质量优先的生产模型，而不是在产品文案或代码中承诺一个未确认可用的具体型号。托管模型通常按 Token、音频时长或相应计费单位产生费用；普通裁切、拼接、代理和封装可由 CPU 媒体 Worker 完成，高并发编码或视觉分析是否使用 GPU 应通过真实压测决定。
 
 ## 产品门禁
