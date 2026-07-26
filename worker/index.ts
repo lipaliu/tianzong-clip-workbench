@@ -45,9 +45,17 @@ const worker = {
       return handleLogout(request);
     }
 
-    if (!(await sessionUsername(request, env))) {
+    const authenticatedUsername = await sessionUsername(request, env);
+    if (!authenticatedUsername) {
       return unauthorizedResponse(request);
     }
+
+    // This header is a private trust boundary between the outer authenticated
+    // Sites Worker and the server-side runtime route. Always overwrite the
+    // browser's value so a client cannot choose the feedback actor.
+    const trustedHeaders = new Headers(request.headers);
+    trustedHeaders.set("x-tianclip-authenticated-actor", authenticatedUsername);
+    const trustedRequest = new Request(request, { headers: trustedHeaders });
 
     const safeMethod = request.method === "GET" || request.method === "HEAD";
     if (!safeMethod) {
@@ -81,7 +89,7 @@ const worker = {
       return secureAppResponse(response);
     }
 
-    return secureAppResponse(await handler.fetch(request, env, ctx));
+    return secureAppResponse(await handler.fetch(trustedRequest, env, ctx));
   },
 };
 

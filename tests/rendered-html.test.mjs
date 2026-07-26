@@ -40,7 +40,11 @@ async function render() {
   const raceUsername = "race-editor";
   const persistencePath = await mkdtemp(join(tmpdir(), "tianzong-auth-test-"));
 
-  for (const migration of ["0000_blushing_morg.sql", "0001_chemical_salo.sql"]) {
+  for (const migration of [
+    "0000_blushing_morg.sql",
+    "0001_chemical_salo.sql",
+    "0002_real_processor_jobs.sql",
+  ]) {
     await runCommand(
       process.execPath,
       [
@@ -393,7 +397,7 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /导出到专业剪辑软件/);
   assert.match(page, /导入 SRT 字幕/);
   assert.match(page, /Premiere \/ DaVinci Resolve/);
-  assert.match(page, /真实 MP4 渲染和 ChatCut 工程写入尚未接通/);
+  assert.match(page, /候选 MP4 由服务端按当前候选计划真实渲染/);
   assert.match(page, /type LocalExportOption = "mp4" \| "srt" \| "xml"/);
   assert.match(page, /const \[selectedLocalExports, setSelectedLocalExports\]/);
   assert.match(page, /function toggleLocalExport/);
@@ -406,7 +410,19 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /function exportXmlTimeline/);
   assert.match(page, /function exportSrtSubtitle/);
   assert.match(page, /function importSrt/);
-  assert.match(page, /downloadBlob\(importedSubtitle\.content/);
+  assert.match(page, /const MAX_SRT_BYTES = 5_000_000/);
+  assert.match(page, /file\.size > MAX_SRT_BYTES/);
+  assert.match(page, /downloadBlob\(importedSubtitle\.originalBytes/);
+  assert.match(page, /系统不会改写字幕内容，下载时原样交付/);
+  assert.match(page, /function professionalXmlProfile/);
+  assert.match(page, /disabled=\{!activeXmlProfile\}/);
+  assert.match(page, /sourceMedia\.durationSeconds \* rate\.exactFps/);
+  assert.match(page, /sourceMedia\.audioChannels/);
+  assert.match(page, /sourceMedia\.originalFileName/);
+  assert.match(page, /不输出伪精准草案/);
+  assert.doesNotMatch(page, /const frameRate = 30/);
+  assert.doesNotMatch(page, /<width>1080<\/width><height>1920<\/height>/);
+  assert.doesNotMatch(page, /<channelcount>2<\/channelcount>/);
   assert.match(page, /application\/xml;charset=utf-8/);
   assert.match(page, /application\/x-subrip/);
   assert.match(page, /scrollIntoView\(\{ behavior: "smooth", block: "nearest" \}\)/);
@@ -417,12 +433,12 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /const discoveredCount = analysisReady \? modeIdeas\.length : 0/);
   assert.doesNotMatch(page, /demoDiscoveryCounts/);
   assert.match(page, /句级依据/);
-  assert.match(page, /确认本条剪辑决定/);
+  assert.match(page, /确认音画与本条剪辑决定/);
   assert.match(page, /这次选择如何反哺系统/);
   assert.match(page, /后台研究归因/);
   assert.match(page, /固定评测集回测/);
   assert.match(page, /通过评审后才改变生产规则/);
-  assert.match(page, /uploadedPreviewUrl \? activeClip\.sourceStart : 0/);
+  assert.match(page, /reviewUsesOriginal \? activeClip\.sourceStart : 0/);
   assert.match(page, /className="model-mini"/);
   assert.match(page, /className="model-statement"/);
   assert.match(page, /className="model-mini-gallery"/);

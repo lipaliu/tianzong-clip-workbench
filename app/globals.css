@@ -3712,20 +3712,95 @@ button:not(:disabled):active {
 .composer-progress {
   position: absolute;
   right: 27px;
-  bottom: 8px;
+  bottom: 6px;
   left: 27px;
-  height: 2px;
-  overflow: hidden;
-  border-radius: 2px;
-  background: var(--line-soft);
+  height: 19px;
+  border-top: 2px solid var(--line-soft);
 }
 
 .composer-progress span {
-  height: 100%;
+  position: absolute;
+  top: -2px;
+  left: 0;
+  height: 2px;
   display: block;
-  border-radius: inherit;
+  border-radius: 2px;
   background: var(--pink-deep);
   transition: width 260ms linear;
+}
+
+.composer-progress small {
+  display: block;
+  padding-top: 5px;
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 380;
+}
+
+.composer-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 2px solid #a64359;
+  background: rgba(166, 67, 89, 0.07);
+  color: #7f2d41;
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.review-source-switch {
+  width: fit-content;
+  display: flex;
+  gap: 3px;
+  margin: 10px 0 8px auto;
+  padding: 3px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.review-source-switch button {
+  padding: 6px 11px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.review-source-switch button.active {
+  background: var(--pink-block);
+  color: var(--ink);
+}
+
+.av-confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  margin: 12px 0 18px;
+  padding: 13px 15px;
+  border: 1px solid rgba(184, 132, 154, 0.28);
+  border-radius: 12px;
+  background: rgba(245, 232, 238, 0.45);
+}
+
+.av-confirmation input {
+  margin-top: 3px;
+  accent-color: var(--pink-deep);
+}
+
+.av-confirmation span {
+  display: grid;
+  gap: 4px;
+}
+
+.av-confirmation strong {
+  font-size: 10px;
+  font-weight: 560;
+}
+
+.av-confirmation small {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 360;
+  line-height: 1.55;
 }
 
 .composer-hint {
@@ -3779,6 +3854,7 @@ button:not(:disabled):active {
 
 .project-row {
   min-width: 0;
+  width: 100%;
   display: grid;
   grid-template-columns: 68px minmax(0, 1fr) auto 86px;
   align-items: center;
@@ -3786,6 +3862,17 @@ button:not(:disabled):active {
   min-height: 66px;
   padding: 10px 2px;
   border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  text-align: left;
+}
+
+.project-row:hover,
+.project-row.active {
+  background: linear-gradient(90deg, rgba(240, 218, 228, 0.28), transparent 72%);
+}
+
+.project-row:focus-visible {
+  outline-offset: 2px;
 }
 
 .project-row time {
@@ -3845,6 +3932,10 @@ button:not(:disabled):active {
 .project-status.analyzing::before {
   background: var(--pink-deep);
   box-shadow: 0 0 0 3px rgba(184, 132, 154, 0.11);
+}
+
+.project-status.failed::before {
+  background: #a64359;
 }
 
 .project-row > b {

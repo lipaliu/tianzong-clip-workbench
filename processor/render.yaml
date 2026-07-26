@@ -1,0 +1,100 @@
+databases:
+  - name: tianclip-postgres
+    databaseName: tianclip
+    user: tianclip
+    region: singapore
+    plan: basic-256mb
+    ipAllowList: []
+
+services:
+  - type: web
+    name: tianclip-processor-api
+    runtime: docker
+    region: singapore
+    rootDir: processor
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    # Deployment is healthy only when Postgres, private R2 and the exact pinned
+    # TianClip core object are all available.
+    healthCheckPath: /readyz
+    preDeployCommand: node dist/migrate.js
+    envVars: &processorEnv
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tianclip-postgres
+          property: connectionString
+      - key: INTERNAL_API_KEYS
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: PRESIGN_TTL_SECONDS
+        value: "3600"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_TRANSCRIPTION_MODEL
+        value: gpt-4o-transcribe-diarize
+      - key: OPENAI_REASONING_MODEL
+        value: gpt-5.6-sol
+      - key: OPENAI_VISION_MODEL
+        value: gpt-5.6-sol
+      - key: TIANCLIP_CORE_S3_KEY
+        sync: false
+      - key: TIANCLIP_CORE_SHA256
+        sync: false
+      - key: TIANCLIP_CORE_VERSION
+        value: 1.2.0-private.1
+      - key: TIANCLIP_PROMPT_VERSION
+        value: 1.2.0
+      - key: TIANCLIP_SCHEMA_VERSION
+        value: 1.1.0
+      - key: TIANCLIP_FACT_SCHEMA_VERSION
+        value: 1.0.0
+      - key: TIANCLIP_LEDGER_SCHEMA_VERSION
+        value: 1.0.0
+      - key: MAX_UPLOAD_BYTES
+        value: "9000000000"
+      - key: SINGLE_PUT_MAX_BYTES
+        value: "4900000000"
+      - key: MULTIPART_PART_SIZE_BYTES
+        value: "67108864"
+      - key: MULTIPART_PRESIGN_BATCH_SIZE
+        value: "12"
+      - key: WORKER_HEARTBEAT_INTERVAL_MS
+        value: "30000"
+      - key: WORKER_HEARTBEAT_MAX_AGE_SECONDS
+        value: "120"
+      # The API reads this value but never writes media locally. Only the
+      # background worker below has the matching persistent disk attached.
+      - key: WORK_DIRECTORY
+        value: /var/data/tianclip
+
+  - type: worker
+    name: tianclip-processor-worker
+    runtime: docker
+    region: singapore
+    rootDir: processor
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # A hard process/container restart cannot run the job's finally cleanup.
+    # Clear abandoned scratch directories before the worker resumes retrying;
+    # every durable source and result remains in private R2.
+    dockerCommand: >-
+      /bin/sh -c 'test "$WORK_DIRECTORY" = /var/data/tianclip &&
+      mkdir -p "$WORK_DIRECTORY" &&
+      find "$WORK_DIRECTORY" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + &&
+      exec node dist/worker.js'
+    plan: standard
+    disk:
+      name: tianclip-worker-scratch
+      mountPath: /var/data/tianclip
+      sizeGB: 30
+    envVars: *processorEnv

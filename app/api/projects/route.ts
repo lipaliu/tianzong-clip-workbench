@@ -114,27 +114,56 @@ export async function PATCH(request: Request) {
     if (!id) {
       return Response.json({ error: "id is required" }, { status: 400 });
     }
-    if (payload.status !== undefined && payload.status !== "ready") {
+    if (
+      payload.status !== undefined &&
+      !["analyzing", "ready", "failed"].includes(String(payload.status))
+    ) {
       return Response.json(
-        { error: 'status must be "ready"' },
+        { error: 'status must be "analyzing", "ready", or "failed"' },
         { status: 400 },
       );
     }
-    if (
+    if (payload.clipCount !== undefined && (
       typeof payload.clipCount !== "number" ||
       !Number.isInteger(payload.clipCount) ||
       payload.clipCount < 0
-    ) {
+    )) {
       return Response.json(
         { error: "clipCount must be a non-negative integer" },
         { status: 400 },
       );
     }
+    if (payload.progress !== undefined && (
+      typeof payload.progress !== "number" ||
+      !Number.isInteger(payload.progress) ||
+      payload.progress < 0 ||
+      payload.progress > 100
+    )) {
+      return Response.json(
+        { error: "progress must be an integer from 0 to 100" },
+        { status: 400 },
+      );
+    }
+
+    const optionalText = (value: unknown, maxLength: number) =>
+      typeof value === "string" ? value.trim().slice(0, maxLength) : null;
+    const status = payload.status === "ready" || payload.status === "failed"
+      ? payload.status
+      : "analyzing";
 
     const db = getDb();
     const [project] = await db
       .update(projects)
-      .set({ status: "ready", clipCount: payload.clipCount })
+      .set({
+        status,
+        ...(payload.clipCount === undefined ? {} : { clipCount: payload.clipCount }),
+        ...(payload.progress === undefined ? {} : { progress: payload.progress }),
+        ...(payload.processorJobId === undefined
+          ? {}
+          : { processorJobId: optionalText(payload.processorJobId, 128) }),
+        ...(payload.stage === undefined ? {} : { stage: optionalText(payload.stage, 120) ?? "处理中" }),
+        ...(payload.error === undefined ? {} : { error: optionalText(payload.error, 1_000) }),
+      })
       .where(eq(projects.id, id))
       .returning();
 

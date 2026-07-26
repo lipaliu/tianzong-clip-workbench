@@ -9,8 +9,13 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    ".vinext/**",
+    "dist/**",
     "out/**",
     "build/**",
+    // The media processor is a separate Node/TypeScript package with its own
+    // strict typecheck and test suite.
+    "processor/**",
     "next-env.d.ts",
   ]),
 ]);

@@ -1,7 +1,7 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const projectModes = ["聊播", "带货"] as const;
-export const projectStatuses = ["analyzing", "ready"] as const;
+export const projectStatuses = ["analyzing", "ready", "failed"] as const;
 
 export const projects = sqliteTable(
   "projects",
@@ -15,6 +15,10 @@ export const projects = sqliteTable(
       .notNull()
       .default("analyzing"),
     clipCount: integer("clip_count").notNull().default(0),
+    processorJobId: text("processor_job_id"),
+    stage: text("stage").notNull().default("等待上传"),
+    progress: integer("progress").notNull().default(0),
+    error: text("error"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [index("projects_created_at_idx").on(table.createdAt)],

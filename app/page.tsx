@@ -7,6 +7,18 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  completeProcessorUpload,
+  createProcessorProject,
+  prepareProcessorUpload,
+  readProcessorCandidates,
+  readProcessorJob,
+  startProcessorJob,
+  submitProcessorFeedback,
+  uploadToPresignedUrl,
+  type ProcessorCandidate,
+  type ProcessorJob,
+} from "./processor-client";
 
 type Mode = "聊播" | "带货";
 type IntakeStep = 1 | 2;
@@ -40,6 +52,7 @@ type ClipIdea = {
   duration: string;
   sourceTime: string;
   sourceStart: number;
+  sourceEnd?: number;
   score: number;
   summary: string;
   contentType: string;
@@ -54,9 +67,16 @@ type ClipIdea = {
   factGate: string;
   calibrationStatus: string;
   transcript: TranscriptLine[];
+  previewUrl?: string | null;
+  reviewStatus?: "needs_av_review" | "human_confirmed" | "rejected";
+  renderStatus?: ProcessorCandidate["renderStatus"];
+  previewKind?: ProcessorCandidate["previewKind"];
+  previewVersion?: string;
+  isFinal?: boolean;
+  sourceMedia?: ProcessorCandidate["sourceMedia"];
 };
 
-type ProjectStatus = "analyzing" | "ready";
+type ProjectStatus = "analyzing" | "ready" | "failed";
 
 type ProjectRecord = {
   id: string;
@@ -66,18 +86,25 @@ type ProjectRecord = {
   mode: Mode;
   status: ProjectStatus;
   clipCount: number;
+  processorJobId?: string | null;
+  stage?: string;
+  progress?: number;
+  error?: string | null;
   createdAt: string;
 };
 
 type ImportedSubtitle = {
   name: string;
   cueCount: number;
-  content: string;
+  originalBytes: ArrayBuffer;
 };
 
 const corpusBaseline = {
   version: "内测 BETA 1.0",
 };
+
+const MAX_UPLOAD_BYTES = 9_000_000_000;
+const MAX_SRT_BYTES = 5_000_000;
 
 const modelGalleryPhotos = [
   { src: "/photos/tz_street_tall.jpg", alt: "天总街头蓝色穿搭" },
@@ -539,6 +566,206 @@ function formatProjectDate(value: string) {
   return month && day ? `${Number(month)}月${Number(day)}日` : value;
 }
 
+function secondsToClock(totalSeconds: number, includeHours = false) {
+  const rounded = Math.max(0, Math.round(totalSeconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const seconds = rounded % 60;
+  if (includeHours || hours > 0) {
+    return [hours, minutes, seconds].map((unit) => String(unit).padStart(2, "0")).join(":");
+  }
+  return [minutes, seconds].map((unit) => String(unit).padStart(2, "0")).join(":");
+}
+
+function isPersonaMode(value: string): value is PersonaMode {
+  return ["实战老板", "强姐姐", "视觉吸引", "搞笑女", "脆弱真实"].includes(value);
+}
+
+function processorCandidateToIdea(candidate: ProcessorCandidate, position: number): ClipIdea {
+  const duration = Math.max(
+    0,
+    candidate.durationSeconds || candidate.sourceEnd - candidate.sourceStart,
+  );
+  return {
+    id: candidate.id,
+    kind: candidate.kind,
+    index: candidate.index || String(position + 1).padStart(2, "0"),
+    title: candidate.title,
+    duration: secondsToClock(duration),
+    sourceTime: `${secondsToClock(candidate.sourceStart, true)} — ${secondsToClock(candidate.sourceEnd, true)}`,
+    sourceStart: candidate.sourceStart,
+    sourceEnd: candidate.sourceEnd,
+    score: candidate.score,
+    summary: candidate.summary,
+    contentType: candidate.contentType,
+    personaModes: candidate.personaModes.filter(isPersonaMode),
+    personaReason: candidate.personaReason,
+    durationMode: candidate.durationMode,
+    durationWindow: candidate.durationWindow,
+    durationReason: candidate.durationReason,
+    selectionReasons: candidate.selectionReasons,
+    scoreBreakdown: candidate.scoreBreakdown,
+    priority: candidate.priority,
+    factGate: candidate.factGate,
+    calibrationStatus: candidate.calibrationStatus,
+    transcript: candidate.transcript.map((line) => ({
+      id: line.id,
+      time: secondsToClock(Math.max(0, line.start - candidate.sourceStart)),
+      seconds: Math.max(0, line.start - candidate.sourceStart),
+      text: line.text,
+      defaultDecision: line.defaultDecision,
+      reason: line.reason,
+      evidenceLevel: line.evidenceLevel,
+      speaker: line.speaker,
+    })),
+    previewUrl: candidate.previewUrl,
+    reviewStatus:
+      candidate.reviewStatus === "human_av_verified_normal_playback"
+        ? "human_confirmed"
+        : candidate.reviewStatus === "human_review_rejected"
+          ? "rejected"
+          : "needs_av_review",
+    renderStatus: candidate.renderStatus,
+    previewKind: candidate.previewKind,
+    previewVersion: candidate.previewVersion,
+    isFinal: candidate.isFinal,
+    sourceMedia: candidate.sourceMedia,
+  };
+}
+
+const processorStageLabels: Record<string, string> = {
+  queued: "等待处理",
+  starting: "启动真实分析任务",
+  probe: "读取原片与音画轨",
+  probing: "读取原片与音画轨",
+  audio_extract: "提取原片音轨",
+  transcription: "逐字转写与说话人分段",
+  transcribing: "逐字转写与说话人分段",
+  visual_map: "扫描全场画面与动作",
+  visual_mapping: "扫描全场画面与动作",
+  sparse_visual_screening: "建立全场视觉事件地图",
+  dense_visual_reverse_recall: "密集画面反向寻找漏网切片",
+  private_core_reasoning: "运行天总私有切片内核",
+  candidate_generation: "运行天总专属切片内核",
+  candidate_dense_refinement: "逐条校正画面、逐字稿与切口",
+  candidate_validation: "逐条校验候选音画证据",
+  candidate_verification: "逐条校验候选音画证据",
+  validating_private_contract: "校验事实层、编辑计划与决策台账",
+  rendering_previews: "生成候选粗剪预览",
+  retry_wait: "本次处理失败，等待自动重试",
+  review_ready: "候选已生成",
+  ready: "候选已生成",
+  cancelled: "任务已取消",
+  failed: "分析失败",
+};
+
+function processorStageLabel(stage: ProcessorJob["stage"]) {
+  return processorStageLabels[stage] ?? "真实分析进行中";
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function processorJobIsPending(job: ProcessorJob) {
+  return (
+    job.status === "queued" ||
+    job.status === "running" ||
+    job.status === "retrying"
+  );
+}
+
+function processorProgress(job: ProcessorJob) {
+  return Math.max(
+    29,
+    Math.min(
+      99,
+      Math.round(29 + Math.max(0, Math.min(100, job.progress)) * 0.7),
+    ),
+  );
+}
+
+function projectMirrorFromJob(
+  project: ProjectRecord,
+  job: ProcessorJob,
+): ProjectRecord {
+  if (job.status === "succeeded") {
+    return {
+      ...project,
+      status: "ready",
+      processorJobId: job.id,
+      stage: "候选已生成",
+      progress: 100,
+      clipCount: job.clipCount,
+      error: null,
+    };
+  }
+  if (job.status === "failed" || job.status === "cancelled") {
+    return {
+      ...project,
+      status: "failed",
+      processorJobId: job.id,
+      stage: "分析失败",
+      progress: 0,
+      clipCount: 0,
+      error:
+        job.error ||
+        (job.status === "cancelled"
+          ? "真实分析任务已取消。"
+          : "真实分析任务没有成功完成。"),
+    };
+  }
+  return {
+    ...project,
+    status: "analyzing",
+    processorJobId: job.id,
+    stage: processorStageLabel(job.stage),
+    progress: processorProgress(job),
+    error: null,
+  };
+}
+
+async function persistProjectMirror(project: ProjectRecord) {
+  const requestBody = JSON.stringify({
+    id: project.id,
+    status: project.status,
+    processorJobId: project.processorJobId ?? undefined,
+    stage: project.stage ?? "",
+    progress: project.progress ?? 0,
+    clipCount: project.clipCount,
+    error: project.error ?? "",
+  });
+  let lastError = "项目状态没有保存成功。";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch("/api/projects", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: requestBody,
+      });
+      const payload = await response.json().catch(() => ({})) as {
+        project?: ProjectRecord;
+        error?: string;
+      };
+      if (response.ok && payload.project) return payload.project;
+      lastError = payload.error || lastError;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : lastError;
+    }
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+    }
+  }
+  throw new Error(lastError);
+}
+
+function setProjectQuery(projectId: string | null) {
+  const url = new URL(window.location.href);
+  if (projectId) url.searchParams.set("project", projectId);
+  else url.searchParams.delete("project");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 function durationToSeconds(value: string) {
   const units = value.split(":").map(Number);
   if (units.some(Number.isNaN)) return 0;
@@ -556,18 +783,95 @@ function escapeXml(value: string) {
     .replaceAll("'", "&apos;");
 }
 
+type XmemlRate = {
+  exactFps: number;
+  timebase: number;
+  ntsc: "TRUE" | "FALSE";
+};
+
+function xmemlRateFromSource(
+  frameRate: NonNullable<ProcessorCandidate["sourceMedia"]>["frameRate"],
+): XmemlRate | null {
+  if (!frameRate) return null;
+  const {
+    numerator,
+    denominator,
+    fps,
+  } = frameRate;
+  if (
+    !Number.isSafeInteger(numerator)
+    || numerator <= 0
+    || !Number.isSafeInteger(denominator)
+    || denominator <= 0
+  ) {
+    return null;
+  }
+  const exactFps = numerator / denominator;
+  if (
+    !Number.isFinite(exactFps)
+    || exactFps <= 0
+    || !Number.isFinite(fps)
+    || Math.abs(fps - exactFps) > Math.max(0.000001, exactFps * 0.000001)
+  ) {
+    return null;
+  }
+  const timebase = Math.round(exactFps);
+  if (timebase < 1 || timebase > 240) return null;
+  if (Math.abs(exactFps - timebase) <= 0.000001) {
+    return { exactFps, timebase, ntsc: "FALSE" };
+  }
+  const ntscFps = timebase * 1000 / 1001;
+  if (Math.abs(exactFps - ntscFps) <= Math.max(0.000001, ntscFps * 0.000001)) {
+    return { exactFps, timebase, ntsc: "TRUE" };
+  }
+  return null;
+}
+
+function professionalXmlProfile(
+  sourceMedia: ProcessorCandidate["sourceMedia"],
+): {
+  sourceMedia: NonNullable<ProcessorCandidate["sourceMedia"]>;
+  rate: XmemlRate;
+} | null {
+  if (
+    !sourceMedia
+    || sourceMedia.metadataStatus !== "verified_ffprobe"
+    || sourceMedia.missingFields.length > 0
+    || !Number.isFinite(sourceMedia.durationSeconds)
+    || sourceMedia.durationSeconds <= 0
+    || !Number.isSafeInteger(sourceMedia.width)
+    || sourceMedia.width <= 0
+    || !Number.isSafeInteger(sourceMedia.height)
+    || sourceMedia.height <= 0
+    || !Number.isSafeInteger(sourceMedia.audioChannels)
+    || sourceMedia.audioChannels <= 0
+    || !sourceMedia.originalFileName.trim()
+  ) {
+    return null;
+  }
+  const rate = xmemlRateFromSource(sourceMedia.frameRate);
+  return rate ? { sourceMedia, rate } : null;
+}
+
 export default function Home() {
   const [step, setStep] = useState<WorkflowStep>(1);
   const [intakeStep, setIntakeStep] = useState<IntakeStep>(1);
   const [mode, setMode] = useState<Mode | null>(null);
   const [fileName, setFileName] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState("");
   const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisStage, setAnalysisStage] = useState("");
+  const [analysisError, setAnalysisError] = useState("");
   const [analysisReady, setAnalysisReady] = useState(false);
+  const [runtimeIdeas, setRuntimeIdeas] = useState<ClipIdea[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState("");
   const [activeClipId, setActiveClipId] = useState(ideas[0].id);
   const [selectedIds, setSelectedIds] = useState<string[]>([ideas[0].id]);
   const [decisions, setDecisions] = useState<Record<string, Decision>>(initialDecisions);
   const [currentTime, setCurrentTime] = useState(0);
+  const [reviewSourceMode, setReviewSourceMode] = useState<"candidate" | "source">("candidate");
+  const [avConfirmed, setAvConfirmed] = useState(false);
   const [generationState, setGenerationState] = useState<"idle" | "working" | "done">("idle");
   const [feedbackQueued, setFeedbackQueued] = useState(false);
   const [highPotentialOnly, setHighPotentialOnly] = useState(false);
@@ -585,6 +889,7 @@ export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const deliveryRef = useRef<HTMLElement>(null);
   const galleryRef = useRef<HTMLDivElement>(null);
+  const projectResumeRunRef = useRef(0);
 
   const galleryAutoPlaying = galleryMotionAllowed
     && galleryVisible;
@@ -621,21 +926,50 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
 
-    void fetch("/api/projects")
-      .then(async (response) => {
+    void (async () => {
+      try {
+        const response = await fetch("/api/projects", { cache: "no-store" });
         if (!response.ok) throw new Error("project history unavailable");
-        return response.json() as Promise<{ projects?: ProjectRecord[] }>;
-      })
-      .then((payload) => {
-        if (!cancelled) setProjects(payload.projects ?? []);
-      })
-      .catch(() => undefined)
-      .finally(() => {
+        const payload = await response.json() as { projects?: ProjectRecord[] };
+        const storedProjects = payload.projects ?? [];
+        const synchronized = await Promise.all(storedProjects.map(async (project) => {
+          if (!project.processorJobId) return project;
+          try {
+            const { job } = await readProcessorJob(project.processorJobId);
+            const next = projectMirrorFromJob(project, job);
+            const changed =
+              next.status !== project.status ||
+              next.stage !== project.stage ||
+              next.progress !== project.progress ||
+              next.clipCount !== project.clipCount ||
+              next.error !== project.error;
+            if (changed) {
+              return await persistProjectMirror(next).catch(() => next);
+            }
+            return next;
+          } catch {
+            return project;
+          }
+        }));
+        if (cancelled) return;
+        setProjects(synchronized);
+        setProjectsLoaded(true);
+
+        const requestedProjectId = new URL(window.location.href).searchParams.get("project");
+        const requestedProject = synchronized.find(
+          (project) => project.id === requestedProjectId,
+        );
+        if (requestedProject) {
+          void resumeProject(requestedProject, { quiet: true });
+        }
+      } catch {
         if (!cancelled) setProjectsLoaded(true);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
+      projectResumeRunRef.current += 1;
     };
   }, []);
 
@@ -648,9 +982,10 @@ export default function Home() {
     return () => window.cancelAnimationFrame(frame);
   }, [generationState]);
 
+  const candidatePool = runtimeIdeas.length ? runtimeIdeas : ideas;
   const modeIdeas = useMemo(
-    () => ideas.filter((idea) => idea.kind === (mode ?? "聊播")),
-    [mode],
+    () => candidatePool.filter((idea) => idea.kind === (mode ?? "聊播")),
+    [candidatePool, mode],
   );
   const displayedIdeas = useMemo(
     () => highPotentialOnly ? modeIdeas.filter((idea) => idea.priority === "S") : modeIdeas,
@@ -658,7 +993,18 @@ export default function Home() {
   );
   const discoveredCount = analysisReady ? modeIdeas.length : 0;
 
-  const activeClip = ideas.find((idea) => idea.id === activeClipId) ?? modeIdeas[0];
+  const activeClip =
+    candidatePool.find((idea) => idea.id === activeClipId) ??
+    modeIdeas[0] ??
+    candidatePool[0];
+  const activeXmlProfile = professionalXmlProfile(activeClip.sourceMedia);
+  const candidatePreviewUrl = activeClip.previewUrl ?? "";
+  const reviewVideoSource =
+    reviewSourceMode === "candidate" && candidatePreviewUrl
+      ? candidatePreviewUrl
+      : uploadedPreviewUrl || candidatePreviewUrl;
+  const reviewUsesOriginal =
+    Boolean(reviewVideoSource) && reviewVideoSource === uploadedPreviewUrl;
   const activeLineIndex = activeClip.transcript.findIndex((line, index) => {
     if (line.evidenceLevel !== "原声逐字") return false;
     const next = activeClip.transcript[index + 1]?.seconds ?? Number.POSITIVE_INFINITY;
@@ -668,7 +1014,7 @@ export default function Home() {
   const reviewChangeCount = activeClip.transcript.filter(
     (line) => (decisions[line.id] ?? line.defaultDecision) !== line.defaultDecision,
   ).length;
-  const totalReviewChangeCount = ideas.reduce(
+  const totalReviewChangeCount = candidatePool.reduce(
     (total, idea) => total + idea.transcript.filter(
       (line) => (decisions[line.id] ?? line.defaultDecision) !== line.defaultDecision,
     ).length,
@@ -686,45 +1032,285 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 3600);
   }
 
+  function applyProcessorCandidateSet(
+    candidates: ProcessorCandidate[],
+    selectedMode: Mode,
+    preferredCandidateId?: string,
+  ) {
+    const nextIdeas = candidates
+      .filter((candidate) =>
+        candidate.kind === selectedMode &&
+        candidate.sourceEnd > candidate.sourceStart &&
+        candidate.title.trim().length > 0
+      )
+      .map(processorCandidateToIdea);
+    const nextDecisions = Object.fromEntries(
+      nextIdeas.flatMap((idea) =>
+        idea.transcript.map((line) => [line.id, line.defaultDecision]),
+      ),
+    ) as Record<string, Decision>;
+    const nextActive =
+      nextIdeas.find((idea) => idea.id === preferredCandidateId) ??
+      nextIdeas[0];
+
+    setRuntimeIdeas(nextIdeas);
+    setDecisions(nextDecisions);
+    setAnalysisReady(nextIdeas.length > 0);
+    if (nextActive) {
+      setActiveClipId(nextActive.id);
+      setSelectedIds((current) => {
+        const stillAvailable = current.filter((id) =>
+          nextIdeas.some((idea) => idea.id === id)
+        );
+        return stillAvailable.length ? stillAvailable : [nextActive.id];
+      });
+      setReviewSourceMode(nextActive.previewUrl ? "candidate" : "source");
+      setAvConfirmed(nextActive.reviewStatus === "human_confirmed");
+      setGenerationState(
+        nextActive.isFinal
+          ? "done"
+          : nextActive.renderStatus === "revision_queued" ||
+              nextActive.renderStatus === "revision_rendering"
+            ? "working"
+            : "idle",
+      );
+      setFeedbackQueued(
+        nextActive.renderStatus === "revision_queued" ||
+        nextActive.renderStatus === "revision_rendering",
+      );
+    } else {
+      setSelectedIds([]);
+      setGenerationState("idle");
+      setFeedbackQueued(false);
+    }
+    return nextIdeas;
+  }
+
+  async function followPendingCandidateRenders(
+    projectId: string,
+    selectedMode: Mode,
+    runId: number,
+    preferredCandidateId?: string,
+  ) {
+    let activeId = preferredCandidateId;
+    while (runId === projectResumeRunRef.current) {
+      const { candidates } = await readProcessorCandidates(projectId);
+      const pending = candidates.some(
+        (candidate) =>
+          candidate.renderStatus === "revision_queued" ||
+          candidate.renderStatus === "revision_rendering",
+      );
+      const nextIdeas = applyProcessorCandidateSet(
+        candidates,
+        selectedMode,
+        activeId,
+      );
+      activeId =
+        nextIdeas.find((idea) => idea.id === activeId)?.id ??
+        nextIdeas[0]?.id;
+      if (!pending) return;
+      await wait(2_500);
+    }
+  }
+
+  async function resumeProject(
+    project: ProjectRecord,
+    options: { quiet?: boolean } = {},
+  ) {
+    const runId = projectResumeRunRef.current + 1;
+    projectResumeRunRef.current = runId;
+    setProjectQuery(project.id);
+    setActiveProjectId(project.id);
+    setMode(project.mode);
+    setProjectDate({
+      iso: project.projectDate,
+      label: formatProjectDate(project.projectDate),
+    });
+    setFileName(project.sourceName);
+    setSelectedFile(null);
+    setUploadedPreviewUrl("");
+    setIntakeStep(2);
+    setStep(1);
+    setAnalysisReady(false);
+    setAnalysisError("");
+    setRuntimeIdeas([]);
+    setCurrentTime(0);
+    setReviewSourceMode("candidate");
+    setAvConfirmed(false);
+    setImportedSubtitle(null);
+    setSelectedLocalExports(["mp4"]);
+    setGenerationState("idle");
+    setFeedbackQueued(false);
+    setAnalysisProgress(
+      project.status === "ready"
+        ? 99
+        : project.status === "analyzing"
+          ? Math.max(1, project.progress ?? 1)
+          : 0,
+    );
+    setAnalysisStage(project.stage ?? "正在恢复项目");
+
+    if (!options.quiet) {
+      showToast(`正在恢复 ${project.title} 的真实任务和候选版本。`);
+    }
+
+    try {
+      let currentProject = project;
+      let job: ProcessorJob | null = null;
+      if (project.processorJobId) {
+        ({ job } = await readProcessorJob(project.processorJobId));
+        while (
+          runId === projectResumeRunRef.current &&
+          processorJobIsPending(job)
+        ) {
+          currentProject = projectMirrorFromJob(currentProject, job);
+          setProjects((current) => current.map((item) =>
+            item.id === currentProject.id ? currentProject : item
+          ));
+          setAnalysisProgress(currentProject.progress ?? 29);
+          setAnalysisStage(currentProject.stage ?? "真实分析进行中");
+          await persistProjectMirror(currentProject).catch(() => currentProject);
+          await wait(2_500);
+          if (runId !== projectResumeRunRef.current) return;
+          ({ job } = await readProcessorJob(project.processorJobId!));
+        }
+        if (runId !== projectResumeRunRef.current) return;
+        currentProject = projectMirrorFromJob(currentProject, job);
+      } else if (project.status !== "ready") {
+        throw new Error("这个旧项目没有保存处理任务编号，无法自动恢复；请重新上传原片。");
+      }
+
+      if (job && job.status !== "succeeded") {
+        throw new Error(
+          job.error ||
+          (job.status === "cancelled"
+            ? "真实分析任务已取消。"
+            : "真实分析任务没有成功完成。"),
+        );
+      }
+
+      setAnalysisProgress(99);
+      setAnalysisStage("读取候选、证据与当前渲染版本");
+      const { candidates } = await readProcessorCandidates(project.id);
+      if (runId !== projectResumeRunRef.current) return;
+      const nextIdeas = applyProcessorCandidateSet(candidates, project.mode);
+      currentProject = {
+        ...currentProject,
+        status: "ready",
+        processorJobId: job?.id ?? currentProject.processorJobId,
+        stage: "候选已生成",
+        progress: 100,
+        clipCount: nextIdeas.length,
+        error: null,
+      };
+      setProjects((current) => current.map((item) =>
+        item.id === currentProject.id ? currentProject : item
+      ));
+      await persistProjectMirror(currentProject).catch(() => currentProject);
+      setAnalysisProgress(100);
+      setAnalysisStage("候选已恢复，等待团队连续音画复核");
+
+      if (!nextIdeas.length) {
+        setAnalysisError("本场没有通过事实与风险门禁的候选；系统没有为了凑数生成切片。");
+        return;
+      }
+
+      setStep(2);
+      if (!options.quiet) {
+        showToast(`已恢复 ${nextIdeas.length} 条候选及其当前渲染状态。`);
+      }
+      if (nextIdeas.some(
+        (idea) =>
+          idea.renderStatus === "revision_queued" ||
+          idea.renderStatus === "revision_rendering",
+      )) {
+        void followPendingCandidateRenders(
+          project.id,
+          project.mode,
+          runId,
+          nextIdeas[0]?.id,
+        ).catch((error) => {
+          if (runId === projectResumeRunRef.current) {
+            showToast(error instanceof Error ? error.message : "新版状态暂时无法恢复。");
+          }
+        });
+      }
+    } catch (error) {
+      if (runId !== projectResumeRunRef.current) return;
+      const message = error instanceof Error ? error.message : "项目恢复失败。";
+      setAnalysisProgress(0);
+      setAnalysisStage("恢复失败");
+      setAnalysisError(message);
+      setProjects((current) => current.map((item) =>
+        item.id === project.id
+          ? { ...item, stage: "恢复暂时不可用", error: message }
+          : item
+      ));
+      showToast(message);
+    }
+  }
+
   function switchMode(nextMode: Mode) {
     setIntakeStep(2);
     if (mode === nextMode) return;
+    projectResumeRunRef.current += 1;
     const shouldExplainReset = step > 1;
     setMode(nextMode);
     const first = ideas.find((idea) => idea.kind === nextMode) ?? ideas[0];
     setActiveClipId(first.id);
     setSelectedIds([first.id]);
+    setRuntimeIdeas([]);
     setAnalysisReady(false);
     setAnalysisProgress(0);
+    setAnalysisStage("");
+    setAnalysisError("");
+    setActiveProjectId("");
     setStep(1);
     setGenerationState("idle");
     setFeedbackQueued(false);
     setHighPotentialOnly(false);
     setCurrentTime(0);
+    setReviewSourceMode("candidate");
+    setAvConfirmed(false);
     setImportedSubtitle(null);
     setSelectedLocalExports(["mp4"]);
+    setProjectQuery(null);
     if (shouldExplainReset) {
       window.setTimeout(() => showToast(`已切换为${nextMode}切片，请重新生成这一场的内容地图。`), 0);
     }
   }
 
   function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    projectResumeRunRef.current += 1;
     const file = event.target.files?.[0];
     if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      event.target.value = "";
+      showToast("当前内测单个原片上限为 9GB。");
+      return;
+    }
     if (uploadedPreviewUrl) URL.revokeObjectURL(uploadedPreviewUrl);
+    setSelectedFile(file);
     setFileName(file.name);
     setProjectDate(projectDateFromFile(file));
     setUploadedPreviewUrl(URL.createObjectURL(file));
     setAnalysisReady(false);
     setAnalysisProgress(0);
+    setAnalysisStage("");
+    setAnalysisError("");
+    setRuntimeIdeas([]);
+    setActiveProjectId("");
     setStep(1);
     setIntakeStep(2);
+    setReviewSourceMode("candidate");
+    setAvConfirmed(false);
     setImportedSubtitle(null);
     setSelectedLocalExports(["mp4"]);
+    setProjectQuery(null);
   }
 
   async function startAnalysis() {
-    if (!uploadedPreviewUrl || !projectDate) {
+    if (!selectedFile || !uploadedPreviewUrl || !projectDate) {
       showToast("请先上传一场完整直播。");
       return;
     }
@@ -734,75 +1320,166 @@ export default function Home() {
     }
 
     const selectedMode = mode;
-    const optimisticId = `local-${Date.now()}`;
-    const optimisticProject: ProjectRecord = {
-      id: optimisticId,
+    projectResumeRunRef.current += 1;
+    const projectDraft = {
       title: `${projectDate.label} · ${selectedMode}切片`,
       projectDate: projectDate.iso,
       sourceName: fileName,
       mode: selectedMode,
-      status: "analyzing",
-      clipCount: 0,
-      createdAt: new Date().toISOString(),
     };
 
-    setProjects((current) => [optimisticProject, ...current]);
-    setAnalysisProgress(4);
-
-    let projectId = optimisticId;
+    setRuntimeIdeas([]);
+    setAnalysisReady(false);
+    setAnalysisError("");
+    setAnalysisProgress(1);
+    setAnalysisStage("创建本场切片项目");
+    let projectId = "";
+    let processorJobId = "";
     try {
       const response = await fetch("/api/projects", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: optimisticProject.title,
-          projectDate: optimisticProject.projectDate,
-          sourceName: optimisticProject.sourceName,
-          mode: optimisticProject.mode,
-        }),
+        body: JSON.stringify(projectDraft),
       });
-      if (response.ok) {
-        const payload = await response.json() as { project?: ProjectRecord };
-        if (payload.project) {
-          projectId = payload.project.id;
-          setProjects((current) => current.map((project) => project.id === optimisticId ? payload.project! : project));
-        }
+      const payload = await response.json().catch(() => ({})) as {
+        project?: ProjectRecord;
+        error?: string;
+      };
+      if (!response.ok || !payload.project) {
+        throw new Error(payload.error || "无法创建项目。");
       }
-    } catch {
-      // Keep the optimistic project visible for this session if persistence is unavailable.
-    }
+      projectId = payload.project.id;
+      setActiveProjectId(projectId);
+      setProjectQuery(projectId);
+      setProjects((current) => [payload.project!, ...current.filter((item) => item.id !== projectId)]);
 
-    setAnalysisProgress(8);
-    let value = 8;
-    const timer = window.setInterval(() => {
-      value += value < 50 ? 14 : value < 82 ? 9 : 6;
-      if (value >= 100) {
-        window.clearInterval(timer);
-        setAnalysisProgress(100);
-        setAnalysisReady(true);
-        const modelResultCandidates = ideas.filter((idea) => idea.kind === selectedMode);
-        const modelResultCount = modelResultCandidates.length;
-        const first = modelResultCandidates[0] ?? ideas[0];
-        setActiveClipId(first.id);
-        setSelectedIds([first.id]);
+      setAnalysisProgress(3);
+      setAnalysisStage("绑定天总私有切片内核");
+      await createProcessorProject({
+        id: projectId,
+        title: projectDraft.title,
+        projectDate: projectDraft.projectDate,
+        sourceName: selectedFile.name,
+        mode: selectedMode,
+      });
+
+      setAnalysisProgress(5);
+      setAnalysisStage("上传完整直播原片");
+      const { upload } = await prepareProcessorUpload(projectId, selectedFile);
+      const uploadedParts = await uploadToPresignedUrl(selectedFile, upload, (ratio) => {
+        setAnalysisProgress(Math.max(5, Math.round(5 + ratio * 23)));
+      });
+
+      setAnalysisProgress(28);
+      setAnalysisStage("校验完整原片已到达私有存储");
+      await completeProcessorUpload(projectId, upload, uploadedParts);
+
+      setAnalysisProgress(29);
+      setAnalysisStage("原片校验完成，进入异步分析");
+      const { job: startedJob } = await startProcessorJob(projectId, upload.id);
+      processorJobId = startedJob.id;
+      const persistedStartedProject = await persistProjectMirror({
+        ...payload.project,
+        status: "analyzing",
+        processorJobId: startedJob.id,
+        stage: processorStageLabel(startedJob.stage),
+        progress: 29,
+        error: null,
+      });
+      setProjects((current) => current.map((project) =>
+        project.id === projectId ? persistedStartedProject : project
+      ));
+
+      let job = startedJob;
+      while (processorJobIsPending(job)) {
+        const normalizedProgress = processorProgress(job);
+        const stageLabel = processorStageLabel(job.stage);
+        setAnalysisProgress(normalizedProgress);
+        setAnalysisStage(stageLabel);
         setProjects((current) => current.map((project) => project.id === projectId ? {
           ...project,
-          status: "ready",
-          clipCount: modelResultCount,
+          stage: stageLabel,
+          progress: normalizedProgress,
         } : project));
-        if (!projectId.startsWith("local-")) {
-          void fetch("/api/projects", {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ id: projectId, status: "ready", clipCount: modelResultCount }),
-          }).catch(() => undefined);
-        }
-        window.setTimeout(() => setStep(2), 320);
-        showToast(`天总内容地图初筛完成：本场识别 ${modelResultCount} 条候选，待逐字和原片复核。`);
+        await wait(2_500);
+        ({ job } = await readProcessorJob(startedJob.id));
+      }
+
+      if (job.status !== "succeeded") {
+        throw new Error(
+          job.error ||
+          (job.status === "cancelled"
+            ? "真实分析任务已取消。"
+            : "真实分析任务没有成功完成。"),
+        );
+      }
+
+      setAnalysisStage("读取候选、证据与粗剪预览");
+      setAnalysisProgress(99);
+      const { candidates } = await readProcessorCandidates(projectId);
+      const modelResultCandidates = applyProcessorCandidateSet(
+        candidates,
+        selectedMode,
+      );
+      const modelResultCount = modelResultCandidates.length;
+      setAnalysisProgress(100);
+      setAnalysisStage("候选已生成，等待团队连续原片复核");
+      setAnalysisReady(modelResultCount > 0);
+      setProjects((current) => current.map((project) => project.id === projectId ? {
+        ...project,
+        status: "ready",
+        stage: "候选已生成",
+        progress: 100,
+        clipCount: modelResultCount,
+      } : project));
+      await persistProjectMirror({
+        ...persistedStartedProject,
+        status: "ready",
+        processorJobId: job.id,
+        stage: "候选已生成",
+        progress: 100,
+        clipCount: modelResultCount,
+        error: null,
+      });
+
+      if (!modelResultCount) {
+        showToast("本场没有通过事实与风险门禁的候选；系统没有为了凑数生成切片。");
         return;
       }
-      setAnalysisProgress(value);
-    }, 260);
+
+      const first = modelResultCandidates[0];
+      setActiveClipId(first.id);
+      setSelectedIds([first.id]);
+      window.setTimeout(() => setStep(2), 320);
+      showToast(`天总内容地图完成：本场自然识别 ${modelResultCount} 条候选，等待团队连续原片复核。`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "真实分析未完成。";
+      setAnalysisError(message);
+      setAnalysisProgress(0);
+      setAnalysisStage("分析失败");
+      if (projectId) {
+        setProjects((current) => current.map((project) => project.id === projectId ? {
+          ...project,
+          status: "failed",
+          stage: "分析失败",
+          error: message,
+        } : project));
+        void fetch("/api/projects", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            id: projectId,
+            status: "failed",
+            processorJobId: processorJobId || undefined,
+            stage: "分析失败",
+            progress: 0,
+            clipCount: 0,
+            error: message,
+          }),
+        });
+      }
+      showToast(message);
+    }
   }
 
   function openStep(nextStep: WorkflowStep) {
@@ -817,9 +1494,22 @@ export default function Home() {
 
   function activateClip(id: string) {
     setActiveClipId(id);
+    const next = candidatePool.find((idea) => idea.id === id);
+    setReviewSourceMode(next?.previewUrl ? "candidate" : "source");
+    setAvConfirmed(next?.reviewStatus === "human_confirmed");
     setCurrentTime(0);
-    setGenerationState("idle");
-    setFeedbackQueued(false);
+    setGenerationState(
+      next?.isFinal
+        ? "done"
+        : next?.renderStatus === "revision_queued" ||
+            next?.renderStatus === "revision_rendering"
+          ? "working"
+          : "idle",
+    );
+    setFeedbackQueued(
+      next?.renderStatus === "revision_queued" ||
+      next?.renderStatus === "revision_rendering",
+    );
     setImportedSubtitle(null);
     setSelectedLocalExports(["mp4"]);
   }
@@ -836,7 +1526,7 @@ export default function Home() {
   function seekTo(seconds: number) {
     const video = videoRef.current;
     if (!video) return;
-    const absoluteSeconds = (uploadedPreviewUrl ? activeClip.sourceStart : 0) + seconds;
+    const absoluteSeconds = (reviewUsesOriginal ? activeClip.sourceStart : 0) + seconds;
     video.currentTime = Math.min(absoluteSeconds, Number.isFinite(video.duration) ? Math.max(video.duration - 0.1, 0) : absoluteSeconds);
     void video.play();
   }
@@ -849,19 +1539,123 @@ export default function Home() {
     setSelectedLocalExports((current) => current.filter((item) => item !== "srt"));
   }
 
-  function generateClip() {
-    setGenerationState("working");
-    window.setTimeout(() => {
+  async function generateClip() {
+    if (!activeProjectId || !runtimeIdeas.length) {
+      showToast("这条不是由真实分析服务生成的候选，不能提交为团队定稿。");
+      return;
+    }
+    if (activeClip.isFinal || activeClip.reviewStatus === "human_confirmed") {
       setGenerationState("done");
-      setFeedbackQueued(true);
-      showToast(`本条剪辑决定已确认；本地格式可以多选后一起下载，ChatCut 保持独立交付。当前真实渲染与 ChatCut 写入仍待接通。`);
-    }, 900);
+      showToast("当前这个渲染版本已经完成团队音画确认。");
+      return;
+    }
+
+    const canConfirmCurrentRender =
+      activeClip.previewKind === "revised_cut" &&
+      activeClip.renderStatus === "revision_ready" &&
+      Boolean(activeClip.previewVersion) &&
+      reviewChangeCount === 0;
+    if (canConfirmCurrentRender && !avConfirmed) {
+      showToast("请先完整播放当前重渲染版本，再勾选音画确认。");
+      return;
+    }
+
+    setGenerationState("working");
+    try {
+      if (canConfirmCurrentRender) {
+        await submitProcessorFeedback(activeClip.id, {
+          decision: "approve",
+          notes: "团队已按正常速度完整播放当前重渲染版本，并确认声音、动作、问答关系与商品画面。",
+          avConfirmed: {
+            normalPlaybackConfirmed: true,
+            audioVideoSyncConfirmed: true,
+            reviewedWholeProxy: true,
+            reviewedPreviewVersion: activeClip.previewVersion!,
+          },
+        });
+        setRuntimeIdeas((current) => current.map((idea) =>
+          idea.id === activeClip.id
+            ? { ...idea, reviewStatus: "human_confirmed", isFinal: true }
+            : idea,
+        ));
+        setGenerationState("done");
+        setFeedbackQueued(true);
+        showToast("当前渲染版本已完成音画确认；可以下载 MP4、SRT 或 XML。");
+        return;
+      }
+
+      const activeDecisions = Object.fromEntries(
+        activeClip.transcript.map((line) => [
+          line.id,
+          decisions[line.id] ?? line.defaultDecision,
+        ]),
+      ) as Record<string, Decision>;
+      await submitProcessorFeedback(activeClip.id, {
+        decision: reviewChangeCount ? "adjust" : "approve",
+        transcriptDecisions: activeClip.transcript.map((line) => ({
+          lineId: line.id,
+          decision: activeDecisions[line.id],
+          reason:
+            activeDecisions[line.id] === line.defaultDecision
+              ? undefined
+              : "团队逐字校样调整",
+        })),
+        notes: reviewChangeCount
+          ? `人工调整 ${reviewChangeCount} 处逐字取舍，请生成新的无字幕原声版本。`
+          : "按当前建议逐字取舍生成独立渲染版本，生成后再做完整音画复核。",
+      });
+
+      setAvConfirmed(false);
+      showToast("剪辑决定已写入后台，正在生成新版；新版生成后必须重新完整播放确认。");
+      const deadline = Date.now() + 10 * 60 * 1_000;
+      while (Date.now() < deadline) {
+        await wait(2_500);
+        const { candidates } = await readProcessorCandidates(activeProjectId);
+        const refreshed = candidates.find((candidate) => candidate.id === activeClip.id);
+        if (!refreshed) throw new Error("后台暂时找不到这条候选。");
+        if (refreshed.renderStatus === "render_failed") {
+          throw new Error("新版渲染失败，请后台检查原片编码后重试。");
+        }
+        if (
+          refreshed.renderStatus === "revision_ready" &&
+          refreshed.previewKind === "revised_cut" &&
+          refreshed.previewUrl
+        ) {
+          const refreshedIdea = processorCandidateToIdea(
+            refreshed,
+            runtimeIdeas.findIndex((idea) => idea.id === refreshed.id),
+          );
+          setRuntimeIdeas((current) => current.map((idea) =>
+            idea.id === refreshed.id ? refreshedIdea : idea,
+          ));
+          setDecisions((current) => ({
+            ...current,
+            ...Object.fromEntries(
+              refreshedIdea.transcript.map((line) => [line.id, line.defaultDecision]),
+            ),
+          }));
+          setReviewSourceMode("candidate");
+          setGenerationState("idle");
+          setFeedbackQueued(false);
+          showToast("新版已生成。请完整播放当前版本，确认音画后再点一次定稿。");
+          return;
+        }
+      }
+      throw new Error("新版仍在渲染，可稍后回到该项目继续确认。");
+    } catch (error) {
+      setGenerationState("idle");
+      showToast(error instanceof Error ? error.message : "剪辑决定未能写入后台。");
+    }
   }
 
   function toggleLocalExport(option: LocalExportOption) {
     if (option === "srt" && !importedSubtitle && !selectedLocalExports.includes("srt")) {
       subtitleRef.current?.click();
       showToast("先导入 SRT 字幕；校验通过后会自动勾选这一项。");
+      return;
+    }
+    if (option === "xml" && !activeXmlProfile && !selectedLocalExports.includes("xml")) {
+      showToast("这条候选缺少经 ffprobe 验证的帧率、宽高、声道或原片时长，专业 XML 已禁用；系统不会输出伪精准草案。");
       return;
     }
     setSelectedLocalExports((current) =>
@@ -880,6 +1674,24 @@ export default function Home() {
     window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
   }
 
+  async function downloadCandidateMp4() {
+    if (!activeClip.previewUrl) return false;
+    const safeTitle = activeClip.title.replace(/[\\/:*?"<>|]/g, "-");
+    try {
+      const response = await fetch(activeClip.previewUrl);
+      if (!response.ok) throw new Error("preview unavailable");
+      const blob = await response.blob();
+      downloadBlob(blob, blob.type || "video/mp4", `${projectDate?.label ?? "天总"}-${safeTitle}.mp4`);
+    } catch {
+      const anchor = document.createElement("a");
+      anchor.href = activeClip.previewUrl;
+      anchor.target = "_blank";
+      anchor.rel = "noopener";
+      anchor.click();
+    }
+    return true;
+  }
+
   function handoffToChatCut() {
     showToast(`当前尚未接通 ChatCut 授权。正式版会创建可编辑时间线，并带入删留决定${importedSubtitle ? `和 ${importedSubtitle.name}` : ""}。`);
   }
@@ -893,7 +1705,14 @@ export default function Home() {
       return;
     }
 
-    const content = await file.text();
+    if (file.size <= 0 || file.size > MAX_SRT_BYTES) {
+      showToast("SRT 字幕需小于 5 MB；系统只做本地格式校验与原样下载，不接收超大字幕文件。");
+      event.target.value = "";
+      return;
+    }
+
+    const originalBytes = await file.arrayBuffer();
+    const content = new TextDecoder().decode(originalBytes);
     const cueCount = content.match(/\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,.]\d{3}/g)?.length ?? 0;
     if (!cueCount) {
       showToast("没有识别到标准 SRT 时间码，请检查字幕文件格式。");
@@ -901,10 +1720,10 @@ export default function Home() {
       return;
     }
 
-    setImportedSubtitle({ name: file.name, cueCount, content });
+    setImportedSubtitle({ name: file.name, cueCount, originalBytes });
     setSelectedLocalExports((current) => current.includes("srt") ? current : [...current, "srt"]);
     event.target.value = "";
-    showToast(`已在本地读入 ${file.name}，识别 ${cueCount} 条字幕；正式渲染接通后可用于成片或继续带入 ChatCut。`);
+    showToast(`已在本地校验 ${file.name}，识别 ${cueCount} 条字幕；系统不会改写字幕内容，下载时原样交付。`);
   }
 
   function exportSrtSubtitle(silent = false) {
@@ -913,19 +1732,30 @@ export default function Home() {
       return false;
     }
 
-    downloadBlob(importedSubtitle.content, "application/x-subrip;charset=utf-8", importedSubtitle.name);
-    if (!silent) showToast(`SRT 字幕已下载：${importedSubtitle.name}`);
+    downloadBlob(importedSubtitle.originalBytes, "application/x-subrip", importedSubtitle.name);
+    if (!silent) showToast(`SRT 字幕已原样下载：${importedSubtitle.name}`);
     return true;
   }
 
   function exportXmlTimeline(silent = false) {
-    if (!uploadedPreviewUrl || !fileName) {
-      if (!silent) showToast("请先上传原片，再导出 XML 时间线。");
+    if (!activeXmlProfile) {
+      if (!silent) {
+        showToast("原片元数据不完整或无法准确映射为 XML 时基，专业 XML 已禁用；系统不会把默认参数冒充真实时间线。");
+      }
       return false;
     }
 
-    const frameRate = 30;
-    const clipDuration = Math.max(durationToSeconds(activeClip.duration), 1);
+    const {
+      sourceMedia,
+      rate,
+    } = activeXmlProfile;
+    const sourceFileName = sourceMedia.originalFileName;
+    const clipDuration = Math.max(
+      activeClip.sourceEnd !== undefined
+        ? activeClip.sourceEnd - activeClip.sourceStart
+        : durationToSeconds(activeClip.duration),
+      0.001,
+    );
     const exclusions = excludedRanges
       .map(({ start, end }) => ({ start: Math.max(0, start), end: Math.min(clipDuration, end) }))
       .filter(({ start, end }) => end > start)
@@ -943,28 +1773,33 @@ export default function Home() {
     const videoItems: string[] = [];
     const audioItems: string[] = [];
     keptRanges.forEach((range, index) => {
-      const sourceIn = Math.round((activeClip.sourceStart + range.start) * frameRate);
-      const segmentFrames = Math.max(Math.round((range.end - range.start) * frameRate), 1);
+      const sourceIn = Math.round((activeClip.sourceStart + range.start) * rate.exactFps);
+      const sourceOut = Math.max(
+        Math.round((activeClip.sourceStart + range.end) * rate.exactFps),
+        sourceIn + 1,
+      );
+      const segmentFrames = sourceOut - sourceIn;
       const timelineStart = timelineFrame;
       const timelineEnd = timelineStart + segmentFrames;
-      const sourceOut = sourceIn + segmentFrames;
       const fileNode = index === 0
-        ? `<file id="source-file"><name>${escapeXml(fileName)}</name><pathurl>file://localhost/${encodeURIComponent(fileName)}</pathurl><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate><duration>${Math.max(sourceOut, segmentFrames)}</duration><media><video/><audio><channelcount>2</channelcount></audio></media></file>`
+        ? `<file id="source-file"><name>${escapeXml(sourceFileName)}</name><pathurl>file://localhost/${escapeXml(encodeURIComponent(sourceFileName))}</pathurl><rate><timebase>${rate.timebase}</timebase><ntsc>${rate.ntsc}</ntsc></rate><duration>${Math.max(Math.round(sourceMedia.durationSeconds * rate.exactFps), 1)}</duration><media><video><samplecharacteristics><width>${sourceMedia.width}</width><height>${sourceMedia.height}</height></samplecharacteristics></video><audio><channelcount>${sourceMedia.audioChannels}</channelcount></audio></media></file>`
         : `<file id="source-file"/>`;
-      videoItems.push(`<clipitem id="video-${index + 1}"><name>${escapeXml(activeClip.title)}</name><duration>${segmentFrames}</duration><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate><start>${timelineStart}</start><end>${timelineEnd}</end><in>${sourceIn}</in><out>${sourceOut}</out>${fileNode}<link><linkclipref>video-${index + 1}</linkclipref><mediatype>video</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link><link><linkclipref>audio-${index + 1}</linkclipref><mediatype>audio</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link></clipitem>`);
-      audioItems.push(`<clipitem id="audio-${index + 1}"><name>${escapeXml(activeClip.title)}</name><duration>${segmentFrames}</duration><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate><start>${timelineStart}</start><end>${timelineEnd}</end><in>${sourceIn}</in><out>${sourceOut}</out><file id="source-file"/><sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack><link><linkclipref>video-${index + 1}</linkclipref><mediatype>video</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link><link><linkclipref>audio-${index + 1}</linkclipref><mediatype>audio</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link></clipitem>`);
+      videoItems.push(`<clipitem id="video-${index + 1}"><name>${escapeXml(activeClip.title)}</name><duration>${segmentFrames}</duration><rate><timebase>${rate.timebase}</timebase><ntsc>${rate.ntsc}</ntsc></rate><start>${timelineStart}</start><end>${timelineEnd}</end><in>${sourceIn}</in><out>${sourceOut}</out>${fileNode}<link><linkclipref>video-${index + 1}</linkclipref><mediatype>video</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link><link><linkclipref>audio-${index + 1}</linkclipref><mediatype>audio</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link></clipitem>`);
+      audioItems.push(`<clipitem id="audio-${index + 1}"><name>${escapeXml(activeClip.title)}</name><duration>${segmentFrames}</duration><rate><timebase>${rate.timebase}</timebase><ntsc>${rate.ntsc}</ntsc></rate><start>${timelineStart}</start><end>${timelineEnd}</end><in>${sourceIn}</in><out>${sourceOut}</out><file id="source-file"/><sourcetrack><mediatype>audio</mediatype><trackindex>1</trackindex></sourcetrack><link><linkclipref>video-${index + 1}</linkclipref><mediatype>video</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link><link><linkclipref>audio-${index + 1}</linkclipref><mediatype>audio</mediatype><trackindex>1</trackindex><clipindex>${index + 1}</clipindex></link></clipitem>`);
       timelineFrame = timelineEnd;
     });
 
     const sequenceName = `${projectDate?.label ?? "天总"} · ${activeClip.title}`;
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<xmeml version="5"><sequence><name>${escapeXml(sequenceName)}</name><duration>${timelineFrame}</duration><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate><media><video><format><samplecharacteristics><width>1080</width><height>1920</height><pixelaspectratio>square</pixelaspectratio><rate><timebase>${frameRate}</timebase><ntsc>FALSE</ntsc></rate></samplecharacteristics></format><track>${videoItems.join("")}</track></video><audio><track>${audioItems.join("")}</track></audio></media></sequence></xmeml>`;
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<xmeml version="5"><sequence><name>${escapeXml(sequenceName)}</name><duration>${timelineFrame}</duration><rate><timebase>${rate.timebase}</timebase><ntsc>${rate.ntsc}</ntsc></rate><media><video><format><samplecharacteristics><width>${sourceMedia.width}</width><height>${sourceMedia.height}</height><pixelaspectratio>square</pixelaspectratio><rate><timebase>${rate.timebase}</timebase><ntsc>${rate.ntsc}</ntsc></rate></samplecharacteristics></format><track>${videoItems.join("")}</track></video><audio><numOutputChannels>${sourceMedia.audioChannels}</numOutputChannels><track>${audioItems.join("")}</track></audio></media></sequence></xmeml>`;
     const safeTitle = activeClip.title.replace(/[\\/:*?"<>|]/g, "-");
     downloadBlob(xml, "application/xml;charset=utf-8", `${projectDate?.label ?? "天总"}-${safeTitle}.xml`);
-    if (!silent) showToast("XML 时间线草案已导出，可在 Premiere 或 DaVinci Resolve 中按原片文件名重新链接。当前时间码仍来自内测演示数据。");
+    if (!silent) {
+      showToast(`XML 已按原片 ${sourceMedia.frameRate?.rational} fps、${sourceMedia.width}×${sourceMedia.height}、${sourceMedia.audioChannels} 声道生成，可按原片文件名重连。`);
+    }
     return true;
   }
 
-  function downloadSelectedLocalOutputs() {
+  async function downloadSelectedLocalOutputs() {
     if (!selectedLocalExports.length) {
       showToast("请先勾选至少一种本地输出格式。");
       return;
@@ -977,8 +1812,14 @@ export default function Home() {
       if (exportSrtSubtitle(true)) completed.push("SRT");
       else pending.push("SRT 需先导入字幕文件");
     }
-    if (selectedLocalExports.includes("xml") && exportXmlTimeline(true)) completed.push("XML");
-    if (selectedLocalExports.includes("mp4")) pending.push("MP4 等待真实渲染接通");
+    if (selectedLocalExports.includes("xml")) {
+      if (exportXmlTimeline(true)) completed.push("XML");
+      else pending.push("XML 缺少可验证原片时基，专业导出已禁用");
+    }
+    if (selectedLocalExports.includes("mp4")) {
+      if (await downloadCandidateMp4()) completed.push("MP4 候选粗剪");
+      else pending.push("MP4 粗剪尚未生成");
+    }
 
     const messages = [
       completed.length ? `已下载：${completed.join("、")}` : "",
@@ -1191,7 +2032,13 @@ export default function Home() {
                 {analysisProgress > 0 && analysisProgress < 100 && (
                   <div className="composer-progress" aria-live="polite">
                     <span style={{ width: `${analysisProgress}%` }} />
+                    <small>{analysisStage} · {analysisProgress}%</small>
                   </div>
+                )}
+                {analysisError && (
+                  <p className="composer-error" role="alert">
+                    {analysisError}
+                  </p>
                 )}
               </div>
               <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
@@ -1250,23 +2097,35 @@ export default function Home() {
               ) : (
                 <div className="project-list">
                   {projects.map((project) => (
-                    <article className="project-row" key={project.id}>
+                    <button
+                      type="button"
+                      className={`project-row${activeProjectId === project.id ? " active" : ""}`}
+                      key={project.id}
+                      onClick={() => void resumeProject(project)}
+                      aria-label={`打开项目：${project.title}，${project.status === "ready" ? `${project.clipCount} 条切片` : project.stage ?? "正在分析"}`}
+                    >
                       <time dateTime={project.projectDate}>{formatProjectDate(project.projectDate)}</time>
                       <div>
                         <strong>{project.title}</strong>
                         <small>{project.sourceName} · {project.mode}</small>
                       </div>
                       <span className={`project-status ${project.status}`}>
-                        {project.status === "ready" ? "已完成" : "分析中"}
+                        {project.status === "ready" ? "已完成" : project.status === "failed" ? "失败" : "分析中"}
                       </span>
-                      <b>{project.status === "ready" ? `${project.clipCount} 条切片` : "正在找切片"}</b>
-                    </article>
+                      <b>
+                        {project.status === "ready"
+                          ? `${project.clipCount} 条切片`
+                          : project.status === "failed"
+                            ? "分析失败"
+                            : `${project.stage ?? "正在找切片"}${project.progress ? ` · ${project.progress}%` : ""}`}
+                      </b>
+                    </button>
                   ))}
                 </div>
               )}
             </section>
 
-            <p className="home-prototype-note">内测：项目记录已保存；真实转写、渲染和 ChatCut 写入仍待接通。</p>
+            <p className="home-prototype-note">内测：项目记录已保存；原片会进入私有处理链，逐字转写、全时间轴画面扫描与天总专属内核共同生成候选；每条仍需团队连续播放原片后确认。</p>
           </div>
         </section>
       )}
@@ -1312,13 +2171,33 @@ export default function Home() {
               <span>{activeClip.factGate}</span>
               <span>{activeClip.calibrationStatus}</span>
             </div>
-            {uploadedPreviewUrl ? (
+            {candidatePreviewUrl && (
+              <div className="review-source-switch" aria-label="预览来源">
+                <button
+                  type="button"
+                  className={reviewSourceMode === "candidate" ? "active" : ""}
+                  onClick={() => setReviewSourceMode("candidate")}
+                >
+                  {activeClip.previewKind === "revised_cut" ? "当前重渲染版本" : "候选连续安全窗"}
+                </button>
+                {uploadedPreviewUrl && (
+                  <button
+                    type="button"
+                    className={reviewSourceMode === "source" ? "active" : ""}
+                    onClick={() => setReviewSourceMode("source")}
+                  >
+                    连续原片
+                  </button>
+                )}
+              </div>
+            )}
+            {reviewVideoSource ? (
               <VideoPreview
                 videoRef={videoRef}
-                source={uploadedPreviewUrl}
-                uploaded
-                sourceStart={activeClip.sourceStart}
-                excludedRanges={excludedRanges}
+                source={reviewVideoSource}
+                uploaded={reviewUsesOriginal}
+                sourceStart={reviewUsesOriginal ? activeClip.sourceStart : 0}
+                excludedRanges={[]}
                 roughPreview={false}
                 onTimeUpdate={setCurrentTime}
               />
@@ -1418,14 +2297,32 @@ export default function Home() {
               <span>优先级 {activeClip.priority}</span>
               <span>{activeClip.factGate}</span>
             </div>
-            {uploadedPreviewUrl ? (
+            {candidatePreviewUrl && (
+              <div className="review-source-switch" aria-label="预览来源">
+                <button
+                  type="button"
+                  className={reviewSourceMode === "candidate" ? "active" : ""}
+                  onClick={() => setReviewSourceMode("candidate")}
+                >
+                  候选粗剪
+                </button>
+                <button
+                  type="button"
+                  className={reviewSourceMode === "source" ? "active" : ""}
+                  onClick={() => setReviewSourceMode("source")}
+                >
+                  连续原片
+                </button>
+              </div>
+            )}
+            {reviewVideoSource ? (
               <VideoPreview
                 videoRef={videoRef}
-                source={uploadedPreviewUrl}
-                uploaded
-                sourceStart={activeClip.sourceStart}
-                excludedRanges={excludedRanges}
-                roughPreview={generationState === "done"}
+                source={reviewVideoSource}
+                uploaded={reviewUsesOriginal}
+                sourceStart={reviewUsesOriginal ? activeClip.sourceStart : 0}
+                excludedRanges={reviewUsesOriginal ? excludedRanges : []}
+                roughPreview={reviewUsesOriginal && generationState === "done"}
                 onTimeUpdate={setCurrentTime}
               />
             ) : (
@@ -1441,6 +2338,20 @@ export default function Home() {
               <b>{keptCount} 段保留 · {activeClip.transcript.length - keptCount} 段删除</b>
             </div>
             <p className="raw-output-note">目标输出：无字幕 · 无效果 · 保留原声</p>
+            <label className="av-confirmation">
+              <input
+                type="checkbox"
+                checked={avConfirmed}
+                onChange={(event) => {
+                  setAvConfirmed(event.target.checked);
+                  setGenerationState("idle");
+                }}
+              />
+              <span>
+                <strong>{uploadedPreviewUrl ? "我已连续看过候选与原片" : "我已完整播放当前连续安全窗"}</strong>
+                <small>确认声音不断裂、动作不跳变、问答关系和商品画面都对得上；当前版本完整播放后才可确认。</small>
+              </span>
+            </label>
             <section className="output-rationale" aria-label="最终输出判断依据">
               <div className="output-persona">
                 <span>这条保住的人物线</span>
@@ -1458,7 +2369,7 @@ export default function Home() {
                 <p><span>校准状态</span><b>{activeClip.calibrationStatus}</b></p>
                 <p><span>人工回标</span><b>{reviewChangeCount} 项本条差异 · {totalReviewChangeCount} 项本场累计</b></p>
               </div>
-              <small>{feedbackQueued ? "本次差异已记录为本地回标演示；正式版需后台评审与回测后才影响下一知识版本。" : "当编导改写系统建议时，差异将成为回标候选；不会立即覆盖当前全局规则。"}</small>
+              <small>{feedbackQueued ? "本次差异已写入项目回标记录；仍须后台评审与固定评测集回测，才会影响下一知识版本。" : "当编导改写系统建议并提交后，差异会写入项目回标记录；不会立即覆盖当前全局规则。"}</small>
               <div className="feedback-path" aria-label="人工回标进入下一知识版本的路径">
                 <span>这次选择如何反哺系统</span>
                 <ol>
@@ -1523,7 +2434,7 @@ export default function Home() {
                   <article className={`delivery-option local ${selectedLocalExports.includes("mp4") ? "selected" : ""}`}>
                     <label>
                       <span className="delivery-option-top">
-                        <span>MP4 · 待渲染</span>
+                        <span>MP4 · 候选粗剪</span>
                         <span className="delivery-choice-check">
                           <input
                             type="checkbox"
@@ -1533,8 +2444,8 @@ export default function Home() {
                           本地
                         </span>
                       </span>
-                      <strong>直接下载成片</strong>
-                      <small>无字幕 · 无效果 · 保留原声</small>
+                      <strong>直接下载成片（候选粗剪）</strong>
+                      <small>无字幕 · 无效果 · 保留原声；修改删留后需等待新版重渲染</small>
                     </label>
                   </article>
 
@@ -1567,13 +2478,18 @@ export default function Home() {
                           <input
                             type="checkbox"
                             checked={selectedLocalExports.includes("xml")}
+                            disabled={!activeXmlProfile}
                             onChange={() => toggleLocalExport("xml")}
                           />
                           本地
                         </span>
                       </span>
-                      <strong>导出到专业剪辑软件</strong>
-                      <small>Premiere / DaVinci Resolve · 按原片名重连</small>
+                      <strong>{activeXmlProfile ? "导出到专业剪辑软件" : "专业 XML 暂不可导出"}</strong>
+                      <small>
+                        {activeXmlProfile
+                          ? `Premiere / DaVinci Resolve · ${activeXmlProfile.sourceMedia.frameRate?.rational} fps · ${activeXmlProfile.sourceMedia.width}×${activeXmlProfile.sourceMedia.height} · ${activeXmlProfile.sourceMedia.audioChannels} 声道 · 按原片名重连`
+                          : "缺少经 ffprobe 验证的原片时基、宽高、声道或时长；不输出伪精准草案"}
+                      </small>
                     </label>
                   </article>
 
@@ -1590,12 +2506,12 @@ export default function Home() {
 
                 <div className="delivery-download-bar">
                   <p><strong>{selectedLocalExports.length}</strong> 项本地格式已选</p>
-                  <button type="button" className="pink-action" disabled={!selectedLocalExports.length} onClick={downloadSelectedLocalOutputs}>
+                  <button type="button" className="pink-action" disabled={!selectedLocalExports.length} onClick={() => void downloadSelectedLocalOutputs()}>
                     下载所选到本地
                   </button>
                 </div>
 
-                <p className="delivery-boundary">当前导入的 SRT 原文件与 XML 草案可下载；真实 MP4 渲染和 ChatCut 工程写入尚未接通，系统不会把整场原片伪装成最终成片。</p>
+                <p className="delivery-boundary">候选 MP4 由服务端按当前候选计划真实渲染；SRT 只做本地校验并原样下载；XML 只有取得原片真实帧率、宽高、声道与时长后才开放。团队改动删留后，只有新版渲染完成才会替换 MP4；ChatCut 工程仍作为独立精修交付。</p>
               </section>
             )}
 
@@ -1604,8 +2520,8 @@ export default function Home() {
               {generationState === "done" ? (
                 <span className="delivery-ready">已确认 · 在上方选择输出方式</span>
               ) : (
-                <button className="pink-action" onClick={generateClip} disabled={generationState === "working"}>
-                  {generationState === "working" ? "正在汇总剪辑决定…" : "确认本条剪辑决定"}
+                <button className="pink-action" onClick={() => void generateClip()} disabled={generationState === "working"}>
+                  {generationState === "working" ? "正在写入后台…" : "确认音画与本条剪辑决定"}
                 </button>
               )}
             </div>
