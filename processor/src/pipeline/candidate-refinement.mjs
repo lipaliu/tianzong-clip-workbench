@@ -2,6 +2,11 @@ import { readFile } from "node:fs/promises";
 import { invariant } from "./errors.mjs";
 import { validateCandidateResult } from "./candidates.mjs";
 
+const DENSE_EVIDENCE_METHOD =
+  "dense_still_frames_plus_diarized_transcript";
+const DENSE_PLUS_NATIVE_AV_METHOD =
+  "dense_still_frames_plus_diarized_transcript_plus_native_av_model_evidence";
+
 export const CANDIDATE_DENSE_REFINEMENT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -94,7 +99,10 @@ export const CANDIDATE_DENSE_REFINEMENT_SCHEMA = {
     rejectionReason: { type: "string" },
     machineReviewMethod: {
       type: "string",
-      enum: ["dense_still_frames_plus_diarized_transcript"],
+      enum: [
+        DENSE_EVIDENCE_METHOD,
+        DENSE_PLUS_NATIVE_AV_METHOD,
+      ],
     },
     continuousAudioVideoReviewed: { type: "boolean", enum: [false] },
     humanNormalPlaybackRequired: { type: "boolean", enum: [true] },
@@ -200,11 +208,17 @@ function compactTranscript(transcript, safetyWindow) {
     }));
 }
 
-function compactVisualEvents(visualMap, safetyWindow) {
+function compactVisualEvents(visualMap, safetyWindow, candidateId) {
   return visualMap.events
-    .filter((event) => overlaps(event, safetyWindow))
+    .filter((event) =>
+      overlaps(event, safetyWindow)
+      && (
+        event.observationMethod !== "doubao_seed_2_lite_native_audio_video"
+        || event.candidateId === candidateId
+      ))
     .map((event) => ({
       id: event.id,
+      candidateId: event.candidateId ?? null,
       startSec: event.startSec,
       endSec: event.endSec,
       eventType: event.eventType,
@@ -212,6 +226,14 @@ function compactVisualEvents(visualMap, safetyWindow) {
       evidenceFrameIds: event.evidenceFrameIds,
       confidence: event.confidence,
       uncertainties: event.uncertainties ?? [],
+      observationMethod: event.observationMethod ?? null,
+      nativeAvReviewDecision: event.nativeAvReviewDecision ?? null,
+      nativeAudioVideoInputReviewed:
+        event.nativeAudioVideoInputReviewed === true,
+      continuousFrameByFrameReviewed:
+        event.continuousFrameByFrameReviewed === true,
+      humanNormalPlaybackRequired:
+        event.humanNormalPlaybackRequired === true,
     }));
 }
 
@@ -228,6 +250,7 @@ async function buildRefinementInput({
   transcriptSegments,
   visualEvents,
   frames,
+  expectedMachineReviewMethod,
 }) {
   const content = [{
     type: "input_text",
@@ -244,6 +267,16 @@ async function buildRefinementInput({
         "refinedRecallWindow must stay inside refinedSafetyWindow.",
         "openingLine must be an exact contiguous quote from transcriptSegmentIds.",
         "Use only supplied transcript segment ids, visual event ids, and frame ids.",
+        `machineReviewMethod must equal ${expectedMachineReviewMethod}.`,
+        expectedMachineReviewMethod === DENSE_PLUS_NATIVE_AV_METHOD
+          ? [
+              "knownVisualEvents includes a native audio-video MODEL review.",
+              "Read nativeAvReviewDecision literally: supported is supporting machine evidence;",
+              "uncertain is a risk signal only; contradicted is counter-evidence and requires rejection",
+              "unless other supplied, evidence-bound material explicitly resolves the conflict.",
+              "None of these statuses equals human or continuous frame-by-frame verification.",
+            ].join(" ")
+          : "No native audio-video model evidence is present in this candidate window.",
         "Do not call a motion complete unless the sampled evidence supports both a clear beginning and ending; even then use complete_in_sampled_evidence, never continuous review.",
         "Always require a human to watch the complete rendered safety window at normal speed before approval.",
         "Reject when the dense evidence contradicts the candidate or the proposed angle lacks an evidence-bound usable moment.",
@@ -288,6 +321,7 @@ export function validateCandidateDenseRefinement(result, {
   transcriptSegments,
   visualEvents,
   frames,
+  expectedMachineReviewMethod = DENSE_EVIDENCE_METHOD,
 } = {}) {
   invariant(result && result.candidateId === candidate.candidateId, "Candidate refinement id does not match its request", {
     code: "CANDIDATE_REFINEMENT_ID_MISMATCH",
@@ -298,7 +332,7 @@ export function validateCandidateDenseRefinement(result, {
     },
   });
   invariant(
-    result.machineReviewMethod === "dense_still_frames_plus_diarized_transcript"
+    result.machineReviewMethod === expectedMachineReviewMethod
     && result.continuousAudioVideoReviewed === false
     && result.humanNormalPlaybackRequired === true
     && result.validationStatus
@@ -443,9 +477,14 @@ function buildRefinementObservationEvent(result, candidate, ordinal) {
       result.boundaryAssessment.riskNotes,
       result.risks,
       result.requiredHumanNormalPlaybackChecks,
-      "该观察来自密集静帧与逐字稿的候选级二次理解，不是连续逐帧或人工确认。",
+      result.machineReviewMethod === DENSE_PLUS_NATIVE_AV_METHOD
+        ? "该观察综合了密集静帧、逐字稿与原生音视频模型证据；仍不是连续逐帧或人工确认。"
+        : "该观察来自密集静帧与逐字稿的候选级二次理解，不是连续逐帧或人工确认。",
     ),
-    observationMethod: "candidate_dense_still_plus_transcript_refinement",
+    observationMethod:
+      result.machineReviewMethod === DENSE_PLUS_NATIVE_AV_METHOD
+        ? "private_core_final_editorial_with_native_av_model_evidence"
+        : "candidate_dense_still_plus_transcript_refinement",
     continuousRangeReviewed: false,
     candidateId: candidate.candidateId,
   };
@@ -568,7 +607,34 @@ export async function refineCandidatesWithDenseEvidence({
     const candidate = candidateResult.candidates[index];
     const frames = framesInsideSafety(frameManifest, candidate.safetyWindow);
     const transcriptSegments = compactTranscript(transcript, candidate.safetyWindow);
-    const visualEvents = compactVisualEvents(visualMap, candidate.safetyWindow);
+    const visualEvents = compactVisualEvents(
+      visualMap,
+      candidate.safetyWindow,
+      candidate.candidateId,
+    );
+    const nativeAvEvidencePresent = visualEvents.some((event) =>
+      event.observationMethod === "doubao_seed_2_lite_native_audio_video"
+      && event.nativeAudioVideoInputReviewed === true
+      && event.continuousFrameByFrameReviewed === false
+      && event.humanNormalPlaybackRequired === true);
+    const nativeAvReviewDecisions = [...new Set(
+      visualEvents
+        .filter((event) =>
+          event.observationMethod === "doubao_seed_2_lite_native_audio_video"
+          && event.nativeAudioVideoInputReviewed === true)
+        .map((event) => event.nativeAvReviewDecision)
+        .filter((decision) =>
+          ["supported", "uncertain", "contradicted"].includes(decision)),
+    )];
+    const nativeAvSupported =
+      nativeAvReviewDecisions.includes("supported");
+    const nativeAvUncertain =
+      nativeAvReviewDecisions.includes("uncertain");
+    const nativeAvContradicted =
+      nativeAvReviewDecisions.includes("contradicted");
+    const expectedMachineReviewMethod = nativeAvEvidencePresent
+      ? DENSE_PLUS_NATIVE_AV_METHOD
+      : DENSE_EVIDENCE_METHOD;
     invariant(frames.length > 0, "Candidate safety window has no dense frame evidence", {
       code: "CANDIDATE_DENSE_FRAME_COVERAGE_MISSING",
       stage: "candidate_dense_refinement",
@@ -590,6 +656,16 @@ export async function refineCandidatesWithDenseEvidence({
       instructions: [
         `Execute private Tianzong clipping core ${coreBundle.coreVersion} (${coreBundle.coreSha256}).`,
         "This is a candidate-level SECOND PASS over dense sampled still frames plus the diarized transcript from the same safety window.",
+        nativeAvEvidencePresent
+          ? [
+              "The known visual-event evidence also contains a prior Doubao native",
+              "audio-video MODEL review of this candidate.",
+              "Use nativeAvReviewDecision exactly as supplied: supported may support;",
+              "uncertain only raises risk; contradicted is counter-evidence and normally",
+              "requires rejection unless another supplied evidence item explicitly resolves",
+              "the conflict. Preserve every human-review gate.",
+            ].join(" ")
+          : "No prior native audio-video model evidence is bound to this candidate window.",
         "Refine boundaries and identify visual punchlines, action-completeness risks, interruptions, product handling, expression changes, and context requirements.",
         "Never call the material continuous video reviewed, audio-video verified, human reviewed, publish ready, or final.",
         "A human must still watch the entire rendered safety window at normal playback speed.",
@@ -606,6 +682,7 @@ export async function refineCandidatesWithDenseEvidence({
         transcriptSegments,
         visualEvents,
         frames,
+        expectedMachineReviewMethod,
       }),
       schema: CANDIDATE_DENSE_REFINEMENT_SCHEMA,
       schemaName: "tianzong_candidate_dense_av_refinement",
@@ -617,6 +694,7 @@ export async function refineCandidatesWithDenseEvidence({
       transcriptSegments,
       visualEvents,
       frames,
+      expectedMachineReviewMethod,
     });
     const event = buildRefinementObservationEvent(
       response.parsed,
@@ -644,6 +722,11 @@ export async function refineCandidatesWithDenseEvidence({
       denseFrameCount: frames.length,
       transcriptSegmentCount: transcriptSegments.length,
       visualEventCount: visualEvents.length,
+      nativeAvModelEvidencePresent: nativeAvEvidencePresent,
+      nativeAvReviewDecisions,
+      nativeAvSupported,
+      nativeAvUncertain,
+      nativeAvContradicted,
       responseId: response.responseId ?? null,
       model: response.model ?? model,
       usage: response.usage ?? null,
@@ -693,6 +776,21 @@ export async function refineCandidatesWithDenseEvidence({
       visualEventIds: [...candidate.visualEventIds],
     };
   }
+  const nativeAvReviewedCandidateCount = runs.filter(
+    (run) => run.nativeAvModelEvidencePresent === true,
+  ).length;
+  const nativeAvSupportedCandidateCount = runs.filter(
+    (run) => run.nativeAvSupported === true,
+  ).length;
+  const nativeAvUncertainCandidateCount = runs.filter(
+    (run) => run.nativeAvUncertain === true,
+  ).length;
+  const nativeAvContradictedCandidateCount = runs.filter(
+    (run) => run.nativeAvContradicted === true,
+  ).length;
+  const aggregateRefinementMethod = nativeAvReviewedCandidateCount > 0
+    ? "private_core_dense_stills_transcript_plus_native_av_model_evidence"
+    : DENSE_EVIDENCE_METHOD;
   const refinedVisualMap = {
     ...visualMap,
     events: [...visualMap.events, ...remappedEvents],
@@ -701,7 +799,11 @@ export async function refineCandidatesWithDenseEvidence({
       retainedCandidateCount: candidates.length,
       rejectedCandidateCount: rejected.length,
       refinementEventCount: remappedEvents.length,
-      machineReviewMethod: "dense_still_frames_plus_diarized_transcript",
+      machineReviewMethod: aggregateRefinementMethod,
+      nativeAvModelEvidenceCandidateCount: nativeAvReviewedCandidateCount,
+      nativeAvSupportedCandidateCount,
+      nativeAvUncertainCandidateCount,
+      nativeAvContradictedCandidateCount,
       continuousAudioVideoReviewed: false,
       humanNormalPlaybackRequired: true,
     },
@@ -713,7 +815,10 @@ export async function refineCandidatesWithDenseEvidence({
       limitation:
         `${visualMap.coverage.limitation} Candidate safety windows were`
         + " second-pass reviewed using dense sampled still frames plus diarized"
-        + " transcript; this is not continuous playback or human confirmation.",
+        + (nativeAvReviewedCandidateCount > 0
+          ? " transcript and available native audio-video model evidence;"
+          : " transcript;")
+        + " this is not continuous playback or human confirmation.",
     },
   };
   const result = {
@@ -724,7 +829,9 @@ export async function refineCandidatesWithDenseEvidence({
       rejectedThemes: candidateResult.selectionSummary.rejectedThemes,
       notes: arrayUnion(
         candidateResult.selectionSummary.notes,
-        `候选级密集静帧+逐字稿二次理解保留 ${candidates.length} 条，证据不足拒绝 ${rejected.length} 条。`,
+        nativeAvReviewedCandidateCount > 0
+          ? `天总私有核心综合逐字稿、密集画面与 ${nativeAvReviewedCandidateCount} 条候选的原生音视频模型结论（支持 ${nativeAvSupportedCandidateCount}、不确定 ${nativeAvUncertainCandidateCount}、反证 ${nativeAvContradictedCandidateCount}），保留 ${candidates.length} 条，证据不足拒绝 ${rejected.length} 条。`
+          : `候选级密集静帧+逐字稿二次理解保留 ${candidates.length} 条，证据不足拒绝 ${rejected.length} 条。`,
         "所有保留候选仍须完整、正常倍速播放对应安全窗；系统没有宣称连续逐帧或人工确认。",
       ),
     },
@@ -733,7 +840,11 @@ export async function refineCandidatesWithDenseEvidence({
       retainedCandidateCount: candidates.length,
       rejectedCandidateCount: rejected.length,
       rejected,
-      method: "dense_still_frames_plus_diarized_transcript",
+      method: aggregateRefinementMethod,
+      nativeAvModelEvidenceCandidateCount: nativeAvReviewedCandidateCount,
+      nativeAvSupportedCandidateCount,
+      nativeAvUncertainCandidateCount,
+      nativeAvContradictedCandidateCount,
       continuousAudioVideoReviewed: false,
       humanNormalPlaybackRequired: true,
     },

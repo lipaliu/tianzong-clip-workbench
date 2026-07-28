@@ -146,6 +146,43 @@ export async function extractAudioTrack({
   };
 }
 
+export async function extractRemoteAsrAudio({
+  sourcePath,
+  outputPath,
+  runner = runCommand,
+  signal = undefined,
+  verifyOutput = true,
+} = {}) {
+  invariant(sourcePath && outputPath, "sourcePath and outputPath are required", {
+    code: "AUDIO_PATH_REQUIRED",
+    stage: "remote_asr_audio_extract",
+  });
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await runner("ffmpeg", [
+    "-v", "error",
+    "-i", sourcePath,
+    "-map", "0:a:0",
+    "-vn",
+    "-ac", "1",
+    "-ar", "16000",
+    "-c:a", "aac",
+    "-b:a", "64k",
+    "-movflags", "+faststart",
+    "-y",
+    outputPath,
+  ], { signal });
+  if (verifyOutput) await assertArtifact(outputPath, "remote_asr_audio_extract");
+  return {
+    path: outputPath,
+    format: "m4a",
+    mimeType: "audio/mp4",
+    codec: "aac",
+    sampleRate: 16000,
+    channels: 1,
+    bitrate: 64_000,
+  };
+}
+
 export async function extractAudioChunks({
   sourcePath,
   outputDir,

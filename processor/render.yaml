@@ -46,6 +46,49 @@ services:
         value: gpt-5.6-sol
       - key: OPENAI_VISION_MODEL
         value: gpt-5.6-sol
+      # Model roles are explicit: Doubao handles Chinese ASR and native
+      # candidate AV evidence; GPT-5.6 Sol remains the final private-Skill
+      # editorial authority.
+      - key: TRANSCRIPTION_PROVIDER
+        value: doubao
+      - key: TRANSCRIPTION_FALLBACK_TO_OPENAI
+        value: "true"
+      - key: CANDIDATE_AV_REVIEW_PROVIDER
+        value: doubao
+      - key: AV_REVIEW_FALLBACK_TO_SAMPLED_STILLS
+        value: "true"
+      - key: PROVIDER_URL_TTL_SECONDS
+        value: "3600"
+      - key: DOUBAO_ASR_APP_KEY
+        sync: false
+      - key: DOUBAO_ASR_ACCESS_KEY
+        sync: false
+      - key: DOUBAO_ASR_RESOURCE_ID
+        value: volc.bigasr.auc
+      - key: DOUBAO_ASR_BASE_URL
+        value: https://openspeech.bytedance.com
+      - key: DOUBAO_ASR_REQUEST_TIMEOUT_MS
+        value: "60000"
+      - key: DOUBAO_ASR_POLL_INTERVAL_MS
+        value: "5000"
+      - key: DOUBAO_ASR_POLL_TIMEOUT_MS
+        value: "1800000"
+      - key: DOUBAO_ARK_API_KEY
+        sync: false
+      - key: DOUBAO_ARK_BASE_URL
+        value: https://ark.cn-beijing.volces.com/api/v3
+      - key: DOUBAO_AV_MODEL
+        value: doubao-seed-2-0-lite-260428
+      - key: DOUBAO_AV_API_MODE
+        value: responses
+      - key: DOUBAO_AV_VIDEO_FPS
+        value: "2"
+      - key: DOUBAO_AV_MAX_OUTPUT_TOKENS
+        value: "8000"
+      - key: DOUBAO_AV_MAX_BOUNDARY_EXTENSION_SEC
+        value: "8"
+      - key: DOUBAO_AV_TIMEOUT_MS
+        value: "900000"
       - key: TIANCLIP_CORE_S3_KEY
         sync: false
       - key: TIANCLIP_CORE_SHA256

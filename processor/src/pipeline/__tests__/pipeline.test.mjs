@@ -769,6 +769,316 @@ test("candidate-level dense still plus transcript refinement remains human-gated
   });
 });
 
+test("candidate refinement only adopts native AV evidence after a successful bound review", async () => {
+  await withTempDir(async (directory) => {
+    const fixtures = candidateFixtures();
+    const framePath = path.join(directory, "candidate-native-av.jpg");
+    await writeFile(framePath, "candidate-native-av-jpeg");
+    const nativeEvent = {
+      id: "doubao_av_candidate_1_001",
+      candidateId: "candidate_1",
+      startSec: 3,
+      endSec: 5,
+      eventType: "speaker_expression",
+      description: "原声视频中主播挑眉后加重语气",
+      people: ["天总"],
+      actions: [],
+      expressions: ["挑眉"],
+      products: [],
+      onscreenText: [],
+      clipSignals: ["doubao_native_av:expression"],
+      evidenceFrameIds: ["candidate_frame_1"],
+      confidence: 0.87,
+      uncertainties: ["仍需人工正常倍速确认"],
+      observationMethod: "doubao_seed_2_lite_native_audio_video",
+      nativeAvReviewDecision: "supported",
+      nativeAudioVideoInputReviewed: true,
+      continuousFrameByFrameReviewed: false,
+      humanNormalPlaybackRequired: true,
+    };
+    let request;
+    const result = await refineCandidatesWithDenseEvidence({
+      candidateResult: {
+        candidates: [{
+          ...fixtures.candidate,
+          coreBinding: {
+            coreId: fixtures.coreBundle.coreId,
+            coreVersion: fixtures.coreBundle.coreVersion,
+            coreSha256: fixtures.coreBundle.coreSha256,
+            promptVersion: fixtures.coreBundle.promptVersion,
+          },
+          evidenceBinding: {
+            transcriptSegmentIds: fixtures.candidate.transcriptSegmentIds,
+            visualEventIds: fixtures.candidate.visualEventIds,
+            continuousAudioVideoReviewed: false,
+            audioVideoVerified: false,
+          },
+          recallProvenance: { sources: [] },
+          discoveryMethods: ["transcript_core_recall"],
+        }],
+        selectionSummary: {
+          qualifyingCount: 1,
+          rejectedThemes: [],
+          notes: [],
+        },
+        sourceFunnel: {
+          textCandidateCount: 1,
+          visualCandidateCount: 0,
+          exactDuplicateCount: 0,
+          mergedCandidateCount: 1,
+        },
+      },
+      transcript: fixtures.transcript,
+      visualMap: {
+        ...fixtures.visualMap,
+        events: [
+          ...fixtures.visualMap.events,
+          nativeEvent,
+          {
+            ...nativeEvent,
+            id: "doubao_av_candidate_other_001",
+            candidateId: "candidate_other",
+            description: "时间重叠但属于另一个候选的证据",
+          },
+        ],
+      },
+      frameManifest: {
+        durationSec: 30,
+        periodicIntervalSec: 2,
+        frames: [{
+          id: "candidate_frame_1",
+          timestampSec: 4,
+          reasons: ["periodic"],
+          path: framePath,
+          mimeType: "image/jpeg",
+        }],
+        coverage: {
+          fullTimelineScreeningExtracted: true,
+          continuousVideoReviewed: false,
+        },
+      },
+      coreBundle: fixtures.coreBundle,
+      mode: "chat",
+      client: {
+        async createStructuredResponse(value) {
+          request = value;
+          return {
+            parsed: {
+              candidateId: "candidate_1",
+              decision: "retain",
+              refinedRecallWindow: { startSec: 2, endSec: 9 },
+              refinedSafetyWindow: { startSec: 1, endSec: 10 },
+              openingLine: "赚钱和事业根本不是一回事",
+              transcriptSegmentIds: ["tx_1", "tx_2"],
+              visualEventIds: ["doubao_av_candidate_1_001"],
+              visualPunchline: {
+                present: true,
+                description: "挑眉与重音共同形成反差",
+                evidenceFrameIds: ["candidate_frame_1"],
+                confidence: 0.8,
+              },
+              actionCompleteness: {
+                status: "uncertain",
+                description: "原生音视频模型支持该动作，但仍需人工播放确认",
+                evidenceFrameIds: ["candidate_frame_1"],
+              },
+              boundaryAssessment: {
+                openingStatus: "supported",
+                closingStatus: "uncertain",
+                riskNotes: ["句尾动作必须人工正常倍速确认"],
+              },
+              requiredHumanNormalPlaybackChecks: ["完整播放1到10秒"],
+              risks: ["机器音视频证据不是人工确认"],
+              rejectionReason: "",
+              machineReviewMethod:
+                "dense_still_frames_plus_diarized_transcript_plus_native_av_model_evidence",
+              continuousAudioVideoReviewed: false,
+              humanNormalPlaybackRequired: true,
+              validationStatus:
+                "candidate_dense_av_screening_needs_human_normal_playback",
+            },
+            responseId: "resp_candidate_native_av_refine",
+            model: value.model,
+            usage: { total_tokens: 24 },
+          };
+        },
+      },
+    });
+    assert.match(request.instructions, /native audio-video MODEL review/);
+    assert.match(
+      request.input[0].content[0].text,
+      /dense_still_frames_plus_diarized_transcript_plus_native_av_model_evidence/,
+    );
+    assert.doesNotMatch(
+      request.input[0].content[0].text,
+      /doubao_av_candidate_other_001/,
+    );
+    assert.equal(
+      result.candidates[0].refinement.method,
+      "dense_still_frames_plus_diarized_transcript_plus_native_av_model_evidence",
+    );
+    assert.equal(
+      result.refinementSummary.nativeAvModelEvidenceCandidateCount,
+      1,
+    );
+    assert.equal(result.refinementSummary.nativeAvSupportedCandidateCount, 1);
+    assert.equal(result.refinementSummary.nativeAvUncertainCandidateCount, 0);
+    assert.equal(
+      result.refinementSummary.nativeAvContradictedCandidateCount,
+      0,
+    );
+    assert.equal(result.candidates[0].refinement.humanNormalPlaybackRequired, true);
+    assert.equal(result.candidates[0].refinement.continuousAudioVideoReviewed, false);
+  });
+});
+
+test("uncertain and contradicted native AV decisions remain risk or counter-evidence", async () => {
+  await withTempDir(async (directory) => {
+    const fixtures = candidateFixtures();
+    const framePath = path.join(directory, "candidate-native-av-negative.jpg");
+    await writeFile(framePath, "candidate-native-av-negative-jpeg");
+
+    for (const reviewDecision of ["uncertain", "contradicted"]) {
+      const nativeEventId = `doubao_av_candidate_1_${reviewDecision}`;
+      let request;
+      const result = await refineCandidatesWithDenseEvidence({
+        candidateResult: {
+          candidates: [{
+            ...fixtures.candidate,
+            coreBinding: {
+              coreId: fixtures.coreBundle.coreId,
+              coreVersion: fixtures.coreBundle.coreVersion,
+              coreSha256: fixtures.coreBundle.coreSha256,
+              promptVersion: fixtures.coreBundle.promptVersion,
+            },
+            evidenceBinding: {
+              transcriptSegmentIds: fixtures.candidate.transcriptSegmentIds,
+              visualEventIds: fixtures.candidate.visualEventIds,
+              continuousAudioVideoReviewed: false,
+              audioVideoVerified: false,
+            },
+            recallProvenance: { sources: [] },
+            discoveryMethods: ["transcript_core_recall"],
+          }],
+          selectionSummary: {
+            qualifyingCount: 1,
+            rejectedThemes: [],
+            notes: [],
+          },
+          sourceFunnel: {
+            textCandidateCount: 1,
+            visualCandidateCount: 0,
+            exactDuplicateCount: 0,
+            mergedCandidateCount: 1,
+          },
+        },
+        transcript: fixtures.transcript,
+        visualMap: {
+          ...fixtures.visualMap,
+          events: [
+            ...fixtures.visualMap.events,
+            {
+              id: nativeEventId,
+              candidateId: "candidate_1",
+              startSec: 3,
+              endSec: 5,
+              eventType: "other",
+              description:
+                reviewDecision === "contradicted"
+                  ? "原生音视频复核与候选角度冲突"
+                  : "原生音视频复核无法确认候选角度",
+              evidenceFrameIds: ["candidate_frame_1"],
+              confidence: 0.8,
+              uncertainties: ["必须人工正常倍速确认"],
+              observationMethod: "doubao_seed_2_lite_native_audio_video",
+              nativeAvReviewDecision: reviewDecision,
+              nativeAudioVideoInputReviewed: true,
+              continuousFrameByFrameReviewed: false,
+              humanNormalPlaybackRequired: true,
+            },
+          ],
+        },
+        frameManifest: {
+          durationSec: 30,
+          periodicIntervalSec: 2,
+          frames: [{
+            id: "candidate_frame_1",
+            timestampSec: 4,
+            reasons: ["periodic"],
+            path: framePath,
+            mimeType: "image/jpeg",
+          }],
+          coverage: {
+            fullTimelineScreeningExtracted: true,
+            continuousVideoReviewed: false,
+          },
+        },
+        coreBundle: fixtures.coreBundle,
+        mode: "chat",
+        client: {
+          async createStructuredResponse(value) {
+            request = value;
+            return {
+              parsed: {
+                candidateId: "candidate_1",
+                decision: "reject",
+                refinedRecallWindow: { startSec: 2, endSec: 9 },
+                refinedSafetyWindow: { startSec: 1, endSec: 10 },
+                openingLine: "赚钱和事业根本不是一回事",
+                transcriptSegmentIds: ["tx_1", "tx_2"],
+                visualEventIds: [nativeEventId],
+                visualPunchline: {
+                  present: false,
+                  description: "原生音视频复核未形成支持",
+                  evidenceFrameIds: ["candidate_frame_1"],
+                  confidence: 0.2,
+                },
+                actionCompleteness: {
+                  status: "uncertain",
+                  description: "证据不足",
+                  evidenceFrameIds: ["candidate_frame_1"],
+                },
+                boundaryAssessment: {
+                  openingStatus: "uncertain",
+                  closingStatus: "uncertain",
+                  riskNotes: ["不得把非支持结论写成支持性证据"],
+                },
+                requiredHumanNormalPlaybackChecks: ["完整播放1到10秒"],
+                risks: ["原生音视频结论并非 supported"],
+                rejectionReason: "原生音视频复核没有支持候选角度",
+                machineReviewMethod:
+                  "dense_still_frames_plus_diarized_transcript_plus_native_av_model_evidence",
+                continuousAudioVideoReviewed: false,
+                humanNormalPlaybackRequired: true,
+                validationStatus:
+                  "candidate_dense_av_screening_needs_human_normal_playback",
+              },
+              responseId: `resp_${reviewDecision}`,
+              model: value.model,
+              usage: { total_tokens: 12 },
+            };
+          },
+        },
+      });
+
+      const compactInput = request.input[0].content[0].text;
+      assert.match(compactInput, new RegExp(`"nativeAvReviewDecision":"${reviewDecision}"`));
+      assert.match(request.instructions, /uncertain only raises risk/);
+      assert.match(request.instructions, /contradicted is counter-evidence/);
+      assert.equal(result.refinementSummary.nativeAvSupportedCandidateCount, 0);
+      assert.equal(
+        result.refinementSummary.nativeAvUncertainCandidateCount,
+        reviewDecision === "uncertain" ? 1 : 0,
+      );
+      assert.equal(
+        result.refinementSummary.nativeAvContradictedCandidateCount,
+        reviewDecision === "contradicted" ? 1 : 0,
+      );
+      assert.equal(result.candidates.length, 0);
+    }
+  });
+});
+
 test("candidate dense refinement fails closed on a premature continuous-AV claim", async () => {
   await withTempDir(async (directory) => {
     const fixtures = candidateFixtures();

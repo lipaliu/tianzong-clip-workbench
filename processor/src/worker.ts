@@ -19,7 +19,10 @@ import { hashAndSize, safeWorkName } from "./media.js";
 import {
   planAudioChunks,
   extractAudioChunks,
+  extractRemoteAsrAudio,
 } from "./pipeline/audio.mjs";
+import { createDoubaoBigAsrClient } from "./pipeline/doubao-asr.mjs";
+import { createDoubaoAvReviewProvider } from "./pipeline/doubao-av-review.mjs";
 import { createOpenAIClient } from "./pipeline/openai-client.mjs";
 import {
   buildFrameExtractionPlan,
@@ -34,6 +37,11 @@ import {
 import { refineCandidatesWithDenseEvidence } from "./pipeline/candidate-refinement.mjs";
 import { probeMedia } from "./pipeline/media.mjs";
 import { renderCandidateSafetyProxy } from "./pipeline/proxy.mjs";
+import {
+  applyNativeAvBoundarySuggestions,
+  augmentVisualMapWithNativeAvReviews,
+  executeProviderRoute,
+} from "./pipeline/provider-routing.mjs";
 import { checkMediaToolchain } from "./pipeline/toolchain.mjs";
 import { transcribeAudioChunks } from "./pipeline/transcription.mjs";
 import { analyzeVisualTimeline } from "./pipeline/visual-map.mjs";
@@ -50,6 +58,9 @@ type AnyFunction = (...args: any[]) => any;
 
 const audioPlan = planAudioChunks as AnyFunction;
 const audioExtract = extractAudioChunks as AnyFunction;
+const remoteAsrAudioExtract = extractRemoteAsrAudio as AnyFunction;
+const doubaoAsrFactory = createDoubaoBigAsrClient as AnyFunction;
+const doubaoAvFactory = createDoubaoAvReviewProvider as AnyFunction;
 const mediaProbe = probeMedia as AnyFunction;
 const framePlan = buildFrameExtractionPlan as AnyFunction;
 const frameExtract = extractFrames as AnyFunction;
@@ -61,6 +72,11 @@ const visualMapAugment = augmentVisualMapWithDenseRecall as AnyFunction;
 const candidateSourceMerge = mergeTextAndVisualCandidateResults as AnyFunction;
 const candidateDenseRefine = refineCandidatesWithDenseEvidence as AnyFunction;
 const renderRoughProxy = renderCandidateSafetyProxy as AnyFunction;
+const providerRouteExecute = executeProviderRoute as AnyFunction;
+const nativeAvBoundaryApply =
+  applyNativeAvBoundarySuggestions as AnyFunction;
+const nativeAvVisualMapAugment =
+  augmentVisualMapWithNativeAvReviews as AnyFunction;
 const toolchainCheck = checkMediaToolchain as AnyFunction;
 
 const config = loadConfig();
@@ -71,6 +87,30 @@ const openai = createOpenAIClient({
   apiKey: config.openai.apiKey,
   baseUrl: config.openai.baseUrl,
 });
+const doubaoAsr = config.providers.transcription === "doubao"
+  ? doubaoAsrFactory({
+      appId: config.doubao.asr.appKey ?? undefined,
+      accessToken: config.doubao.asr.accessKey ?? undefined,
+      baseUrl: config.doubao.asr.baseUrl,
+      resourceId: config.doubao.asr.resourceId,
+      requestTimeoutMs: config.doubao.asr.requestTimeoutMs,
+      pollIntervalMs: config.doubao.asr.pollIntervalMs,
+      pollTimeoutMs: config.doubao.asr.pollTimeoutMs,
+    })
+  : null;
+const doubaoAv = config.providers.candidateAvReview === "doubao"
+  ? doubaoAvFactory({
+      apiKey: config.doubao.ark.apiKey ?? undefined,
+      baseUrl: config.doubao.ark.baseUrl,
+      model: config.doubao.ark.avModel,
+      apiMode: config.doubao.ark.apiMode,
+      timeoutMs: config.doubao.ark.timeoutMs,
+      videoFps: config.doubao.ark.videoFps,
+      maxOutputTokens: config.doubao.ark.maxOutputTokens,
+      maxBoundaryExtensionSec:
+        config.doubao.ark.maxBoundaryExtensionSec,
+    })
+  : null;
 const workerId = `${hostname()}:${process.pid}:${crypto.randomUUID()}`;
 let stopping = false;
 
@@ -140,6 +180,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     config.worker.workDirectory,
     `${job.id}-${job.attempt}`,
   );
+  const transientObjectKeys = new Set<string>();
   await rm(workDir, { recursive: true, force: true });
   await mkdir(workDir, { recursive: true });
 
@@ -217,37 +258,121 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       job.workerId,
       "transcribing",
       18,
-      "正在分段转写并保留说话人和绝对时间码。",
+      config.providers.transcription === "doubao"
+        ? "正在用豆包录音文件识别生成中文逐字稿、说话人与绝对时间码。"
+        : "正在分段转写并保留说话人和绝对时间码。",
     );
-    const chunks = audioPlan({
-      durationSec: media.durationSec,
-      chunkDurationSec: config.worker.transcriptionSegmentSeconds,
-      overlapSec: 2,
-    });
-    const audioChunks = await audioExtract({
-      sourcePath,
-      outputDir: join(workDir, "audio"),
-      chunks,
-    });
-    const transcript = await transcribe({
-      chunks: audioChunks,
-      client: openai,
-      mediaDurationSec: media.durationSec,
-      language: "zh",
-      model: config.openai.transcriptionModel,
-      // gpt-4o-transcribe-diarize does not accept a prompt. The private core
-      // is deliberately applied only at candidate reasoning time.
-      onProgress: async (event: { completed: number; total: number }) => {
-        const progress = 20 + Math.floor(22 * event.completed / event.total);
-        await repository.updateJobStage(
-          job.id,
-          job.workerId,
-          "transcribing",
-          progress,
-          `逐字稿分段 ${event.completed}/${event.total} 已完成。`,
+    const transcribeWithOpenAi = async () => {
+      const chunks = audioPlan({
+        durationSec: media.durationSec,
+        chunkDurationSec: config.worker.transcriptionSegmentSeconds,
+        overlapSec: 2,
+      });
+      const audioChunks = await audioExtract({
+        sourcePath,
+        outputDir: join(workDir, "audio"),
+        chunks,
+      });
+      return await transcribe({
+        chunks: audioChunks,
+        client: openai,
+        mediaDurationSec: media.durationSec,
+        language: "zh",
+        model: config.openai.transcriptionModel,
+        // gpt-4o-transcribe-diarize does not accept a prompt. The private core
+        // is deliberately applied only at candidate reasoning time.
+        onProgress: async (event: { completed: number; total: number }) => {
+          const progress = 20 + Math.floor(22 * event.completed / event.total);
+          await repository.updateJobStage(
+            job.id,
+            job.workerId,
+            "transcribing",
+            progress,
+            `OpenAI 逐字稿分段 ${event.completed}/${event.total} 已完成。`,
+          );
+        },
+      });
+    };
+    const transcribeWithDoubao = async () => {
+      if (!doubaoAsr) {
+        throw new AppError(
+          500,
+          "doubao_asr_not_configured",
+          "豆包转写提供商未完成服务端配置。",
+          { expose: false },
         );
-      },
-    });
+      }
+      const remoteAudio = await remoteAsrAudioExtract({
+        sourcePath,
+        outputPath: join(workDir, "doubao-asr", "full-recording.m4a"),
+      });
+      await repository.updateJobStage(
+        job.id,
+        job.workerId,
+        "transcribing",
+        21,
+        "中文音轨已整理，正在通过一次性地址交给豆包转写。",
+      );
+      const objectKey =
+        `provider-inputs/${job.projectId}/${job.id}/doubao-asr.m4a`;
+      transientObjectKeys.add(objectKey);
+      await storage.uploadFile(
+        objectKey,
+        remoteAudio.path,
+        remoteAudio.mimeType,
+        {
+          "project-id": job.projectId,
+          "job-id": job.id,
+          "provider-purpose": "doubao-asr-transient-input",
+        },
+      );
+      const signed = await storage.presignProviderDownload({
+        objectKey,
+        contentType: remoteAudio.mimeType,
+        expiresIn: config.providers.providerUrlTtlSeconds,
+      });
+      const result = await doubaoAsr.transcribeRecording({
+        audioUrl: signed.url,
+        audioFormat: remoteAudio.format,
+        mediaDurationSec: media.durationSec,
+        onProgress: async (event: { status: string; attempt?: number }) => {
+          const detail = event.status === "completed"
+            ? "豆包中文逐字稿已完成。"
+            : `豆包转写状态：${event.status}`
+              + (event.attempt ? `（第 ${event.attempt} 次查询）` : "");
+          await repository.updateJobStage(
+            job.id,
+            job.workerId,
+            "transcribing",
+            event.status === "completed" ? 42 : 24,
+            detail,
+          );
+        },
+      });
+      await storage.delete(objectKey).catch(() => undefined);
+      transientObjectKeys.delete(objectKey);
+      return result;
+    };
+
+    const transcriptRoute = config.providers.transcription === "doubao"
+      ? await providerRouteExecute({
+          requestedProvider: "doubao",
+          primaryProvider: "doubao",
+          primary: transcribeWithDoubao,
+          fallbackProvider: "openai",
+          fallback: transcribeWithOpenAi,
+          allowFallback: config.providers.transcriptionFallbackToOpenai,
+        })
+      : {
+          value: await transcribeWithOpenAi(),
+          route: {
+            requestedProvider: "openai",
+            effectiveProvider: "openai",
+            fallbackUsed: false,
+            primaryFailure: null,
+          },
+        };
+    const transcript = transcriptRoute.value;
 
     await repository.updateJobStage(
       job.id,
@@ -377,17 +502,172 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       model: config.openai.reasoningModel,
     });
 
+    let candidateResultForFinalRefinement = mergedCandidateResult;
+    let candidateEvidenceVisualMap = augmentedVisualMap;
+    let nativeAvReviewSummary: Record<string, unknown> = {
+      requestedProvider: config.providers.candidateAvReview,
+      effectiveProvider:
+        config.providers.candidateAvReview === "doubao"
+          ? "doubao"
+          : "sampled_stills",
+      attemptedCandidateCount: 0,
+      completedCandidateCount: 0,
+      failedCandidateCount: 0,
+      fallbackUsed: false,
+      continuousFrameByFrameReviewed: false,
+      humanNormalPlaybackRequired: true,
+    };
+    const nativeAvReviewRecords: Array<Record<string, unknown>> = [];
+    if (
+      config.providers.candidateAvReview === "doubao"
+      && mergedCandidateResult.candidates.length > 0
+    ) {
+      if (!doubaoAv) {
+        throw new AppError(
+          500,
+          "doubao_av_not_configured",
+          "豆包音视频复核提供商未完成服务端配置。",
+          { expose: false },
+        );
+      }
+      await repository.updateJobStage(
+        job.id,
+        job.workerId,
+        "candidate_native_av_review",
+        85,
+        "正在把每个候选安全窗作为原生音视频交给豆包复核动作、表情、语气、场外插话与商品展示。",
+      );
+      const avProxyDir = join(workDir, "doubao-av-review");
+      await mkdir(avProxyDir, { recursive: true });
+      let failedCandidateCount = 0;
+      let fallbackUsed = false;
+      const reviewResults = [];
+      for (
+        let index = 0;
+        index < mergedCandidateResult.candidates.length;
+        index += 1
+      ) {
+        const candidate = mergedCandidateResult.candidates[index]!;
+        const outputPath = join(avProxyDir, `${candidate.candidateId}.mp4`);
+        await renderRoughProxy({
+          sourcePath,
+          candidate,
+          outputPath,
+          mediaDurationSec: media.durationSec,
+        });
+        const objectKey =
+          `provider-inputs/${job.projectId}/${job.id}/doubao-av/`
+          + `${candidate.candidateId}.mp4`;
+        transientObjectKeys.add(objectKey);
+        await storage.uploadFile(objectKey, outputPath, "video/mp4", {
+          "project-id": job.projectId,
+          "job-id": job.id,
+          "candidate-id": candidate.candidateId,
+          "provider-purpose": "doubao-native-av-transient-input",
+        });
+        const signed = await storage.presignProviderDownload({
+          objectKey,
+          contentType: "video/mp4",
+          expiresIn: config.providers.providerUrlTtlSeconds,
+        });
+        const routed = await providerRouteExecute({
+          requestedProvider: "doubao",
+          primaryProvider: "doubao",
+          primary: async () =>
+            await doubaoAv.reviewCandidate({
+              candidateId: candidate.candidateId,
+              videoUrl: signed.url,
+              sourceOffsetSec: candidate.safetyWindow.startSec,
+              candidate,
+              transcript,
+              coreBundle,
+              mode,
+            }),
+          fallbackProvider: "sampled_stills",
+          fallback: async () => null,
+          allowFallback:
+            config.providers.avReviewFallbackToSampledStills,
+        });
+        if (routed.value) {
+          reviewResults.push(routed.value);
+          nativeAvReviewRecords.push({
+            candidateId: candidate.candidateId,
+            normalized: routed.value.normalized,
+            responseId: routed.value.responseId,
+            model: routed.value.model,
+            usage: routed.value.usage,
+            provider: routed.value.provider,
+            apiMode: routed.value.apiMode,
+            route: routed.route,
+          });
+        } else {
+          failedCandidateCount += 1;
+          fallbackUsed = true;
+          nativeAvReviewRecords.push({
+            candidateId: candidate.candidateId,
+            normalized: null,
+            route: routed.route,
+          });
+        }
+        await storage.delete(objectKey).catch(() => undefined);
+        transientObjectKeys.delete(objectKey);
+        await rm(outputPath, { force: true }).catch(() => undefined);
+        await repository.updateJobStage(
+          job.id,
+          job.workerId,
+          "candidate_native_av_review",
+          85 + Math.floor(
+            4 * (index + 1)
+              / Math.max(1, mergedCandidateResult.candidates.length),
+          ),
+          `豆包原生音视频候选复核 ${index + 1}/`
+            + `${mergedCandidateResult.candidates.length} 已完成。`,
+        );
+      }
+      const augmentedNativeReview = nativeAvVisualMapAugment({
+        visualMap: augmentedVisualMap,
+        reviewResults,
+        frameManifest: denseFrameManifest,
+        attemptedCandidateCount: mergedCandidateResult.candidates.length,
+        failedCandidateCount,
+      });
+      const boundaryExpansion = nativeAvBoundaryApply({
+        candidateResult: mergedCandidateResult,
+        reviewResults,
+        mediaDurationSec: media.durationSec,
+      });
+      candidateResultForFinalRefinement =
+        boundaryExpansion.candidateResult;
+      candidateEvidenceVisualMap = augmentedNativeReview.visualMap;
+      nativeAvReviewSummary = {
+        requestedProvider: "doubao",
+        effectiveProvider:
+          failedCandidateCount > 0 ? "doubao_with_sampled_stills_fallback" : "doubao",
+        fallbackUsed,
+        boundaryExpansion: boundaryExpansion.summary,
+        ...augmentedNativeReview.summary,
+      };
+    }
+
+    const nativeAvEvidenceCount = Number(
+      candidateEvidenceVisualMap.coverage
+        ?.candidateNativeAudioVideoModelReviewCount ?? 0,
+    );
     await repository.updateJobStage(
       job.id,
       job.workerId,
       "candidate_dense_refinement",
-      86,
-      "正在逐候选读取安全窗密集画面与逐字稿，校正切口并标记动作完整性风险。",
+      90,
+      nativeAvEvidenceCount > 0
+        ? "GPT-5.6 Sol 正在强制加载天总 Skill，综合逐字稿、密集画面与豆包原生音视频证据作最终编导判断。"
+        : config.providers.candidateAvReview === "doubao"
+          ? "豆包候选音视频复核未产生可用证据；GPT-5.6 Sol 正在加载天总 Skill，按逐字稿与密集画面安全回退终审。"
+          : "GPT-5.6 Sol 正在强制加载天总 Skill，逐候选读取密集画面与逐字稿作最终编导判断。",
     );
     const candidateResult = await candidateDenseRefine({
-      candidateResult: mergedCandidateResult,
+      candidateResult: candidateResultForFinalRefinement,
       transcript,
-      visualMap: augmentedVisualMap,
+      visualMap: candidateEvidenceVisualMap,
       frameManifest: denseFrameManifest,
       coreBundle,
       mode,
@@ -395,8 +675,8 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       model: config.openai.visionModel,
       safetyIdentifier: job.projectId,
       onProgress: async (event: { completed: number; total: number }) => {
-        const progress = 86
-          + Math.floor(4 * event.completed / Math.max(1, event.total));
+        const progress = 90
+          + Math.floor(3 * event.completed / Math.max(1, event.total));
         await repository.updateJobStage(
           job.id,
           job.workerId,
@@ -412,6 +692,8 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     const transcriptKey = `${artifactBase}/transcript.json`;
     const denseVisualRecallKey = `${artifactBase}/dense-visual-recall.json`;
     const candidateRefinementKey = `${artifactBase}/candidate-refinement.json`;
+    const providerRoutingKey = `${artifactBase}/provider-routing.json`;
+    const nativeAvReviewKey = `${artifactBase}/native-av-review.json`;
     const factLayerKey = `${artifactBase}/fact-layer.json`;
     const editPlanKey = `${artifactBase}/edit-plan.json`;
     const engineLedgerKey = `${artifactBase}/engine-run-ledger.json`;
@@ -424,7 +706,12 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         kind: "diarized-transcript",
       },
     );
-    const [denseVisualRecallStored, candidateRefinementStored] =
+    const [
+      denseVisualRecallStored,
+      candidateRefinementStored,
+      providerRoutingStored,
+      nativeAvReviewStored,
+    ] =
       await Promise.all([
         storage.uploadJson(
           denseVisualRecallKey,
@@ -457,13 +744,44 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             kind: "candidate-dense-still-transcript-refinement",
           },
         ),
+        storage.uploadJson(
+          providerRoutingKey,
+          {
+            transcription: transcriptRoute.route,
+            candidateAvReview: nativeAvReviewSummary,
+            finalEditorial: {
+              provider: "openai",
+              model: config.openai.reasoningModel,
+              privateCoreBound: true,
+              coreVersion: core.provenance.coreVersion,
+              coreSha256: core.provenance.coreSha256,
+            },
+          },
+          {
+            "project-id": job.projectId,
+            "job-id": job.id,
+            kind: "model-provider-routing",
+          },
+        ),
+        storage.uploadJson(
+          nativeAvReviewKey,
+          {
+            summary: nativeAvReviewSummary,
+            reviews: nativeAvReviewRecords,
+          },
+          {
+            "project-id": job.projectId,
+            "job-id": job.id,
+            kind: "candidate-native-audio-video-model-review",
+          },
+        ),
       ]);
 
     await repository.updateJobStage(
       job.id,
       job.workerId,
       "validating_private_contract",
-      91,
+      94,
       "正在生成事实层、编辑计划和运行台账，并用私有核心校验。",
     );
     const artifacts: EngineArtifacts = buildAndValidateEngineArtifacts({
@@ -484,7 +802,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       job.id,
       job.workerId,
       "rendering_rough_proxies",
-      93,
+      95,
       "正在生成无字幕、无包装的候选粗剪，等待人工完整播放。",
     );
     const previewDir = join(workDir, "rough-previews");
@@ -525,7 +843,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         job.id,
         job.workerId,
         "rendering_rough_proxies",
-        93 + Math.floor(5 * (index + 1) / Math.max(1, artifacts.candidatePayloads.length)),
+        95 + Math.floor(4 * (index + 1) / Math.max(1, artifacts.candidatePayloads.length)),
         `候选粗剪 ${index + 1}/${artifacts.candidatePayloads.length} 已生成。`,
       );
     }
@@ -557,9 +875,22 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       },
       {
         models: {
-          transcription: config.openai.transcriptionModel,
+          transcription: transcript.model,
           reasoning: config.openai.reasoningModel,
           vision: config.openai.visionModel,
+          nativeAudioVideoReview:
+            nativeAvEvidenceCount > 0
+              ? config.doubao.ark.avModel
+              : null,
+        },
+        providerRouting: {
+          transcription: transcriptRoute.route,
+          candidateAvReview: nativeAvReviewSummary,
+          finalEditorial: {
+            provider: "openai",
+            model: config.openai.reasoningModel,
+            privateCoreBound: true,
+          },
         },
         source: {
           uri: r2Uri(job.objectKey),
@@ -574,6 +905,15 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           densePeriodicIntervalSec: denseFrameManifest.periodicIntervalSec,
           denseVisualReverseRecallComplete: true,
           candidateDenseStillTranscriptRefinementComplete: true,
+          candidateNativeAudioVideoModelReviewAttempted:
+            evidenceVisualMap.coverage
+              .candidateNativeAudioVideoModelReviewAttempted ?? false,
+          candidateNativeAudioVideoModelReviewComplete:
+            evidenceVisualMap.coverage
+              .candidateNativeAudioVideoModelReviewComplete ?? false,
+          candidateNativeAudioVideoModelReviewCount:
+            evidenceVisualMap.coverage
+              .candidateNativeAudioVideoModelReviewCount ?? 0,
           continuousAudioVideoReviewed: false,
           limitation: evidenceVisualMap.coverage.limitation,
         },
@@ -589,6 +929,14 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           candidateRefinement: {
             uri: r2Uri(candidateRefinementKey),
             sha256: candidateRefinementStored.sha256,
+          },
+          providerRouting: {
+            uri: r2Uri(providerRoutingKey),
+            sha256: providerRoutingStored.sha256,
+          },
+          nativeAvReview: {
+            uri: r2Uri(nativeAvReviewKey),
+            sha256: nativeAvReviewStored.sha256,
           },
           factLayer: {
             uri: r2Uri(factLayerKey),
@@ -612,12 +960,24 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           visualReverseRecall:
             "dense_full_timeline_periodic_plus_scene_change_complete",
           candidateDenseRefinement:
-            "dense_stills_plus_diarized_transcript_complete",
+            candidateResult.refinementSummary
+              .nativeAvModelEvidenceCandidateCount > 0
+              ? "private_core_final_editorial_after_native_av_model_evidence"
+              : "dense_stills_plus_diarized_transcript_complete",
+          nativeAudioVideoModelReview:
+            config.providers.candidateAvReview === "doubao"
+              ? nativeAvReviewSummary
+              : "not_requested",
           humanNormalPlaybackStillRequired: true,
         },
       },
     );
   } finally {
+    await Promise.all(
+      [...transientObjectKeys].map(async (objectKey) => {
+        await storage.delete(objectKey).catch(() => undefined);
+      }),
+    );
     await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }

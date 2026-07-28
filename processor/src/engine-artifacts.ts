@@ -79,6 +79,10 @@ type VisualMap = {
     denseFrameCount?: number;
     candidateDenseStillTranscriptRefinementComplete?: boolean;
     candidateSafetyWindowsReviewed?: number;
+    candidateNativeAudioVideoModelReviewAttempted?: boolean;
+    candidateNativeAudioVideoModelReviewComplete?: boolean;
+    candidateNativeAudioVideoModelReviewCount?: number;
+    candidateNativeAudioVideoModelReviewFailedCount?: number;
   };
 };
 
@@ -114,7 +118,9 @@ type CandidateResultItem = {
   validationStatus: "editorial_candidate_needs_av_review";
   discoveryMethods?: string[];
   refinement?: {
-    method: "dense_still_frames_plus_diarized_transcript";
+    method:
+      | "dense_still_frames_plus_diarized_transcript"
+      | "dense_still_frames_plus_diarized_transcript_plus_native_av_model_evidence";
     decision: "retain";
     visualPunchline: {
       present: boolean;
@@ -278,6 +284,21 @@ function calculateAsrGaps(
     gaps.push({ start_sec: roundMillis(cursor), end_sec: roundMillis(durationSec) });
   }
   return gaps;
+}
+
+function visualScanMethod(visualMap: VisualMap): string {
+  if (!visualMap.coverage?.denseVisualReverseRecallComplete) {
+    return "adaptive_proxy_scan: periodic + scene-change sparse frames; not continuous playback";
+  }
+  const nativeReviewCount =
+    visualMap.coverage.candidateNativeAudioVideoModelReviewCount ?? 0;
+  return `adaptive_proxy_scan: sparse semantic map + every ${
+    visualMap.coverage.densePeriodicIntervalSec ?? "configured"
+  }s/scene-change dense visual reverse recall + candidate safety-window dense still/transcript refinement${
+    nativeReviewCount > 0
+      ? ` + ${nativeReviewCount} candidate native audio-video model reviews`
+      : ""
+  }; not continuous frame-by-frame or human playback`;
 }
 
 function visualEventType(value: string): string {
@@ -564,7 +585,10 @@ function publicPayload(
         : []),
       ...(candidate.refinement
         ? [
-          `候选安全窗已完成密集静帧+逐字稿二次理解；动作状态仅为“${candidate.refinement.actionCompleteness.status}”。`,
+          candidate.refinement.method
+            === "dense_still_frames_plus_diarized_transcript_plus_native_av_model_evidence"
+            ? `候选安全窗已由天总私有核心综合密集静帧、逐字稿和原生音视频模型证据；动作状态仍仅为“${candidate.refinement.actionCompleteness.status}”。`
+            : `候选安全窗已完成密集静帧+逐字稿二次理解；动作状态仅为“${candidate.refinement.actionCompleteness.status}”。`,
           ...candidate.refinement.boundaryAssessment.riskNotes,
         ]
         : []),
@@ -577,7 +601,10 @@ function publicPayload(
       ? `需人工复核：${candidate.risks.join("；")}`
       : "未发现阻断性事实风险，仍须按原片复核。",
     calibrationStatus: candidate.refinement
-      ? "已绑定私有 Skill并完成候选级密集静帧+逐字稿二次理解；待人工正常倍速完整视听校准"
+      ? candidate.refinement.method
+          === "dense_still_frames_plus_diarized_transcript_plus_native_av_model_evidence"
+        ? "已绑定私有 Skill并综合候选级密集静帧、逐字稿和原生音视频模型证据；待人工正常倍速完整视听校准"
+        : "已绑定私有 Skill并完成候选级密集静帧+逐字稿二次理解；待人工正常倍速完整视听校准"
       : "已绑定私有 Skill；待连续原片视听校准",
     transcript: transcriptLines(candidate, transcript),
     previewUrl: null,
@@ -688,7 +715,7 @@ export function buildAndValidateEngineArtifacts(
       description: event.description,
       subject: event.people?.[0] ?? event.products?.[0] ?? "直播画面",
       confidence: event.confidence,
-      observation_method: "adaptive_proxy_scan",
+      observation_method: event.observationMethod ?? "adaptive_proxy_scan",
       continuous_range_reviewed: false,
       evidence_refs: event.evidenceFrameIds.map((id) => `frame:${id}`),
       risk_notes: [
@@ -706,12 +733,7 @@ export function buildAndValidateEngineArtifacts(
       visual_scan_start_sec: 0,
       visual_scan_end_sec: media.durationSec,
       full_timeline_visual_scan_completed: true,
-      visual_scan_method:
-        visualMap.coverage?.denseVisualReverseRecallComplete
-          ? `adaptive_proxy_scan: sparse semantic map + every ${
-            visualMap.coverage.densePeriodicIntervalSec ?? "configured"
-          }s/scene-change dense visual reverse recall + candidate safety-window dense still/transcript refinement; not continuous playback`
-          : "adaptive_proxy_scan: periodic + scene-change sparse frames; not continuous playback",
+      visual_scan_method: visualScanMethod(visualMap),
       uncovered_ranges: [],
     },
   };
@@ -1053,12 +1075,7 @@ export function buildAndValidateEngineArtifacts(
       gaps_rechecked: 0,
       boundary_overlap_rechecked: true,
       full_timeline_visual_scan_completed: true,
-      visual_scan_method:
-        visualMap.coverage?.denseVisualReverseRecallComplete
-          ? `adaptive_proxy_scan: sparse semantic map + every ${
-            visualMap.coverage.densePeriodicIntervalSec ?? "configured"
-          }s/scene-change dense visual reverse recall + candidate safety-window dense still/transcript refinement; not continuous playback`
-          : "adaptive_proxy_scan: periodic + scene-change sparse frames; not continuous playback",
+      visual_scan_method: visualScanMethod(visualMap),
       uncovered_ranges: [],
       coverage_status: "needs_review",
     },

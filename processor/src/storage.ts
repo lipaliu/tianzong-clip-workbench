@@ -304,17 +304,39 @@ export class PrivateObjectStorage {
   }
 
   async presignDownload(objectKey: string): Promise<{ url: string; expiresIn: number }> {
+    return await this.presignProviderDownload({
+      objectKey,
+      contentType: "video/mp4",
+      expiresIn: this.config.r2.previewTtlSeconds,
+    });
+  }
+
+  async presignProviderDownload(options: {
+    objectKey: string;
+    contentType: string;
+    expiresIn?: number;
+  }): Promise<{ url: string; expiresIn: number }> {
+    const expiresIn = options.expiresIn
+      ?? this.config.providers.providerUrlTtlSeconds;
+    if (!Number.isSafeInteger(expiresIn) || expiresIn < 60 || expiresIn > 604_800) {
+      throw new AppError(
+        500,
+        "invalid_provider_url_ttl",
+        "模型取件临时地址的有效期配置无效。",
+        { expose: false },
+      );
+    }
     const command = new GetObjectCommand({
       Bucket: this.config.r2.bucket,
-      Key: objectKey,
+      Key: options.objectKey,
       ResponseContentDisposition: "inline",
-      ResponseContentType: "video/mp4",
+      ResponseContentType: options.contentType,
     });
     return {
       url: await getSignedUrl(this.client, command, {
-        expiresIn: this.config.r2.previewTtlSeconds,
+        expiresIn,
       }),
-      expiresIn: this.config.r2.previewTtlSeconds,
+      expiresIn,
     };
   }
 }
