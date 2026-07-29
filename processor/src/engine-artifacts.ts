@@ -88,6 +88,7 @@ type VisualMap = {
 
 type CandidateResultItem = {
   candidateId: string;
+  editorProvider?: "openai" | "doubao";
   title: string;
   hook: string;
   openingLine: string;
@@ -560,6 +561,9 @@ function publicPayload(
   return {
     id: randomUUID(),
     kind: job.mode,
+    ...(candidate.editorProvider
+      ? { editorProvider: candidate.editorProvider }
+      : {}),
     index: String(ordinal).padStart(2, "0"),
     title: candidate.title,
     sourceStart: safety.startSec,

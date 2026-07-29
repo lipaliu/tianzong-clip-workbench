@@ -13,6 +13,7 @@ import type {
   ClaimedRender,
   JobApi,
   ProjectApi,
+  EditorialModelMode,
   TianClipMode,
 } from "./types.js";
 
@@ -36,6 +37,7 @@ export function mapProject(row: Record<string, unknown>): ProjectApi {
     projectDate: dateValue(row.project_date),
     sourceName: String(row.source_name),
     mode: row.mode as TianClipMode,
+    editorMode: (row.editor_mode ?? "compare") as EditorialModelMode,
     status: String(row.status),
     stage: String(row.stage),
     progress: numberValue(row.progress),
@@ -193,14 +195,15 @@ export class ProcessorRepository {
     projectDate: string;
     sourceName: string;
     mode: TianClipMode;
+    editorMode: EditorialModelMode;
   }): Promise<ProjectApi> {
     const id = input.id ?? randomUUID();
     try {
       const result = await this.database.query(
-        `INSERT INTO projects(id, title, project_date, source_name, mode)
-         VALUES($1, $2, $3, $4, $5)
+        `INSERT INTO projects(id, title, project_date, source_name, mode, editor_mode)
+         VALUES($1, $2, $3, $4, $5, $6)
          RETURNING *`,
-        [id, input.title, input.projectDate, input.sourceName, input.mode],
+        [id, input.title, input.projectDate, input.sourceName, input.mode, input.editorMode],
       );
       return mapProject(result.rows[0] as Record<string, unknown>);
     } catch (error) {
@@ -773,7 +776,7 @@ export class ProcessorRepository {
         `SELECT
            j.id, j.project_id, j.upload_id, j.attempt, j.max_attempts,
            u.object_key, u.source_name, u.expected_size_bytes, u.expected_sha256,
-           p.mode
+           p.mode, p.editor_mode
          FROM processing_jobs j
          JOIN media_uploads u ON u.id = j.upload_id
          JOIN projects p ON p.id = j.project_id
@@ -800,6 +803,7 @@ export class ProcessorRepository {
         expectedSha256:
           item.expected_sha256 === null ? null : String(item.expected_sha256),
         mode: item.mode as TianClipMode,
+        editorMode: (item.editor_mode ?? "compare") as EditorialModelMode,
         attempt: numberValue(item.attempt),
         maxAttempts: numberValue(item.max_attempts),
       };

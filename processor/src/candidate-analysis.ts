@@ -85,7 +85,7 @@ export async function analyzeCandidateWindows(options: {
   core: LoadedTianClipCore;
   mode: "chat" | "sales";
   client: OpenAIClientLike;
-  model: "gpt-5.6-sol";
+  model: string;
   analysisWindowSeconds: number;
   safetyIdentifier: string;
   onProgress?: (progress: {

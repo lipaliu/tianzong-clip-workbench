@@ -65,6 +65,8 @@ const envSchema = z.object({
     .default("https://ark.cn-beijing.volces.com/api/v3"),
   DOUBAO_AV_MODEL: z.literal("doubao-seed-2-0-lite-260428")
     .default("doubao-seed-2-0-lite-260428"),
+  DOUBAO_EDITOR_MODEL: z.literal("doubao-seed-2-0-pro-260428")
+    .default("doubao-seed-2-0-pro-260428"),
   DOUBAO_AV_API_MODE: z.literal("responses").default("responses"),
   DOUBAO_AV_VIDEO_FPS: z.coerce.number().min(0.1).max(10).default(2),
   DOUBAO_AV_MAX_OUTPUT_TOKENS: positiveInteger(8_000),
@@ -165,6 +167,7 @@ export type ProcessorConfig = {
       apiKey: string | null;
       baseUrl: string;
       avModel: "doubao-seed-2-0-lite-260428";
+      editorModel: "doubao-seed-2-0-pro-260428";
       apiMode: "responses";
       videoFps: number;
       maxOutputTokens: number;
@@ -266,6 +269,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
         apiKey: value.DOUBAO_ARK_API_KEY ?? null,
         baseUrl: value.DOUBAO_ARK_BASE_URL.replace(/\/+$/, ""),
         avModel: value.DOUBAO_AV_MODEL,
+        editorModel: value.DOUBAO_EDITOR_MODEL,
         apiMode: value.DOUBAO_AV_API_MODE,
         videoFps: value.DOUBAO_AV_VIDEO_FPS,
         maxOutputTokens: value.DOUBAO_AV_MAX_OUTPUT_TOKENS,

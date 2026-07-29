@@ -6,6 +6,7 @@ export * from "./errors.mjs";
 export * from "./dense-visual-recall.mjs";
 export * from "./doubao-asr.mjs";
 export * from "./doubao-av-review.mjs";
+export * from "./doubao-editor-client.mjs";
 export * from "./frames.mjs";
 export * from "./media.mjs";
 export * from "./openai-client.mjs";

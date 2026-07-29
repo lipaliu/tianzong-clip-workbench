@@ -21,6 +21,7 @@ import {
 } from "./processor-client";
 
 type Mode = "聊播" | "带货";
+type EditorMode = "openai" | "doubao" | "compare";
 type IntakeStep = 1 | 2;
 type WorkflowStep = 1 | 2 | 3;
 type Decision = "keep" | "remove";
@@ -47,6 +48,7 @@ type ScorePart = {
 type ClipIdea = {
   id: string;
   kind: Mode;
+  editorProvider?: "openai" | "doubao";
   index: string;
   title: string;
   duration: string;
@@ -84,6 +86,7 @@ type ProjectRecord = {
   projectDate: string;
   sourceName: string;
   mode: Mode;
+  editorMode: EditorMode;
   status: ProjectStatus;
   clipCount: number;
   processorJobId?: string | null;
@@ -136,6 +139,32 @@ const modeKnowledge: Record<Mode, {
     tags: ["单一购买理由", "画面证明", "人群边界", "可信成交"],
   },
 };
+
+const editorChoices: Array<{
+  id: EditorMode;
+  name: string;
+  eyebrow: string;
+  description: string;
+}> = [
+  {
+    id: "compare",
+    name: "双模型对比",
+    eyebrow: "推荐",
+    description: "OpenAI 与火山读取同一份天总 Skill，分别给出切片方案。",
+  },
+  {
+    id: "openai",
+    name: "OpenAI 主编",
+    eyebrow: "复杂判断",
+    description: "侧重上下文、因果链、删留边界与结构化剪辑判断。",
+  },
+  {
+    id: "doubao",
+    name: "火山主编",
+    eyebrow: "中文音画",
+    description: "侧重中文直播语境、现场感、动作表情与本土表达。",
+  },
+];
 
 const scoreLabels = [
   { label: "前三秒", max: 20 },
@@ -589,6 +618,7 @@ function processorCandidateToIdea(candidate: ProcessorCandidate, position: numbe
   return {
     id: candidate.id,
     kind: candidate.kind,
+    editorProvider: candidate.editorProvider,
     index: candidate.index || String(position + 1).padStart(2, "0"),
     title: candidate.title,
     duration: secondsToClock(duration),
@@ -857,6 +887,7 @@ export default function Home() {
   const [step, setStep] = useState<WorkflowStep>(1);
   const [intakeStep, setIntakeStep] = useState<IntakeStep>(1);
   const [mode, setMode] = useState<Mode | null>(null);
+  const [editorMode, setEditorMode] = useState<EditorMode>("compare");
   const [fileName, setFileName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState("");
@@ -992,6 +1023,13 @@ export default function Home() {
     [highPotentialOnly, modeIdeas],
   );
   const discoveredCount = analysisReady ? modeIdeas.length : 0;
+  const editorCandidateCounts = useMemo(
+    () => ({
+      openai: modeIdeas.filter((idea) => idea.editorProvider === "openai").length,
+      doubao: modeIdeas.filter((idea) => idea.editorProvider === "doubao").length,
+    }),
+    [modeIdeas],
+  );
 
   const activeClip =
     candidatePool.find((idea) => idea.id === activeClipId) ??
@@ -1122,6 +1160,7 @@ export default function Home() {
     setProjectQuery(project.id);
     setActiveProjectId(project.id);
     setMode(project.mode);
+    setEditorMode(project.editorMode ?? "compare");
     setProjectDate({
       iso: project.projectDate,
       label: formatProjectDate(project.projectDate),
@@ -1326,6 +1365,7 @@ export default function Home() {
       projectDate: projectDate.iso,
       sourceName: fileName,
       mode: selectedMode,
+      editorMode,
     };
 
     setRuntimeIdeas([]);
@@ -1361,6 +1401,7 @@ export default function Home() {
         projectDate: projectDraft.projectDate,
         sourceName: selectedFile.name,
         mode: selectedMode,
+        editorMode,
       });
 
       setAnalysisProgress(5);
@@ -2014,6 +2055,33 @@ export default function Home() {
                       </div>
                     )}
 
+                    <section className="editor-choice-section" aria-labelledby="editor-choice-title">
+                      <header>
+                        <span>主编模型</span>
+                        <h2 id="editor-choice-title">这场直播交给谁执行天总 Skill？</h2>
+                      </header>
+                      <div className="editor-choice-cards" role="radiogroup" aria-label="选择主编模型">
+                        {editorChoices.map((choice) => (
+                          <button
+                            key={choice.id}
+                            type="button"
+                            className={editorMode === choice.id ? "selected" : ""}
+                            onClick={() => setEditorMode(choice.id)}
+                            aria-pressed={editorMode === choice.id}
+                          >
+                            <span>{choice.eyebrow}</span>
+                            <strong>{choice.name}</strong>
+                            <small>{choice.description}</small>
+                          </button>
+                        ))}
+                      </div>
+                      {editorMode === "compare" && (
+                        <p className="editor-compare-note">
+                          两套结果独立生成，不互相抄答案；候选页会并排显示差异。
+                        </p>
+                      )}
+                    </section>
+
                     <div className="stage-actions">
                       <button type="button" className="stage-secondary" onClick={() => setIntakeStep(1)}>返回上传</button>
                       <button
@@ -2138,6 +2206,12 @@ export default function Home() {
               <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看 S 级"}</button>
             </div>
             <p className="panel-intro">按完整语义、同题去重与风险门禁召回；自然返回多少就是多少，不设目标、不设保底，也不补齐。</p>
+            {editorMode === "compare" && (
+              <div className="model-comparison-status" aria-label="双模型候选数量">
+                <span>OpenAI <b>{editorCandidateCounts.openai}</b></span>
+                <span>火山 Seed Pro <b>{editorCandidateCounts.doubao}</b></span>
+              </div>
+            )}
             <div className="version-context"><span>{corpusBaseline.version}</span><p>{mode}规则 · 近期直播最高权重</p></div>
             <div className="idea-list">
               {displayedIdeas.map((idea) => (
@@ -2149,7 +2223,13 @@ export default function Home() {
                     aria-label={`选择 ${idea.title}`}
                   />
                   <button onClick={() => activateClip(idea.id)}>
-                    <span>{idea.priority} · {idea.index}</span>
+                    <span>
+                      {idea.editorProvider === "openai"
+                        ? "OpenAI"
+                        : idea.editorProvider === "doubao"
+                          ? "火山"
+                          : "主编"} · {idea.priority} · {idea.index}
+                    </span>
                     <strong>{idea.title}</strong>
                     <small>{idea.duration}</small>
                   </button>
@@ -2161,7 +2241,13 @@ export default function Home() {
 
           <section className="map-preview" aria-label="候选原片预览">
             <div className="story-header">
-              <span>天总候选 · {activeClip.index}</span>
+              <span>
+                {activeClip.editorProvider === "openai"
+                  ? "OpenAI 主编"
+                  : activeClip.editorProvider === "doubao"
+                    ? "火山 Seed Pro 主编"
+                    : "天总候选"} · {activeClip.index}
+              </span>
               <b>编辑适配分 {activeClip.score} / 100</b>
             </div>
             <h1 id="map-title">{activeClip.title}</h1>
@@ -2275,6 +2361,12 @@ export default function Home() {
               <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看 S 级"}</button>
             </div>
             <p className="panel-intro">数量由天总专属判断自然得出，不设上限，也不补齐。</p>
+            {editorMode === "compare" && (
+              <div className="model-comparison-status" aria-label="双模型候选数量">
+                <span>OpenAI <b>{editorCandidateCounts.openai}</b></span>
+                <span>火山 Seed Pro <b>{editorCandidateCounts.doubao}</b></span>
+              </div>
+            )}
             <div className="version-context"><span>{corpusBaseline.version}</span><p>当前候选沿用已发布判断 · 人工差异进入回标</p></div>
             <div className="idea-list">
               {displayedIdeas.map((idea) => (
@@ -2283,7 +2375,13 @@ export default function Home() {
                   key={idea.id}
                   onClick={() => activateClip(idea.id)}
                 >
-                  <span>{idea.priority} · {idea.index}</span><strong>{idea.title}</strong><small>{idea.duration}</small>
+                  <span>
+                    {idea.editorProvider === "openai"
+                      ? "OpenAI"
+                      : idea.editorProvider === "doubao"
+                        ? "火山"
+                        : "主编"} · {idea.priority} · {idea.index}
+                  </span><strong>{idea.title}</strong><small>{idea.duration}</small>
                 </button>
               ))}
             </div>

@@ -1,4 +1,5 @@
 export type TianClipMode = "聊播" | "带货";
+export type EditorialModelMode = "openai" | "doubao" | "compare";
 export type JobStatus =
   | "queued"
   | "running"
@@ -13,6 +14,7 @@ export type ProjectApi = {
   projectDate: string;
   sourceName: string;
   mode: TianClipMode;
+  editorMode: EditorialModelMode;
   status: string;
   stage: string;
   progress: number;
@@ -111,6 +113,7 @@ export type CandidatePayload = {
   previewVersion: string;
   isFinal: boolean;
   sourceMedia: CandidateSourceMedia;
+  editorProvider?: "openai" | "doubao";
 };
 
 export type CandidateReviewStatus =
@@ -137,6 +140,7 @@ export type ClaimedJob = {
   expectedSizeBytes: number;
   expectedSha256: string | null;
   mode: TianClipMode;
+  editorMode: EditorialModelMode;
   attempt: number;
   maxAttempts: number;
 };

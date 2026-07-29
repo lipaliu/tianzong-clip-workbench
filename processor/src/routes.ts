@@ -25,6 +25,7 @@ const projectBody = z.object({
   projectDate: z.iso.date(),
   sourceName: z.string().trim().min(1).max(500),
   mode: z.enum(["聊播", "带货"]),
+  editorMode: z.enum(["openai", "doubao", "compare"]).default("compare"),
 }).strict();
 
 const uploadBody = z.object({
@@ -216,6 +217,7 @@ export async function registerRoutes(
             projectDate: body.projectDate,
             sourceName: body.sourceName,
             mode: body.mode,
+            editorMode: body.editorMode,
             ...(body.id ? { id: body.id } : {}),
           }),
         },

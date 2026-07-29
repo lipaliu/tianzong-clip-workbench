@@ -12,6 +12,7 @@ import {
   assertChunkPlanCoverage,
   buildFrameExtractionPlan,
   checkMediaToolchain,
+  createDoubaoEditorClient,
   createOpenAIClient,
   deriveCandidateValidation,
   extractDenseTimelineFrames,
@@ -1720,4 +1721,51 @@ test("OpenAI Responses client sends the official image and strict text.format co
   assert.equal(requestBody.text.format.name, "answer_schema");
   assert.equal(requestBody.text.format.strict, true);
   assert.equal(requestBody.input[0].content[1].type, "input_image");
+});
+
+test("Doubao editor executes the same structured Skill contract through Ark Responses", async () => {
+  let requestBody;
+  const client = createDoubaoEditorClient({
+    apiKey: "test-ark-key",
+    fetchImpl: async (url, init) => {
+      assert.equal(url, "https://ark.cn-beijing.volces.com/api/v3/responses");
+      requestBody = JSON.parse(init.body);
+      return jsonResponse({
+        id: "resp_doubao_1",
+        status: "completed",
+        model: "doubao-seed-2-0-pro-260428",
+        output: [{
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({ answer: "same-skill" }),
+          }],
+        }],
+      });
+    },
+  });
+
+  const result = await client.createStructuredResponse({
+    instructions: "TIANZONG PRIVATE SKILL",
+    input: [{
+      role: "user",
+      content: [{ type: "input_text", text: "shared evidence" }],
+    }],
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { answer: { type: "string" } },
+      required: ["answer"],
+    },
+    schemaName: "same_skill_schema",
+  });
+
+  assert.deepEqual(result.parsed, { answer: "same-skill" });
+  assert.equal(requestBody.model, "doubao-seed-2-0-pro-260428");
+  assert.equal(requestBody.instructions, "TIANZONG PRIVATE SKILL");
+  assert.equal(requestBody.input[0].content[0].text, "shared evidence");
+  assert.equal(requestBody.thinking.type, "enabled");
+  assert.equal(requestBody.text.format.type, "json_schema");
+  assert.equal(requestBody.text.format.strict, true);
+  assert.equal(result.provider, "doubao");
 });

@@ -4,6 +4,7 @@ export type ProcessorProjectInput = {
   projectDate: string;
   sourceName: string;
   mode: "聊播" | "带货";
+  editorMode: "openai" | "doubao" | "compare";
 };
 
 export type SinglePresignedUpload = {
@@ -92,6 +93,7 @@ export type ProcessorSourceMedia = {
 export type ProcessorCandidate = {
   id: string;
   kind: "聊播" | "带货";
+  editorProvider?: "openai" | "doubao";
   index: string;
   title: string;
   sourceStart: number;

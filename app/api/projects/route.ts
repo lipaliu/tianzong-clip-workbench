@@ -1,8 +1,9 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
-import { projectModes, projects } from "../../../db/schema";
+import { editorModes, projectModes, projects } from "../../../db/schema";
 
 type ProjectMode = (typeof projectModes)[number];
+type EditorMode = (typeof editorModes)[number];
 
 function toRouteErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected error";
@@ -19,6 +20,10 @@ function toRouteErrorMessage(error: unknown) {
 
 function isProjectMode(value: unknown): value is ProjectMode {
   return typeof value === "string" && projectModes.includes(value as ProjectMode);
+}
+
+function isEditorMode(value: unknown): value is EditorMode {
+  return typeof value === "string" && editorModes.includes(value as EditorMode);
 }
 
 function isProjectDate(value: unknown): value is string {
@@ -81,6 +86,12 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    if (!isEditorMode(payload.editorMode)) {
+      return Response.json(
+        { error: `editorMode must be one of: ${editorModes.join(", ")}` },
+        { status: 400 },
+      );
+    }
 
     const db = getDb();
     const [project] = await db
@@ -91,6 +102,7 @@ export async function POST(request: Request) {
         projectDate: payload.projectDate,
         sourceName,
         mode: payload.mode,
+        editorMode: payload.editorMode,
         status: "analyzing",
         clipCount: 0,
         createdAt: new Date(),

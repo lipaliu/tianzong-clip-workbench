@@ -1,6 +1,7 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const projectModes = ["聊播", "带货"] as const;
+export const editorModes = ["openai", "doubao", "compare"] as const;
 export const projectStatuses = ["analyzing", "ready", "failed"] as const;
 
 export const projects = sqliteTable(
@@ -11,6 +12,9 @@ export const projects = sqliteTable(
     projectDate: text("project_date").notNull(),
     sourceName: text("source_name").notNull(),
     mode: text("mode", { enum: projectModes }).notNull(),
+    editorMode: text("editor_mode", { enum: editorModes })
+      .notNull()
+      .default("compare"),
     status: text("status", { enum: projectStatuses })
       .notNull()
       .default("analyzing"),

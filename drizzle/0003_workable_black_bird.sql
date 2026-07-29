@@ -1,0 +1,1 @@
+ALTER TABLE `projects` ADD `editor_mode` text DEFAULT 'compare' NOT NULL;
