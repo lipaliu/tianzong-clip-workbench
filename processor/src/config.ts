@@ -42,6 +42,7 @@ const envSchema = z.object({
   MULTIPART_PRESIGN_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(12),
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  OPENAI_SITES_BYPASS_TOKEN: z.string().min(1).optional(),
   OPENAI_TRANSCRIPTION_MODEL: z.literal("gpt-4o-transcribe-diarize"),
   OPENAI_REASONING_MODEL: z.literal("gpt-5.6-sol"),
   OPENAI_VISION_MODEL: z.literal("gpt-5.6-sol"),
@@ -138,6 +139,7 @@ export type ProcessorConfig = {
   openai: {
     apiKey: string;
     baseUrl: string;
+    sitesBypassToken: string | undefined;
     transcriptionModel: "gpt-4o-transcribe-diarize";
     reasoningModel: "gpt-5.6-sol";
     visionModel: "gpt-5.6-sol";
@@ -237,6 +239,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
     openai: {
       apiKey: value.OPENAI_API_KEY,
       baseUrl: value.OPENAI_BASE_URL.replace(/\/+$/, ""),
+      sitesBypassToken: value.OPENAI_SITES_BYPASS_TOKEN,
       transcriptionModel: value.OPENAI_TRANSCRIPTION_MODEL,
       reasoningModel: value.OPENAI_REASONING_MODEL,
       visionModel: value.OPENAI_VISION_MODEL,

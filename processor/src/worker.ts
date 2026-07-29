@@ -86,6 +86,7 @@ const storage = new PrivateObjectStorage(config);
 const openai = createOpenAIClient({
   apiKey: config.openai.apiKey,
   baseUrl: config.openai.baseUrl,
+  sitesBypassToken: config.openai.sitesBypassToken,
 });
 const doubaoAsr = config.providers.transcription === "doubao"
   ? doubaoAsrFactory({
