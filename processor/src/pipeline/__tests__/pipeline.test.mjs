@@ -1733,7 +1733,7 @@ test("Doubao editor executes the same structured Skill contract through Ark Resp
       return jsonResponse({
         id: "resp_doubao_1",
         status: "completed",
-        model: "doubao-seed-2-0-pro-260428",
+        model: "doubao-seed-2-0-pro-260215",
         output: [{
           type: "message",
           content: [{
@@ -1761,7 +1761,7 @@ test("Doubao editor executes the same structured Skill contract through Ark Resp
   });
 
   assert.deepEqual(result.parsed, { answer: "same-skill" });
-  assert.equal(requestBody.model, "doubao-seed-2-0-pro-260428");
+  assert.equal(requestBody.model, "doubao-seed-2-0-pro-260215");
   assert.equal(requestBody.instructions, "TIANZONG PRIVATE SKILL");
   assert.equal(requestBody.input[0].content[0].text, "shared evidence");
   assert.equal(requestBody.thinking.type, "enabled");

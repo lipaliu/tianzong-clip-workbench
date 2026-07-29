@@ -87,7 +87,7 @@ export function createDoubaoEditorClient({
   baseUrl = process.env.DOUBAO_ARK_BASE_URL
     ?? "https://ark.cn-beijing.volces.com/api/v3",
   model = process.env.DOUBAO_EDITOR_MODEL
-    ?? "doubao-seed-2-0-pro-260428",
+    ?? "doubao-seed-2-0-pro-260215",
   fetchImpl = globalThis.fetch,
   timeoutMs = 10 * 60 * 1_000,
 } = {}) {
