@@ -92,6 +92,15 @@ services:
     networks:
       - edge
 
+  tunnel:
+    image: cloudflare/cloudflared:2025.7.0
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "--url", "http://api:10000"]
+    depends_on:
+      - api
+    networks:
+      - edge
+
 volumes:
   postgres_data:
   worker_scratch:

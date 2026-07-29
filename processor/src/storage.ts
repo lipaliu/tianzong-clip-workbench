@@ -30,7 +30,9 @@ export class PrivateObjectStorage {
         accessKeyId: config.r2.accessKeyId,
         secretAccessKey: config.r2.secretAccessKey,
       },
-      forcePathStyle: true,
+      // Tencent COS and R2 both support virtual-hosted bucket URLs. COS
+      // rejects path-style HEAD requests even when PutObject succeeds.
+      forcePathStyle: false,
     });
   }
 
