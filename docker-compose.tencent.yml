@@ -74,6 +74,7 @@ services:
       - worker_scratch:/var/data/tianclip
     networks:
       - private
+      - edge
 
   caddy:
     image: caddy:2.10-alpine
