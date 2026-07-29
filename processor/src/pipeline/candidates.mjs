@@ -1025,45 +1025,69 @@ export async function generateCandidates({
       visualCoverageLimitation: batchVisualMap.coverage.limitation,
     };
 
-    const response = await client.createStructuredResponse({
-      model,
-      reasoningEffort: "high",
-      maxOutputTokens: normalizedConfig.maxOutputTokensPerBatch,
-      instructions: [
-        `You are executing private Tianzong clipping core ${coreBundle.coreVersion} (${coreBundle.coreSha256}).`,
-        `Core id: ${coreBundle.coreId}; prompt version: ${coreBundle.promptVersion}.`,
-        "The following private knowledge and rules are mandatory in every recall batch and outrank generic social-video advice.",
-        "<private_tianzong_knowledge>",
-        privateKnowledge,
-        "</private_tianzong_knowledge>",
-        `<${mode}_rules>`,
-        modeRules,
-        `</${mode}_rules>`,
-        "Select by evidence, not by a quota. Preserve complete causal chains and Tianzong's current persona.",
-        "The same source range may support several independent editorial angles; do not collapse them merely because their timestamps overlap.",
-        "Older official-work patterns must not override newer livestream and recent-clip evidence.",
-        "Fail by returning an empty candidates array with notes when evidence is insufficient; never invent supporting words or visuals.",
-      ].join("\n"),
-      input: [{
-        role: "user",
-        content: [{
-          type: "input_text",
-          text: JSON.stringify(inputPayload),
+    let response;
+    let validationError;
+    for (let validationAttempt = 1; validationAttempt <= 2; validationAttempt += 1) {
+      response = await client.createStructuredResponse({
+        model,
+        reasoningEffort: "high",
+        maxOutputTokens: normalizedConfig.maxOutputTokensPerBatch,
+        instructions: [
+          `You are executing private Tianzong clipping core ${coreBundle.coreVersion} (${coreBundle.coreSha256}).`,
+          `Core id: ${coreBundle.coreId}; prompt version: ${coreBundle.promptVersion}.`,
+          "The following private knowledge and rules are mandatory in every recall batch and outrank generic social-video advice.",
+          "<private_tianzong_knowledge>",
+          privateKnowledge,
+          "</private_tianzong_knowledge>",
+          `<${mode}_rules>`,
+          modeRules,
+          `</${mode}_rules>`,
+          "Select by evidence, not by a quota. Preserve complete causal chains and Tianzong's current persona.",
+          "The same source range may support several independent editorial angles; do not collapse them merely because their timestamps overlap.",
+          "Older official-work patterns must not override newer livestream and recent-clip evidence.",
+          "Fail by returning an empty candidates array with notes when evidence is insufficient; never invent supporting words or visuals.",
+          validationError
+            ? [
+                `Your previous answer failed deterministic validation (${validationError.code}).`,
+                "Correct only the invalid structured evidence and return the complete answer again.",
+                "Every score.total must equal hook + emotion + insight + controversy + completeness + titlePotential.",
+                "Use only transcript and visual ids present in the supplied payload, keep every range inside recallBatch.evidenceWindow, and keep selectionSummary.qualifyingCount equal to candidates.length.",
+              ].join("\n")
+            : "",
+        ].filter(Boolean).join("\n"),
+        input: [{
+          role: "user",
+          content: [{
+            type: "input_text",
+            text: JSON.stringify(inputPayload),
+          }],
         }],
-      }],
-      schema: CANDIDATE_SCHEMA,
-      schemaName: "tianzong_clip_candidates",
-      safetyIdentifier,
-      signal,
-    });
+        schema: CANDIDATE_SCHEMA,
+        schemaName: "tianzong_clip_candidates",
+        safetyIdentifier,
+        signal,
+      });
 
-    validateCandidateResult(response.parsed, {
-      transcript: batchTranscript,
-      visualMap: batchVisualMap,
-      durationSec: transcript.mediaDurationSec,
-    });
-    for (const candidate of response.parsed.candidates) {
-      validateCandidateWithinBatch(candidate, batch);
+      try {
+        validateCandidateResult(response.parsed, {
+          transcript: batchTranscript,
+          visualMap: batchVisualMap,
+          durationSec: transcript.mediaDurationSec,
+        });
+        for (const candidate of response.parsed.candidates) {
+          validateCandidateWithinBatch(candidate, batch);
+        }
+        validationError = undefined;
+        break;
+      } catch (error) {
+        if (
+          validationAttempt === 2
+          || error?.stage !== "candidate_generation"
+        ) {
+          throw error;
+        }
+        validationError = error;
+      }
     }
     batchResults.push({
       batch,

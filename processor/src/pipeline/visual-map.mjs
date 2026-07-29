@@ -243,14 +243,19 @@ export async function analyzeVisualTimeline({
     });
     validateVisualBatchResult(response.parsed, batch);
 
-    for (const event of response.parsed.events) {
-      invariant(!seenEventIds.has(event.id), "Visual event ids must be unique across batches", {
+    for (const [eventIndex, event] of response.parsed.events.entries()) {
+      // Model-generated ids are only trustworthy inside the batch contract.
+      // Providers commonly restart at event_1 for every request, so bind each
+      // event to its immutable batch before it enters the global evidence map.
+      const eventId =
+        `${batch.id}_event_${String(eventIndex + 1).padStart(4, "0")}`;
+      invariant(!seenEventIds.has(eventId), "Visual event ids must be unique across batches", {
         code: "DUPLICATE_VISUAL_EVENT_ID",
         stage: "visual_map",
-        details: { eventId: event.id },
+        details: { eventId },
       });
-      seenEventIds.add(event.id);
-      events.push({ ...event, batchId: batch.id });
+      seenEventIds.add(eventId);
+      events.push({ ...event, id: eventId, batchId: batch.id });
     }
     batchSummaries.push({
       batchId: batch.id,

@@ -385,6 +385,77 @@ test("visual timeline analysis sends GPT-5.6 Sol image inputs and remains screen
   });
 });
 
+test("visual timeline namespaces repeated provider event ids across batches", async () => {
+  await withTempDir(async (directory) => {
+    const framePath = path.join(directory, "visual-batch-frame.jpg");
+    await writeFile(framePath, "visual-batch-jpeg");
+    const frames = [0, 10, 20].map((timestampSec, index) => ({
+      id: `frame_repeat_${index + 1}`,
+      timestampSec,
+      reasons: ["periodic"],
+      path: framePath,
+      mimeType: "image/jpeg",
+    }));
+    let requestIndex = 0;
+    const visualMap = await analyzeVisualTimeline({
+      frameManifest: {
+        durationSec: 20,
+        periodicIntervalSec: 10,
+        frames,
+        coverage: {
+          fullTimelineScreeningExtracted: true,
+          continuousVideoReviewed: false,
+        },
+      },
+      framesPerBatch: 2,
+      client: {
+        async createStructuredResponse(value) {
+          const batchIndex = requestIndex;
+          requestIndex += 1;
+          const frameId = batchIndex === 0 ? "frame_repeat_1" : "frame_repeat_3";
+          const timestamp = batchIndex === 0 ? 0 : 20;
+          return {
+            parsed: {
+              events: [{
+                id: "event_1",
+                startSec: timestamp,
+                endSec: timestamp,
+                eventType: "speaker_expression",
+                description: `批次 ${batchIndex + 1} 的可见表情`,
+                people: ["天总"],
+                actions: [],
+                expressions: ["微笑"],
+                products: [],
+                onscreenText: [],
+                clipSignals: ["人物反应"],
+                evidenceFrameIds: [frameId],
+                confidence: 0.8,
+                uncertainties: ["静帧证据"],
+              }],
+              batchSummary: {
+                dominantScene: "直播间",
+                visibleSpeakerCount: 1,
+                notes: [],
+              },
+            },
+            responseId: `resp_repeat_${batchIndex + 1}`,
+            model: value.model,
+            usage: { total_tokens: 10 },
+          };
+        },
+      },
+    });
+
+    assert.deepEqual(
+      visualMap.events.map((event) => event.id),
+      [
+        "visual_batch_0001_event_0001",
+        "visual_batch_0002_event_0001",
+      ],
+    );
+  });
+});
+
 function candidateFixtures() {
   const transcript = {
     mediaDurationSec: 30,
@@ -767,6 +838,235 @@ test("candidate-level dense still plus transcript refinement remains human-gated
       true,
     );
     assert.equal(result.refinementRuns[0].denseFrameCount, 5);
+  });
+});
+
+test("candidate refinement collapses exact duplicate delivery windows", async () => {
+  await withTempDir(async (directory) => {
+    const fixtures = candidateFixtures();
+    const framePath = path.join(directory, "candidate-dedupe.jpg");
+    await writeFile(framePath, "candidate-dedupe-jpeg");
+    const candidates = [
+      {
+        ...fixtures.candidate,
+        candidateId: "visual_candidate",
+        title: "Visual-only duplicate",
+        score: {
+          hook: 15,
+          emotion: 10,
+          insight: 15,
+          controversy: 10,
+          completeness: 15,
+          titlePotential: 15,
+          total: 80,
+        },
+        discoveryMethods: ["visual_only_dense_reverse_recall"],
+        recallProvenance: { sources: [{ discoveryMethod: "visual" }] },
+      },
+      {
+        ...fixtures.candidate,
+        candidateId: "text_candidate",
+        title: "赚钱和事业不是一回事",
+        score: {
+          hook: 20,
+          emotion: 10,
+          insight: 20,
+          controversy: 10,
+          completeness: 15,
+          titlePotential: 15,
+          total: 90,
+        },
+        discoveryMethods: ["transcript_core_recall"],
+        recallProvenance: { sources: [{ discoveryMethod: "transcript" }] },
+      },
+    ];
+    let calls = 0;
+    const result = await refineCandidatesWithDenseEvidence({
+      candidateResult: {
+        candidates,
+        selectionSummary: {
+          qualifyingCount: 2,
+          rejectedThemes: [],
+          notes: [],
+        },
+      },
+      transcript: fixtures.transcript,
+      visualMap: fixtures.visualMap,
+      frameManifest: {
+        durationSec: 30,
+        periodicIntervalSec: 2,
+        frames: [{
+          id: "candidate_frame_1",
+          timestampSec: 4,
+          reasons: ["periodic"],
+          path: framePath,
+          mimeType: "image/jpeg",
+        }],
+        coverage: {
+          fullTimelineScreeningExtracted: true,
+          continuousVideoReviewed: false,
+        },
+      },
+      coreBundle: fixtures.coreBundle,
+      mode: "chat",
+      client: {
+        async createStructuredResponse(value) {
+          const candidateId = candidates[calls].candidateId;
+          calls += 1;
+          return {
+            parsed: {
+              candidateId,
+              decision: "retain",
+              refinedRecallWindow: { startSec: 2, endSec: 9 },
+              refinedSafetyWindow: { startSec: 1, endSec: 10 },
+              openingLine: "赚钱和事业根本不是一回事",
+              transcriptSegmentIds: ["tx_1", "tx_2"],
+              visualEventIds: ["visual_1"],
+              visualPunchline: {
+                present: false,
+                description: "未确认独立视觉梗",
+                evidenceFrameIds: ["candidate_frame_1"],
+                confidence: 0.4,
+              },
+              actionCompleteness: {
+                status: "uncertain",
+                description: "仍需人工正常倍速确认",
+                evidenceFrameIds: ["candidate_frame_1"],
+              },
+              boundaryAssessment: {
+                openingStatus: "supported",
+                closingStatus: "supported",
+                riskNotes: [],
+              },
+              requiredHumanNormalPlaybackChecks: ["完整播放1到10秒"],
+              risks: [],
+              rejectionReason: "",
+              machineReviewMethod:
+                "dense_still_frames_plus_diarized_transcript",
+              continuousAudioVideoReviewed: false,
+              humanNormalPlaybackRequired: true,
+              validationStatus:
+                "candidate_dense_av_screening_needs_human_normal_playback",
+            },
+            responseId: `resp_dedupe_${calls}`,
+            model: value.model,
+            usage: { total_tokens: 20 },
+          };
+        },
+      },
+    });
+
+    assert.equal(calls, 2);
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].title, "赚钱和事业不是一回事");
+    assert.deepEqual(
+      result.candidates[0].discoveryMethods.sort(),
+      ["transcript_core_recall", "visual_only_dense_reverse_recall"],
+    );
+    assert.equal(result.refinementSummary.exactDeliveryDuplicateCount, 1);
+    assert.match(
+      result.selectionSummary.notes.join("\n"),
+      /重复候选已合并/,
+    );
+  });
+});
+
+test("candidate refinement retries a single invalid evidence answer instead of restarting the job", async () => {
+  await withTempDir(async (directory) => {
+    const fixtures = candidateFixtures();
+    const framePath = path.join(directory, "candidate-retry.jpg");
+    await writeFile(framePath, "candidate-retry-jpeg");
+    let calls = 0;
+    let retryInstructions = "";
+    const validAnswer = {
+      candidateId: "candidate_1",
+      decision: "retain",
+      refinedRecallWindow: { startSec: 2, endSec: 9 },
+      refinedSafetyWindow: { startSec: 1, endSec: 10 },
+      openingLine: "赚钱和事业根本不是一回事",
+      transcriptSegmentIds: ["tx_1", "tx_2"],
+      visualEventIds: ["visual_1"],
+      visualPunchline: {
+        present: false,
+        description: "未确认独立视觉梗",
+        evidenceFrameIds: ["candidate_frame_1"],
+        confidence: 0.4,
+      },
+      actionCompleteness: {
+        status: "uncertain",
+        description: "仍需人工正常倍速确认",
+        evidenceFrameIds: ["candidate_frame_1"],
+      },
+      boundaryAssessment: {
+        openingStatus: "supported",
+        closingStatus: "uncertain",
+        riskNotes: ["句尾需人工确认"],
+      },
+      requiredHumanNormalPlaybackChecks: ["完整播放1到10秒"],
+      risks: ["机器证据不能替代人工确认"],
+      rejectionReason: "",
+      machineReviewMethod: "dense_still_frames_plus_diarized_transcript",
+      continuousAudioVideoReviewed: false,
+      humanNormalPlaybackRequired: true,
+      validationStatus:
+        "candidate_dense_av_screening_needs_human_normal_playback",
+    };
+    const result = await refineCandidatesWithDenseEvidence({
+      candidateResult: {
+        candidates: [fixtures.candidate],
+        selectionSummary: {
+          qualifyingCount: 1,
+          rejectedThemes: [],
+          notes: [],
+        },
+      },
+      transcript: fixtures.transcript,
+      visualMap: fixtures.visualMap,
+      frameManifest: {
+        durationSec: 30,
+        periodicIntervalSec: 2,
+        frames: [{
+          id: "candidate_frame_1",
+          timestampSec: 4,
+          reasons: ["periodic"],
+          path: framePath,
+          mimeType: "image/jpeg",
+        }],
+        coverage: {
+          fullTimelineScreeningExtracted: true,
+          continuousVideoReviewed: false,
+        },
+      },
+      coreBundle: fixtures.coreBundle,
+      mode: "chat",
+      client: {
+        async createStructuredResponse(value) {
+          calls += 1;
+          if (calls === 2) retryInstructions = value.instructions;
+          return {
+            parsed: calls === 1
+              ? {
+                  ...validAnswer,
+                  visualPunchline: {
+                    ...validAnswer.visualPunchline,
+                    evidenceFrameIds: ["invented_frame"],
+                  },
+                }
+              : validAnswer,
+            responseId: `resp_candidate_retry_${calls}`,
+            model: value.model,
+            usage: { total_tokens: 20 },
+          };
+        },
+      },
+    });
+    assert.equal(calls, 2);
+    assert.match(
+      retryInstructions,
+      /CANDIDATE_REFINEMENT_FRAME_EVIDENCE_INVALID/,
+    );
+    assert.match(retryInstructions, /frameIds=candidate_frame_1/);
+    assert.equal(result.candidates.length, 1);
   });
 });
 
@@ -1198,6 +1498,48 @@ test("candidate generation binds the private core, transcript, and visual map wi
   assert.match(request.input[0].content[0].text, /There is no target number/);
   assert.equal(result.candidates[0].validationStatus, "editorial_candidate_needs_av_review");
   assert.equal(result.coreBinding.coreSha256, "a".repeat(64));
+});
+
+test("candidate generation retries a model score mismatch inside the same batch", async () => {
+  const fixtures = candidateFixtures();
+  let calls = 0;
+  let retryInstructions = "";
+  const result = await generateCandidates({
+    transcript: fixtures.transcript,
+    visualMap: fixtures.visualMap,
+    coreBundle: fixtures.coreBundle,
+    mode: "chat",
+    client: {
+      async createStructuredResponse(value) {
+        calls += 1;
+        if (calls === 2) retryInstructions = value.instructions;
+        return {
+          parsed: {
+            candidates: [{
+              ...fixtures.candidate,
+              score: calls === 1
+                ? { ...fixtures.candidate.score, total: 99 }
+                : fixtures.candidate.score,
+            }],
+            selectionSummary: {
+              qualifyingCount: 1,
+              rejectedThemes: [],
+              notes: [],
+            },
+          },
+          responseId: `resp_candidate_score_${calls}`,
+          model: value.model,
+          usage: { total_tokens: 20 },
+        };
+      },
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.match(retryInstructions, /CANDIDATE_SCORE_MISMATCH/);
+  assert.match(retryInstructions, /score\.total/);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].score.total, 100);
 });
 
 test("semantic recall planning keeps a question and its answer together", () => {
