@@ -7,7 +7,7 @@ export type Database = pg.Pool;
 export type DatabaseClient = pg.PoolClient;
 
 export function createDatabase(config: ProcessorConfig): Database {
-  const ssl = config.nodeEnv === "production" ? { rejectUnauthorized: false } : undefined;
+  const ssl = config.databaseSsl ? { rejectUnauthorized: false } : undefined;
   return new Pool({
     connectionString: config.databaseUrl,
     max: 10,

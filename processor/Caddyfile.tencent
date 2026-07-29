@@ -1,0 +1,25 @@
+{$API_DOMAIN} {
+  encode zstd gzip
+
+  @health path /healthz /readyz
+  @api path /v1/*
+
+  handle @health {
+    reverse_proxy api:10000
+  }
+
+  handle @api {
+    reverse_proxy api:10000
+  }
+
+  handle {
+    respond "Not Found" 404
+  }
+
+  header {
+    -Server
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer"
+  }
+}

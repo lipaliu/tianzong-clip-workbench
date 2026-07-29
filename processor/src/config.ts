@@ -21,6 +21,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535).default(10_000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   DATABASE_URL: z.string().url().or(z.string().startsWith("postgresql://")),
+  DATABASE_SSL: envBoolean(true),
   INTERNAL_API_KEYS: z.string().min(2),
   INTERNAL_SIGNATURE_TTL_SECONDS: positiveInteger(300),
   R2_ENDPOINT: z.string().url(),
@@ -118,6 +119,7 @@ export type ProcessorConfig = {
   port: number;
   logLevel: string;
   databaseUrl: string;
+  databaseSsl: boolean;
   internalApiKeys: ReadonlyMap<string, string>;
   signatureTtlSeconds: number;
   r2: {
@@ -216,6 +218,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
     port: value.PORT,
     logLevel: value.LOG_LEVEL,
     databaseUrl: value.DATABASE_URL,
+    databaseSsl: value.DATABASE_SSL,
     internalApiKeys: parseInternalKeys(value.INTERNAL_API_KEYS),
     signatureTtlSeconds: value.INTERNAL_SIGNATURE_TTL_SECONDS,
     r2: {

@@ -1,0 +1,105 @@
+name: tianclip
+
+x-processor: &processor
+  build:
+    context: ./processor
+  image: tianclip-processor:local
+  env_file:
+    - .env.tencent
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - private
+
+  migrate:
+    <<: *processor
+    command: ["node", "dist/migrate.js"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - private
+
+  scratch-init:
+    image: alpine:3.21
+    command: ["sh", "-c", "mkdir -p /scratch && chown -R 10001:10001 /scratch"]
+    restart: "no"
+    volumes:
+      - worker_scratch:/scratch
+
+  api:
+    <<: *processor
+    command: ["node", "dist/server.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    expose:
+      - "10000"
+    networks:
+      - private
+      - edge
+
+  worker:
+    <<: *processor
+    command: ["node", "dist/worker.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      scratch-init:
+        condition: service_completed_successfully
+    volumes:
+      - worker_scratch:/var/data/tianclip
+    networks:
+      - private
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      API_DOMAIN: ${API_DOMAIN}
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./processor/Caddyfile.tencent:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+
+volumes:
+  postgres_data:
+  worker_scratch:
+  caddy_data:
+  caddy_config:
+
+networks:
+  private:
+    internal: true
+  edge:
