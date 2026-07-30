@@ -72,7 +72,7 @@ services:
       - key: DOUBAO_ASR_POLL_INTERVAL_MS
         value: "5000"
       - key: DOUBAO_ASR_POLL_TIMEOUT_MS
-        value: "1800000"
+        value: "14400000"
       - key: DOUBAO_ARK_API_KEY
         sync: false
       - key: DOUBAO_ARK_BASE_URL

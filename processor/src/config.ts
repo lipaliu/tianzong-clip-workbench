@@ -59,7 +59,7 @@ const envSchema = z.object({
     .default("https://openspeech.bytedance.com"),
   DOUBAO_ASR_REQUEST_TIMEOUT_MS: positiveInteger(60_000),
   DOUBAO_ASR_POLL_INTERVAL_MS: positiveInteger(5_000),
-  DOUBAO_ASR_POLL_TIMEOUT_MS: positiveInteger(1_800_000),
+  DOUBAO_ASR_POLL_TIMEOUT_MS: positiveInteger(14_400_000),
   DOUBAO_ARK_API_KEY: z.string().min(1).optional(),
   DOUBAO_ARK_BASE_URL: z.string().url()
     .default("https://ark.cn-beijing.volces.com/api/v3"),
