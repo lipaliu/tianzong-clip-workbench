@@ -19,6 +19,14 @@ const RETRYABLE_REFINEMENT_VALIDATION_CODES = new Set([
   "CANDIDATE_REFINEMENT_CLOSURE_INVALID",
   "CANDIDATE_REFINEMENT_ROUGH_DURATION_INVALID",
 ]);
+const CANDIDATE_LOCAL_PROVIDER_FAILURE_CODES = new Set([
+  "OPENAI_RESPONSE_INCOMPLETE",
+  "OPENAI_OUTPUT_TEXT_MISSING",
+  "OPENAI_STRUCTURED_OUTPUT_INVALID",
+  "DOUBAO_EDITOR_RESPONSE_INCOMPLETE",
+  "DOUBAO_EDITOR_OUTPUT_TEXT_MISSING",
+  "DOUBAO_EDITOR_STRUCTURED_OUTPUT_INVALID",
+]);
 
 export const CANDIDATE_DENSE_REFINEMENT_SCHEMA = {
   type: "object",
@@ -1066,29 +1074,44 @@ export async function refineCandidatesWithDenseEvidence({
     let response;
     let validationRetry;
     let validationFailure;
+    let providerFailure;
     for (let validationAttempt = 1; validationAttempt <= 2; validationAttempt += 1) {
-      response = await client.createStructuredResponse({
-        model,
-        reasoningEffort: "high",
-        maxOutputTokens: 8_000,
-        instructions: refinementInstructions({
-          coreBundle,
-          mode,
-          privateKnowledge,
-          modeRules,
-          nativeAvEvidencePresent,
-          validationRetry,
-          candidate,
-          transcriptSegments,
-          visualEvents,
-          frames,
-        }),
-        input: refinementInput,
-        schema: CANDIDATE_DENSE_REFINEMENT_SCHEMA,
-        schemaName: "tianzong_candidate_dense_av_refinement",
-        safetyIdentifier,
-        signal,
-      });
+      try {
+        response = await client.createStructuredResponse({
+          model,
+          reasoningEffort: "high",
+          maxOutputTokens: 8_000,
+          instructions: refinementInstructions({
+            coreBundle,
+            mode,
+            privateKnowledge,
+            modeRules,
+            nativeAvEvidencePresent,
+            validationRetry,
+            candidate,
+            transcriptSegments,
+            visualEvents,
+            frames,
+          }),
+          input: refinementInput,
+          schema: CANDIDATE_DENSE_REFINEMENT_SCHEMA,
+          schemaName: "tianzong_candidate_dense_av_refinement",
+          safetyIdentifier,
+          signal,
+        });
+        providerFailure = undefined;
+      } catch (error) {
+        if (!CANDIDATE_LOCAL_PROVIDER_FAILURE_CODES.has(error?.code)) {
+          throw error;
+        }
+        providerFailure = error;
+        validationFailure = error;
+        validationRetry = {
+          code: error.code,
+          details: error.details,
+        };
+        continue;
+      }
       try {
         validateCandidateDenseRefinement(response.parsed, {
           candidate,
@@ -1098,6 +1121,7 @@ export async function refineCandidatesWithDenseEvidence({
           expectedMachineReviewMethod,
         });
         validationFailure = undefined;
+        providerFailure = undefined;
         break;
       } catch (error) {
         if (!RETRYABLE_REFINEMENT_VALIDATION_CODES.has(error?.code)) {
@@ -1114,7 +1138,7 @@ export async function refineCandidatesWithDenseEvidence({
       rejected.push({
         candidateId: candidate.candidateId,
         reason:
-          `候选终审连续两次未能绑定有效证据（${validationFailure.code}），`
+          `候选终审连续两次未能取得完整、有效的结构化证据（${validationFailure.code}），`
           + "已安全淘汰，未生成切片。",
         safetyWindow: candidate.safetyWindow,
         discoveryMethods: candidate.discoveryMethods ?? [],
@@ -1138,6 +1162,7 @@ export async function refineCandidatesWithDenseEvidence({
         model: response?.model ?? model,
         usage: response?.usage ?? null,
         validationFailureCode: validationFailure.code,
+        providerFailureCode: providerFailure?.code ?? null,
         validationAttempts: 2,
         continuousAudioVideoReviewed: false,
         humanNormalPlaybackRequired: true,

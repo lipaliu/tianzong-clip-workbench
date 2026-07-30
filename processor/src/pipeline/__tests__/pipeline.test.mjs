@@ -1088,6 +1088,101 @@ test("candidate refinement retries a single invalid evidence answer instead of r
   });
 });
 
+test("an incomplete provider response only retries the affected candidate", async () => {
+  await withTempDir(async (directory) => {
+    const fixtures = candidateFixtures();
+    const framePath = path.join(directory, "candidate-provider-retry.jpg");
+    await writeFile(framePath, "candidate-provider-retry-jpeg");
+    let calls = 0;
+    let retryInstructions = "";
+    const validAnswer = {
+      candidateId: "candidate_1",
+      decision: "retain",
+      refinedRecallWindow: { startSec: 2, endSec: 20 },
+      refinedSafetyWindow: { startSec: 1, endSec: 21 },
+      openingLine: "赚钱和事业根本不是一回事",
+      ...completeRefinementFields(),
+      transcriptSegmentIds: ["tx_1", "tx_2"],
+      visualEventIds: ["visual_1"],
+      visualPunchline: {
+        present: false,
+        description: "未确认独立视觉梗",
+        evidenceFrameIds: ["candidate_frame_1"],
+        confidence: 0.4,
+      },
+      actionCompleteness: {
+        status: "uncertain",
+        description: "仍需人工正常倍速确认",
+        evidenceFrameIds: ["candidate_frame_1"],
+      },
+      boundaryAssessment: {
+        openingStatus: "supported",
+        closingStatus: "supported",
+        riskNotes: ["句尾需人工确认"],
+      },
+      requiredHumanNormalPlaybackChecks: ["完整播放安全窗"],
+      risks: ["机器证据不能替代人工确认"],
+      rejectionReason: "",
+      machineReviewMethod: "dense_still_frames_plus_diarized_transcript",
+      continuousAudioVideoReviewed: false,
+      humanNormalPlaybackRequired: true,
+      validationStatus:
+        "candidate_dense_av_screening_needs_human_normal_playback",
+    };
+    const result = await refineCandidatesWithDenseEvidence({
+      candidateResult: {
+        candidates: [fixtures.candidate],
+        selectionSummary: {
+          qualifyingCount: 1,
+          rejectedThemes: [],
+          notes: [],
+        },
+      },
+      transcript: fixtures.transcript,
+      visualMap: fixtures.visualMap,
+      frameManifest: {
+        durationSec: 30,
+        periodicIntervalSec: 2,
+        frames: [{
+          id: "candidate_frame_1",
+          timestampSec: 4,
+          reasons: ["periodic"],
+          path: framePath,
+          mimeType: "image/jpeg",
+        }],
+        coverage: {
+          fullTimelineScreeningExtracted: true,
+          continuousVideoReviewed: false,
+        },
+      },
+      coreBundle: fixtures.coreBundle,
+      mode: "chat",
+      client: {
+        async createStructuredResponse(value) {
+          calls += 1;
+          if (calls === 1) {
+            const error = new Error("provider response incomplete");
+            error.code = "OPENAI_RESPONSE_INCOMPLETE";
+            error.details = { reason: "max_output_tokens" };
+            throw error;
+          }
+          retryInstructions = value.instructions;
+          return {
+            parsed: validAnswer,
+            responseId: "resp_candidate_provider_retry",
+            model: value.model,
+            usage: { total_tokens: 20 },
+          };
+        },
+      },
+    });
+    assert.equal(calls, 2);
+    assert.match(retryInstructions, /OPENAI_RESPONSE_INCOMPLETE/);
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.refinementSummary.rejected.length, 0);
+  });
+});
+
 test("candidate refinement only adopts native AV evidence after a successful bound review", async () => {
   await withTempDir(async (directory) => {
     const fixtures = candidateFixtures();
