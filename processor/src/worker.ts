@@ -738,89 +738,121 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       await mkdir(avProxyDir, { recursive: true });
       let failedCandidateCount = 0;
       let fallbackUsed = false;
-      const reviewResults = [];
-      for (
-        let index = 0;
-        index < mergedCandidateResult.candidates.length;
-        index += 1
-      ) {
-        const candidate = mergedCandidateResult.candidates[index]!;
-        const outputPath = join(avProxyDir, `${candidate.candidateId}.mp4`);
-        await renderSafetyProxy({
-          sourcePath,
-          candidate,
-          outputPath,
-          mediaDurationSec: media.durationSec,
-        });
-        const objectKey =
-          `provider-inputs/${job.projectId}/${job.id}/doubao-av/`
-          + `${candidate.candidateId}.mp4`;
-        transientObjectKeys.add(objectKey);
-        await storage.uploadFile(objectKey, outputPath, "video/mp4", {
-          "project-id": job.projectId,
-          "job-id": job.id,
-          "candidate-id": candidate.candidateId,
-          "provider-purpose": "doubao-native-av-transient-input",
-        });
-        const signed = await storage.presignProviderDownload({
-          objectKey,
-          contentType: "video/mp4",
-          expiresIn: config.providers.providerUrlTtlSeconds,
-        });
-        const routed = await providerRouteExecute({
-          requestedProvider: "doubao",
-          primaryProvider: "doubao",
-          primary: async () =>
-            await doubaoAv.reviewCandidate({
-              candidateId: candidate.candidateId,
-              videoUrl: signed.url,
-              sourceOffsetSec: candidate.safetyWindow.startSec,
+      const reviewResultsByIndex: Array<Record<string, unknown> | undefined> =
+        new Array(mergedCandidateResult.candidates.length);
+      const nativeAvReviewRecordsByIndex:
+        Array<Record<string, unknown> | undefined> =
+        new Array(mergedCandidateResult.candidates.length);
+      let nextCandidateIndex = 0;
+      let completedCandidateCount = 0;
+      const reviewNextCandidate = async () => {
+        while (true) {
+          const index = nextCandidateIndex;
+          nextCandidateIndex += 1;
+          if (index >= mergedCandidateResult.candidates.length) return;
+          const candidate = mergedCandidateResult.candidates[index]!;
+          const outputPath = join(
+            avProxyDir,
+            `${candidate.candidateId}.mp4`,
+          );
+          const objectKey =
+            `provider-inputs/${job.projectId}/${job.id}/doubao-av/`
+            + `${candidate.candidateId}.mp4`;
+          try {
+            await renderSafetyProxy({
+              sourcePath,
               candidate,
-              transcript,
-              coreBundle,
-              mode,
-            }),
-          fallbackProvider: "sampled_stills",
-          fallback: async () => null,
-          allowFallback:
-            config.providers.avReviewFallbackToSampledStills,
-        });
-        if (routed.value) {
-          reviewResults.push(routed.value);
-          nativeAvReviewRecords.push({
-            candidateId: candidate.candidateId,
-            normalized: routed.value.normalized,
-            responseId: routed.value.responseId,
-            model: routed.value.model,
-            usage: routed.value.usage,
-            provider: routed.value.provider,
-            apiMode: routed.value.apiMode,
-            route: routed.route,
-          });
-        } else {
-          failedCandidateCount += 1;
-          fallbackUsed = true;
-          nativeAvReviewRecords.push({
-            candidateId: candidate.candidateId,
-            normalized: null,
-            route: routed.route,
-          });
+              outputPath,
+              mediaDurationSec: media.durationSec,
+            });
+            transientObjectKeys.add(objectKey);
+            await storage.uploadFile(objectKey, outputPath, "video/mp4", {
+              "project-id": job.projectId,
+              "job-id": job.id,
+              "candidate-id": candidate.candidateId,
+              "provider-purpose": "doubao-native-av-transient-input",
+            });
+            const signed = await storage.presignProviderDownload({
+              objectKey,
+              contentType: "video/mp4",
+              expiresIn: config.providers.providerUrlTtlSeconds,
+            });
+            const routed = await providerRouteExecute({
+              requestedProvider: "doubao",
+              primaryProvider: "doubao",
+              primary: async () =>
+                await doubaoAv.reviewCandidate({
+                  candidateId: candidate.candidateId,
+                  videoUrl: signed.url,
+                  sourceOffsetSec: candidate.safetyWindow.startSec,
+                  candidate,
+                  transcript,
+                  coreBundle,
+                  mode,
+                }),
+              fallbackProvider: "sampled_stills",
+              fallback: async () => null,
+              allowFallback:
+                config.providers.avReviewFallbackToSampledStills,
+            });
+            if (routed.value) {
+              reviewResultsByIndex[index] = routed.value;
+              nativeAvReviewRecordsByIndex[index] = {
+                candidateId: candidate.candidateId,
+                normalized: routed.value.normalized,
+                responseId: routed.value.responseId,
+                model: routed.value.model,
+                usage: routed.value.usage,
+                provider: routed.value.provider,
+                apiMode: routed.value.apiMode,
+                route: routed.route,
+              };
+            } else {
+              failedCandidateCount += 1;
+              fallbackUsed = true;
+              nativeAvReviewRecordsByIndex[index] = {
+                candidateId: candidate.candidateId,
+                normalized: null,
+                route: routed.route,
+              };
+            }
+          } finally {
+            await storage.delete(objectKey).catch(() => undefined);
+            transientObjectKeys.delete(objectKey);
+            await rm(outputPath, { force: true }).catch(() => undefined);
+          }
+          const completed = ++completedCandidateCount;
+          await repository.updateJobStage(
+            job.id,
+            job.workerId,
+            "candidate_native_av_review",
+            85 + Math.floor(
+              4 * completed
+                / Math.max(1, mergedCandidateResult.candidates.length),
+            ),
+            `豆包原生音视频候选复核 ${completed}/`
+              + `${mergedCandidateResult.candidates.length} 已完成。`,
+          );
         }
-        await storage.delete(objectKey).catch(() => undefined);
-        transientObjectKeys.delete(objectKey);
-        await rm(outputPath, { force: true }).catch(() => undefined);
-        await repository.updateJobStage(
-          job.id,
-          job.workerId,
-          "candidate_native_av_review",
-          85 + Math.floor(
-            4 * (index + 1)
-              / Math.max(1, mergedCandidateResult.candidates.length),
-          ),
-          `豆包原生音视频候选复核 ${index + 1}/`
-            + `${mergedCandidateResult.candidates.length} 已完成。`,
-        );
-      }
+      };
+      const reviewWorkerCount = Math.min(
+        2,
+        mergedCandidateResult.candidates.length,
+      );
+      await Promise.all(
+        Array.from(
+          { length: reviewWorkerCount },
+          () => reviewNextCandidate(),
+        ),
+      );
+      const reviewResults = reviewResultsByIndex.filter(
+        (result): result is Record<string, unknown> => Boolean(result),
+      );
+      nativeAvReviewRecords.push(
+        ...nativeAvReviewRecordsByIndex.filter(
+          (record): record is Record<string, unknown> => Boolean(record),
+        ),
+      );
       const augmentedNativeReview = nativeAvVisualMapAugment({
         visualMap: augmentedVisualMap,
         reviewResults,
@@ -1052,46 +1084,67 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     );
     const previewDir = join(workDir, "rough-previews");
     await mkdir(previewDir, { recursive: true });
-    for (let index = 0; index < artifacts.candidatePayloads.length; index += 1) {
-      const payload = artifacts.candidatePayloads[index]!;
-      // engine-artifacts preserves candidate order while exposing the
-      // publish-safe window in the public payload. Bind by that stable order,
-      // never by comparing recall and safety-window floats.
-      const sourceCandidate = candidateResult.candidates[index];
-      if (!sourceCandidate) {
-        throw new AppError(
-          500,
-          "candidate_mapping_failed",
-          "候选与编辑计划的时间窗无法对应。",
-          { expose: false },
+    let nextPreviewIndex = 0;
+    let completedPreviewCount = 0;
+    const renderNextPreview = async () => {
+      while (true) {
+        const index = nextPreviewIndex;
+        nextPreviewIndex += 1;
+        if (index >= artifacts.candidatePayloads.length) return;
+        const payload = artifacts.candidatePayloads[index]!;
+        // engine-artifacts preserves candidate order while exposing the
+        // publish-safe window in the public payload. Bind by that stable order,
+        // never by comparing recall and safety-window floats.
+        const sourceCandidate = candidateResult.candidates[index];
+        if (!sourceCandidate) {
+          throw new AppError(
+            500,
+            "candidate_mapping_failed",
+            "候选与编辑计划的时间窗无法对应。",
+            { expose: false },
+          );
+        }
+        const outputPath = join(previewDir, `${payload.id}.mp4`);
+        await renderRoughProxy({
+          sourcePath,
+          candidate: sourceCandidate,
+          outputPath,
+          mediaDurationSec: media.durationSec,
+        });
+        await storage.uploadFile(
+          `previews/${job.projectId}/${payload.id}.mp4`,
+          outputPath,
+          "video/mp4",
+          {
+            "project-id": job.projectId,
+            "job-id": job.id,
+            "candidate-id": payload.id,
+            "preview-kind": "rough-cut-needs-human-normal-playback",
+          },
+        );
+        const completed = ++completedPreviewCount;
+        await repository.updateJobStage(
+          job.id,
+          job.workerId,
+          "rendering_rough_proxies",
+          95 + Math.floor(
+            4 * completed
+              / Math.max(1, artifacts.candidatePayloads.length),
+          ),
+          `候选粗剪 ${completed}/${artifacts.candidatePayloads.length} 已生成。`,
         );
       }
-      const outputPath = join(previewDir, `${payload.id}.mp4`);
-      await renderRoughProxy({
-        sourcePath,
-        candidate: sourceCandidate,
-        outputPath,
-        mediaDurationSec: media.durationSec,
-      });
-      await storage.uploadFile(
-        `previews/${job.projectId}/${payload.id}.mp4`,
-        outputPath,
-        "video/mp4",
-        {
-          "project-id": job.projectId,
-          "job-id": job.id,
-          "candidate-id": payload.id,
-          "preview-kind": "rough-cut-needs-human-normal-playback",
-        },
-      );
-      await repository.updateJobStage(
-        job.id,
-        job.workerId,
-        "rendering_rough_proxies",
-        95 + Math.floor(4 * (index + 1) / Math.max(1, artifacts.candidatePayloads.length)),
-        `候选粗剪 ${index + 1}/${artifacts.candidatePayloads.length} 已生成。`,
-      );
-    }
+    };
+    const previewWorkerCount = Math.max(
+      1,
+      Math.min(2, artifacts.candidatePayloads.length),
+    );
+    await Promise.all(
+      Array.from(
+        { length: previewWorkerCount },
+        () => renderNextPreview(),
+      ),
+    );
 
     const [factStored, planStored, ledgerStored] = await Promise.all([
       storage.uploadJson(factLayerKey, artifacts.factLayer, {

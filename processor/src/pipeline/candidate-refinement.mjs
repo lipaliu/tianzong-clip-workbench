@@ -555,6 +555,27 @@ export function validateCandidateDenseRefinement(result, {
       .map((id) => transcriptById.get(id).text)
       .join(" "),
   );
+  const citedSegments = result.transcriptSegmentIds
+    .map((id) => transcriptById.get(id));
+  invariant(
+    citedSegments.every((segment) =>
+      segment
+      && overlaps(segment, result.refinedSafetyWindow)),
+    "Candidate refinement cites transcript evidence outside its refined safety window",
+    {
+      code: "CANDIDATE_REFINEMENT_TRANSCRIPT_EVIDENCE_INVALID",
+      stage: "candidate_dense_refinement",
+      details: {
+        candidateId: candidate.candidateId,
+        refinedSafetyWindow: result.refinedSafetyWindow,
+        outsideSegmentIds: citedSegments
+          .filter((segment) =>
+            !segment
+            || !overlaps(segment, result.refinedSafetyWindow))
+          .map((segment) => segment?.id ?? null),
+      },
+    },
+  );
   invariant(
     normalizedEvidenceText(result.openingLine).length > 0
     && citedText.includes(normalizedEvidenceText(result.openingLine)),
@@ -973,6 +994,7 @@ export async function refineCandidatesWithDenseEvidence({
   signal = undefined,
   safetyIdentifier = undefined,
   onProgress = undefined,
+  concurrency = 2,
 } = {}) {
   invariant(
     candidateResult
@@ -1019,7 +1041,19 @@ export async function refineCandidatesWithDenseEvidence({
   const rejected = [];
   const runs = [];
   const refinementEvents = [];
-  for (let index = 0; index < candidateResult.candidates.length; index += 1) {
+  let nextCandidateIndex = 0;
+  let completedCandidateCount = 0;
+  const inputOrder = new Map(
+    candidateResult.candidates.map((candidate, index) => [
+      candidate.candidateId,
+      index,
+    ]),
+  );
+  const refineNextCandidate = async () => {
+    while (true) {
+      const index = nextCandidateIndex;
+      nextCandidateIndex += 1;
+      if (index >= candidateResult.candidates.length) return;
     const candidate = candidateResult.candidates[index];
     const frames = framesInsideSafety(frameManifest, candidate.safetyWindow);
     const transcriptSegments = compactTranscript(transcript, candidate.safetyWindow);
@@ -1170,7 +1204,7 @@ export async function refineCandidatesWithDenseEvidence({
       });
       await onProgress?.({
         stage: "candidate_dense_refinement",
-        completed: index + 1,
+        completed: ++completedCandidateCount,
         total: candidateResult.candidates.length,
         candidateId: candidate.candidateId,
       });
@@ -1179,7 +1213,7 @@ export async function refineCandidatesWithDenseEvidence({
     const event = buildRefinementObservationEvent(
       response.parsed,
       candidate,
-      refinementEvents.length + 1,
+      index + 1,
     );
     if (event) refinementEvents.push(event);
     if (response.parsed.decision === "retain") {
@@ -1222,11 +1256,32 @@ export async function refineCandidatesWithDenseEvidence({
     });
     await onProgress?.({
       stage: "candidate_dense_refinement",
-      completed: index + 1,
+      completed: ++completedCandidateCount,
       total: candidateResult.candidates.length,
       candidateId: candidate.candidateId,
     });
-  }
+    }
+  };
+  const requestedConcurrency = Number.isSafeInteger(concurrency)
+    ? concurrency
+    : 2;
+  const workerCount = Math.max(
+    1,
+    Math.min(
+      Math.max(1, requestedConcurrency),
+      candidateResult.candidates.length,
+    ),
+  );
+  await Promise.all(
+    Array.from({ length: workerCount }, () => refineNextCandidate()),
+  );
+  const byInputOrder = (left, right) =>
+    (inputOrder.get(left.candidateId) ?? Number.MAX_SAFE_INTEGER)
+    - (inputOrder.get(right.candidateId) ?? Number.MAX_SAFE_INTEGER);
+  retained.sort(byInputOrder);
+  rejected.sort(byInputOrder);
+  runs.sort(byInputOrder);
+  refinementEvents.sort(byInputOrder);
 
   const consolidation = consolidateExactDeliveryDuplicates(retained);
   const candidateIdMap = new Map();

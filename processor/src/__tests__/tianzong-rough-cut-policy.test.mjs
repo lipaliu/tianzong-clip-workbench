@@ -161,6 +161,30 @@ test("business rough cut cannot be compressed back to 20 seconds", () => {
   );
 });
 
+test("transcript evidence outside the refined safety window is rejected per candidate", () => {
+  const outsideSegment = {
+    id: "s4",
+    speaker: "speaker_2",
+    startSec: 80,
+    endSec: 90,
+    text: "这是已经进入下一个话题的证据。",
+  };
+  assert.throws(
+    () => validateCandidateDenseRefinement(
+      refinement({
+        refinedSafetyWindow: { startSec: 0, endSec: 65 },
+        transcriptSegmentIds: ["s2", "s3", "s4"],
+      }),
+      {
+        ...validationEvidence,
+        transcriptSegments: [...transcriptSegments, outsideSegment],
+      },
+    ),
+    (error) =>
+      error?.code === "CANDIDATE_REFINEMENT_TRANSCRIPT_EVIDENCE_INVALID",
+  );
+});
+
 test("unfinished or source-truncated speech cannot be a closing point", () => {
   const truncatedSegments = transcriptSegments.map((segment) =>
     segment.id === "s3"
