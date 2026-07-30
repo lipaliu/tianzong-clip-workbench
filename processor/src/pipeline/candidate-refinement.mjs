@@ -297,6 +297,8 @@ function compactCandidate(candidate) {
   return {
     candidateId: candidate.candidateId,
     title: candidate.title,
+    douyinTitle: candidate.douyinTitle,
+    xiaohongshuTitle: candidate.xiaohongshuTitle,
     hook: candidate.hook,
     openingLine: candidate.openingLine,
     topic: candidate.topic,

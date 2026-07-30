@@ -90,6 +90,8 @@ type CandidateResultItem = {
   candidateId: string;
   editorProvider?: "openai" | "doubao";
   title: string;
+  douyinTitle: string;
+  xiaohongshuTitle: string;
   hook: string;
   openingLine: string;
   closureText?: string;
@@ -602,6 +604,8 @@ function publicPayload(
       : {}),
     index: String(ordinal).padStart(2, "0"),
     title: candidate.title,
+    douyinTitle: candidate.douyinTitle,
+    xiaohongshuTitle: candidate.xiaohongshuTitle,
     sourceStart: recall.startSec,
     sourceEnd: recall.endSec,
     originalSafetyStart: safety.startSec,
@@ -816,6 +820,8 @@ export function buildAndValidateEngineArtifacts(
       topic: candidate.topic,
       hook_text_raw: candidate.openingLine,
       title_editorial: candidate.title,
+      title_douyin: candidate.douyinTitle,
+      title_xiaohongshu: candidate.xiaohongshuTitle,
       punchline_text_raw: candidate.hook || null,
       public_reason: candidate.rationale,
       private_trace: {

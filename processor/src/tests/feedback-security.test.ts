@@ -16,6 +16,8 @@ function candidate(): CandidatePayload {
     kind: "聊播",
     index: "01",
     title: "测试候选",
+    douyinTitle: "测试候选",
+    xiaohongshuTitle: "测试候选",
     sourceStart: 10,
     sourceEnd: 30,
     originalSafetyStart: 10,

@@ -501,6 +501,8 @@ function candidateFixtures() {
   const candidate = {
     candidateId: "candidate_1",
     title: "赚钱和事业不是一回事",
+    douyinTitle: "赚钱和事业，根本不是一回事",
+    xiaohongshuTitle: "为什么赚钱了，也不一定是在做事业？",
     hook: "很多人把短期收入当成事业",
     openingLine: "赚钱和事业根本不是一回事",
     topic: "事业",
@@ -1868,6 +1870,8 @@ test("multi-hour recall is batched, core-bound on every request, and naturally c
           candidates: [{
             candidateId: `source_${payload.recallBatch.batchId}`,
             title: owned.text,
+            douyinTitle: owned.text,
+            xiaohongshuTitle: `天总把这件事讲明白了：${owned.text}`,
             hook: owned.text,
             openingLine: owned.text,
             topic: "自然主题",

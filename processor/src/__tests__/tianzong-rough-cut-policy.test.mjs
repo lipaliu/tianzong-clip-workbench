@@ -10,6 +10,8 @@ import { renderCandidateRoughCut } from "../pipeline/proxy.mjs";
 const candidate = {
   candidateId: "candidate-1",
   title: "直播电商为什么越来越难",
+  douyinTitle: "直播电商为什么越来越难",
+  xiaohongshuTitle: "直播电商越来越难，普通人还要做吗？",
   hook: "直播电商已然达到了地狱级难度。",
   openingLine: "直播电商已然达到了地狱级难度。",
   topic: "直播电商",

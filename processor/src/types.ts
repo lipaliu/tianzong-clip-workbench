@@ -81,6 +81,8 @@ export type CandidatePayload = {
   kind: TianClipMode;
   index: string;
   title: string;
+  douyinTitle: string;
+  xiaohongshuTitle: string;
   sourceStart: number;
   sourceEnd: number;
   /**
