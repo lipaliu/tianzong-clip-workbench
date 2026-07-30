@@ -304,6 +304,20 @@ function calculateAsrGaps(
 }
 
 function visualScanMethod(visualMap: VisualMap): string {
+  if (
+    visualMap.method
+      === "full_transcript_recall_plus_dense_frame_evidence_then_candidate_native_av"
+  ) {
+    const nativeReviewCount =
+      visualMap.coverage?.candidateNativeAudioVideoModelReviewCount ?? 0;
+    return (
+      "full-transcript natural-unit recall + full-timeline dense frame evidence"
+      + ` + ${nativeReviewCount} candidate native audio-video model reviews`
+      + " + candidate safety-window dense still/transcript refinement;"
+      + " pure visual metadata cannot independently create a clip;"
+      + " not continuous human playback"
+    );
+  }
   if (!visualMap.coverage?.denseVisualReverseRecallComplete) {
     return "adaptive_proxy_scan: periodic + scene-change sparse frames; not continuous playback";
   }
@@ -1132,7 +1146,7 @@ export function buildAndValidateEngineArtifacts(
       rendered_clip_count: 0,
       count_explanation:
         candidateResult.sourceFunnel
-          ? `文字召回 ${candidateResult.sourceFunnel.textCandidateCount} 条，密集视觉反向补召回 ${candidateResult.sourceFunnel.visualCandidateCount} 条，只删除 ${candidateResult.sourceFunnel.exactDuplicateCount} 条证据与切口完全相同的重复项；候选级密集静帧+逐字稿二次理解后保留 ${candidateResult.candidates.length} 条。数量不设配额，仍需人工正常倍速完整播放。`
+          ? `文字召回 ${candidateResult.sourceFunnel.textCandidateCount} 条；密集视觉反向筛查只记录动作、表情和边界证据，不独立生成候选；候选级音画复核后保留 ${candidateResult.candidates.length} 条。数量不设配额或上限，仍需人工正常倍速完整播放。`
           : `从 ${naturalUnits.length} 个证据绑定自然单元中，按私有 Skill 召回 ${candidateResult.candidates.length} 个独立候选；数量不设配额。`,
       no_candidate_reason: noCandidateReason,
     },

@@ -557,7 +557,7 @@ function completeRefinementFields() {
   };
 }
 
-test("dense visual-only recall uses image evidence first, then binds adjacent transcript", async () => {
+test("dense visual-only recall records evidence but never creates standalone delivery candidates", async () => {
   await withTempDir(async (directory) => {
     const fixtures = candidateFixtures();
     const frames = [];
@@ -637,15 +637,16 @@ test("dense visual-only recall uses image evidence first, then binds adjacent tr
       request.input[0].content.filter((item) => item.type === "input_image").length,
       4,
     );
-    assert.equal(result.candidates.length, 1);
-    assert.equal(result.candidates[0].openingLine, "你看这个动作");
-    assert.deepEqual(result.candidates[0].transcriptSegmentIds, ["dense_tx_1"]);
+    assert.equal(result.candidates.length, 0);
+    assert.equal(result.selectionSummary.qualifyingCount, 0);
+    assert.match(result.selectionSummary.notes.join("\n"), /不直接生成交付候选/);
+    assert.deepEqual(result.events[0].transcriptSegmentIds, ["dense_tx_1"]);
     assert.equal(result.events[0].continuousRangeReviewed, false);
     assert.equal(result.coverage.continuousAudioVideoReviewed, false);
   });
 });
 
-test("text and visual candidate merge preserves different visual cuts from the same theme", () => {
+test("text and visual candidate merge rejects visual-only candidates", () => {
   const fixtures = candidateFixtures();
   const visualMap = {
     ...fixtures.visualMap,
@@ -722,11 +723,8 @@ test("text and visual candidate merge preserves different visual cuts from the s
     coreBundle: fixtures.coreBundle,
     mode: "chat",
   });
-  assert.equal(result.candidates.length, 2);
-  assert.deepEqual(
-    result.candidates.map((candidate) => candidate.visualEventIds[0]),
-    ["visual_cut_a", "visual_cut_b"],
-  );
+  assert.equal(result.candidates.length, 0);
+  assert.equal(result.sourceFunnel.visualCandidateCount, 0);
   assert.equal(result.sourceFunnel.exactDuplicateCount, 0);
 });
 

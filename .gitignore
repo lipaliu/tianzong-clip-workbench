@@ -49,6 +49,7 @@ next-env.d.ts
 /work/
 /.sites/
 /.qa/
+/deliveries/
 
 # private TianClip knowledge/runtime assets — deploy through private object storage only
 /private-core/

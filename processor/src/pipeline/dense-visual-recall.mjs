@@ -372,24 +372,6 @@ function bindProposalToTranscript(proposal, transcript, durationSec, {
   return { segments, recallWindow, safetyWindow };
 }
 
-function scoreVisualCandidate(confidence) {
-  const hook = Math.min(20, Math.round(8 + confidence * 8));
-  const emotion = Math.min(15, Math.round(5 + confidence * 8));
-  const insight = 6;
-  const controversy = 4;
-  const completeness = 8;
-  const titlePotential = Math.min(15, Math.round(7 + confidence * 6));
-  return {
-    hook,
-    emotion,
-    insight,
-    controversy,
-    completeness,
-    titlePotential,
-    total: hook + emotion + insight + controversy + completeness + titlePotential,
-  };
-}
-
 function visualEventType(proposal) {
   const map = {
     expression_reaction: "speaker_expression",
@@ -406,66 +388,6 @@ function visualEventType(proposal) {
     other: "other",
   };
   return map[proposal.eventType] ?? "other";
-}
-
-function createBoundVisualCandidate(
-  proposal,
-  event,
-  binding,
-  coreBundle,
-  periodicIntervalSec,
-) {
-  const openingSegment = binding.segments[0];
-  return {
-    candidateId: `visual_source_${event.id}`,
-    title: proposal.title,
-    hook: proposal.description,
-    openingLine: openingSegment.text,
-    topic: proposal.title,
-    contentPillar: proposal.eventType === "product_demonstration"
-      ? "产品视觉证据"
-      : "视觉事件与人物反差",
-    rationale:
-      `视觉反向召回：${proposal.description}。该候选先由密集画面发现，`
-      + "再绑定相邻逐字稿；不能仅凭静帧确认动作完整性。",
-    recallWindow: binding.recallWindow,
-    safetyWindow: binding.safetyWindow,
-    transcriptSegmentIds: binding.segments.map((segment) => segment.id),
-    visualEventIds: [event.id],
-    requiredVisualProof: [
-      "以正常倍速完整播放安全窗，确认动作从起点到落点没有被截断。",
-      "确认画面反应、原声语义和说话人属于同一时刻且没有错位。",
-      ...proposal.riskNotes,
-    ],
-    deleteSuggestions: [],
-    score: scoreVisualCandidate(proposal.confidence),
-    risks: arrayUnion(
-      `视觉反向召回来自每 ${periodicIntervalSec} 秒及镜头变化静帧，仍不能证明连续动作和音画同步。`,
-      proposal.riskNotes,
-    ),
-    validationStatus: "editorial_candidate_needs_av_review",
-    coreBinding: {
-      coreId: coreBundle.coreId,
-      coreVersion: coreBundle.coreVersion,
-      coreSha256: coreBundle.coreSha256,
-      promptVersion: coreBundle.promptVersion,
-    },
-    evidenceBinding: {
-      transcriptSegmentIds: binding.segments.map((segment) => segment.id),
-      visualEventIds: [event.id],
-      visualEvidenceStatus:
-        "dense_still_visual_reverse_recall_needs_candidate_refinement_and_human_normal_playback",
-      continuousAudioVideoReviewed: false,
-      audioVideoVerified: false,
-    },
-    recallProvenance: {
-      sources: proposal.sourceBatches.map((batchId) => ({
-        batchId,
-        sourceCandidateId: proposal.proposalId,
-        discoveryMethod: "visual_only_dense_reverse_recall",
-      })),
-    },
-  };
 }
 
 export async function analyzeDenseVisualRecall({
@@ -581,7 +503,6 @@ export async function analyzeDenseVisualRecall({
 
   const proposals = dedupeBoundaryProposals(rawProposals);
   const events = [];
-  const candidates = [];
   const unboundProposals = [];
   for (let index = 0; index < proposals.length; index += 1) {
     const proposal = proposals[index];
@@ -618,6 +539,7 @@ export async function analyzeDenseVisualRecall({
         `visual_only_reverse_recall:${proposal.eventType}`,
         ...proposal.visualSignals,
       ],
+      transcriptSegmentIds: binding.segments.map((segment) => segment.id),
       evidenceFrameIds: proposal.evidenceFrameIds,
       confidence: proposal.confidence,
       uncertainties: arrayUnion(
@@ -629,15 +551,6 @@ export async function analyzeDenseVisualRecall({
       sourceBatches: proposal.sourceBatches,
     };
     events.push(event);
-    candidates.push(
-      createBoundVisualCandidate(
-        proposal,
-        event,
-        binding,
-        coreBundle,
-        frameManifest.periodicIntervalSec,
-      ),
-    );
   }
 
   const visualMapAugmentation = {
@@ -659,14 +572,14 @@ export async function analyzeDenseVisualRecall({
       "dense_visual_reverse_recall_complete_needs_candidate_refinement_and_human_normal_playback",
   };
   const candidateResult = {
-    candidates,
+    candidates: [],
     selectionSummary: {
-      qualifyingCount: candidates.length,
+      qualifyingCount: 0,
       rejectedThemes: [],
       notes: arrayUnion(
         notes,
-        "这是先看密集画面、不读取逐字稿的反向补召回；之后才绑定相邻原声证据。",
-        "视觉候选数量按证据自然产生，不设配额。",
+        "密集画面阶段只记录视觉事件，不直接生成交付候选。",
+        "视觉事件必须绑定到已有逐字稿主题候选，用于补证据、动作和边界；纯手势、表情、转场或英文视觉描述不得独立成片。",
         ...unboundProposals.map((item) =>
           `${item.proposalId}: ${item.reason}`),
       ),
@@ -690,7 +603,7 @@ export async function analyzeDenseVisualRecall({
     method: visualMapAugmentation.method,
     frameManifestCoverage: frameManifest.coverage,
     events,
-    candidates,
+    candidates: [],
     selectionSummary: candidateResult.selectionSummary,
     runs,
     unboundProposals,
@@ -742,7 +655,7 @@ export function augmentVisualMapWithDenseRecall(sparseVisualMap, denseRecall) {
     events,
     denseVisualRecall: {
       eventCount: denseRecall.events.length,
-      candidateCount: denseRecall.candidates.length,
+      candidateCount: 0,
       unboundProposalCount: denseRecall.unboundProposals.length,
       frameCount: denseRecall.coverage.frameCount,
       periodicIntervalSec: denseRecall.coverage.periodicIntervalSec,
@@ -775,51 +688,15 @@ export function mergeTextAndVisualCandidateResults({
     stage: "candidate_source_merge",
   });
   const merged = [];
-  let exactDuplicateCount = 0;
-  for (const sourceCandidate of [
-    ...textResult.candidates.map((candidate) => ({
-      ...candidate,
+  const exactDuplicateCount = 0;
+  for (const sourceCandidate of textResult.candidates) {
+    merged.push({
+      ...sourceCandidate,
       discoveryMethods: arrayUnion(
-        candidate.discoveryMethods,
+        sourceCandidate.discoveryMethods,
         "transcript_core_recall",
       ),
-    })),
-    ...visualResult.candidates.map((candidate) => ({
-      ...candidate,
-      discoveryMethods: arrayUnion(
-        candidate.discoveryMethods,
-        "visual_only_dense_reverse_recall",
-      ),
-    })),
-  ]) {
-    const exactIndex = merged.findIndex((candidate) =>
-      exactSourceDuplicate(candidate, sourceCandidate));
-    if (exactIndex === -1) {
-      merged.push(sourceCandidate);
-      continue;
-    }
-    exactDuplicateCount += 1;
-    const existing = merged[exactIndex];
-    merged[exactIndex] = {
-      ...(sourceCandidate.score.total > existing.score.total
-        ? sourceCandidate
-        : existing),
-      requiredVisualProof: arrayUnion(
-        existing.requiredVisualProof,
-        sourceCandidate.requiredVisualProof,
-      ),
-      risks: arrayUnion(existing.risks, sourceCandidate.risks),
-      discoveryMethods: arrayUnion(
-        existing.discoveryMethods,
-        sourceCandidate.discoveryMethods,
-      ),
-      recallProvenance: {
-        sources: arrayUnion(
-          existing.recallProvenance?.sources ?? [],
-          sourceCandidate.recallProvenance?.sources ?? [],
-        ),
-      },
-    };
+    });
   }
 
   const candidates = merged
@@ -858,13 +735,12 @@ export function mergeTextAndVisualCandidateResults({
       notes: arrayUnion(
         textResult.selectionSummary.notes,
         visualResult.selectionSummary.notes,
-        "文字召回与视觉反向召回已合并；只消除证据、切口和安全窗完全相同的重复项。",
-        "同一主题、同一原片段的不同视觉动作边界不会因主题相似而被删除。",
+        "候选只来自逐字稿支持的中文主题；密集视觉反向召回只补充事件证据和边界，不独立生成候选。",
       ),
     },
     sourceFunnel: {
       textCandidateCount: textResult.candidates.length,
-      visualCandidateCount: visualResult.candidates.length,
+      visualCandidateCount: 0,
       exactDuplicateCount,
       mergedCandidateCount: candidates.length,
     },

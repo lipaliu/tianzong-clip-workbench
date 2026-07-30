@@ -26,13 +26,9 @@ import { createDoubaoAvReviewProvider } from "./pipeline/doubao-av-review.mjs";
 import { createDoubaoEditorClient } from "./pipeline/doubao-editor-client.mjs";
 import { createOpenAIClient } from "./pipeline/openai-client.mjs";
 import {
-  buildFrameExtractionPlan,
   extractDenseTimelineFrames,
-  extractFrames,
 } from "./pipeline/frames.mjs";
 import {
-  analyzeDenseVisualRecall,
-  augmentVisualMapWithDenseRecall,
   mergeTextAndVisualCandidateResults,
 } from "./pipeline/dense-visual-recall.mjs";
 import {
@@ -51,7 +47,6 @@ import {
 } from "./pipeline/provider-routing.mjs";
 import { checkMediaToolchain } from "./pipeline/toolchain.mjs";
 import { transcribeAudioChunks } from "./pipeline/transcription.mjs";
-import { analyzeVisualTimeline } from "./pipeline/visual-map.mjs";
 import { ProcessorRepository } from "./repository.js";
 import { renderCandidateRevision } from "./revision-render.js";
 import { PrivateObjectStorage } from "./storage.js";
@@ -70,13 +65,8 @@ const doubaoAsrFactory = createDoubaoBigAsrClient as AnyFunction;
 const doubaoAvFactory = createDoubaoAvReviewProvider as AnyFunction;
 const doubaoEditorFactory = createDoubaoEditorClient as AnyFunction;
 const mediaProbe = probeMedia as AnyFunction;
-const framePlan = buildFrameExtractionPlan as AnyFunction;
-const frameExtract = extractFrames as AnyFunction;
 const denseFrameExtract = extractDenseTimelineFrames as AnyFunction;
 const transcribe = transcribeAudioChunks as AnyFunction;
-const visualAnalyze = analyzeVisualTimeline as AnyFunction;
-const denseVisualRecall = analyzeDenseVisualRecall as AnyFunction;
-const visualMapAugment = augmentVisualMapWithDenseRecall as AnyFunction;
 const candidateSourceMerge = mergeTextAndVisualCandidateResults as AnyFunction;
 const candidateDenseRefine = refineCandidatesWithDenseEvidence as AnyFunction;
 const expandCandidateWindow = expandCandidateEvidenceWindow as AnyFunction;
@@ -257,6 +247,79 @@ function combineEditorialResults(
     ...(finalVisualMap ? { visualMap: finalVisualMap } : {}),
   };
   return combined;
+}
+
+function prepareTranscriptFirstVisualEvidence(
+  denseFrameManifest: Record<string, any>,
+): {
+  visualMap: Record<string, any>;
+  denseRecallResult: Record<string, any>;
+} {
+  const generatedAt = new Date().toISOString();
+  const frameIds = denseFrameManifest.frames.map(
+    (frame: Record<string, any>) => frame.id,
+  );
+  const coverage = {
+    fullTimelineScreeningComplete: true,
+    periodicIntervalSec: denseFrameManifest.periodicIntervalSec,
+    frameCount: denseFrameManifest.frames.length,
+    batchCount: 0,
+    continuousAudioVideoReviewed: false,
+    denseVisualReverseRecallComplete: true,
+    densePeriodicIntervalSec: denseFrameManifest.periodicIntervalSec,
+    denseFrameCount: denseFrameManifest.frames.length,
+    semanticVisualReviewScope: "candidate_windows_only",
+    limitation:
+      "整场已完成中文逐字稿召回与密集帧证据准备；纯画面事件不得独立成为切片。"
+      + " 只有逐字稿召回出的候选安全窗才进入豆包原生音视频复核，"
+      + "用于判断表情、动作、语气、场外插话、商品展示和真实边界；"
+      + "这不等于人工逐帧观看整场。",
+  };
+  const method =
+    "full_transcript_recall_plus_dense_frame_evidence_then_candidate_native_av";
+  const visualMap = {
+    model: null,
+    method,
+    durationSec: denseFrameManifest.durationSec,
+    events: [],
+    batchSummaries: [],
+    frameIds,
+    modelResponses: [],
+    denseVisualRecall: {
+      eventCount: 0,
+      candidateCount: 0,
+      unboundProposalCount: 0,
+      frameCount: denseFrameManifest.frames.length,
+      periodicIntervalSec: denseFrameManifest.periodicIntervalSec,
+      batchCount: 0,
+    },
+    coverage,
+    validationStatus:
+      "transcript_first_recall_complete_candidate_native_av_required",
+    generatedAt,
+  };
+  const denseRecallResult = {
+    model: "not_used_for_full_timeline_visual_candidates",
+    method,
+    frameManifestCoverage: denseFrameManifest.coverage,
+    events: [],
+    candidates: [],
+    selectionSummary: {
+      qualifyingCount: 0,
+      rejectedThemes: [],
+      notes: [
+        "纯静帧、表情、手势、动作或英文视觉描述不得独立生成交付候选。",
+        "整场候选数量只由逐字稿中的自然独立内容单元决定，不设 50 条或任何上限。",
+        "画面只在逐字稿候选安全窗内做原生音视频复核并校正边界。",
+      ],
+    },
+    runs: [],
+    unboundProposals: [],
+    visualMapAugmentation: visualMap,
+    coverage,
+    generatedAt,
+  };
+  return { visualMap, denseRecallResult };
 }
 let stopping = false;
 
@@ -523,48 +586,10 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     await repository.updateJobStage(
       job.id,
       job.workerId,
-      "sparse_visual_screening",
+      "full_timeline_evidence_preparation",
       44,
-      "正在抽取定时帧和镜头变化帧；这是稀疏视觉筛查，不等于连续观看。",
-    );
-    const plannedFrames = await framePlan({
-      sourcePath,
-      durationSec: media.durationSec,
-      periodicIntervalSec: config.worker.visionSampleSeconds,
-    });
-    const frameManifest = await frameExtract({
-      sourcePath,
-      outputDir: join(workDir, "frames"),
-      plan: plannedFrames,
-    });
-    const visualEvidenceClient = doubaoEditor ?? openai;
-    const visualEvidenceModel = doubaoEditor
-      ? config.doubao.ark.editorModel
-      : config.openai.visionModel;
-    const visualMap = await visualAnalyze({
-      frameManifest,
-      client: visualEvidenceClient,
-      model: visualEvidenceModel,
-      framesPerBatch: config.worker.visionBatchSize,
-      safetyIdentifier: job.projectId,
-      onProgress: async (event: { completed: number; total: number }) => {
-        const progress = 48 + Math.floor(18 * event.completed / event.total);
-        await repository.updateJobStage(
-          job.id,
-          job.workerId,
-          "sparse_visual_screening",
-          progress,
-          `稀疏视觉批次 ${event.completed}/${event.total} 已完成。`,
-        );
-      },
-    });
-
-    await repository.updateJobStage(
-      job.id,
-      job.workerId,
-      "dense_visual_reverse_recall",
-      68,
-      `正在用两次全片解码抽取每 ${config.worker.candidateFrameSeconds} 秒与镜头变化帧，并做视觉反向补召回。`,
+      `正在为整场逐字稿准备每 ${config.worker.candidateFrameSeconds} 秒与镜头变化帧；`
+        + "画面不单独冒充切片，后续只在候选安全窗内做原生音视频复核。",
     );
     const denseFrameManifest = await denseFrameExtract({
       sourcePath,
@@ -580,46 +605,24 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         await repository.updateJobStage(
           job.id,
           job.workerId,
-          "dense_visual_reverse_recall",
-          68 + Math.floor(4 * event.completed / event.total),
+          "full_timeline_evidence_preparation",
+          44 + Math.floor(10 * event.completed / event.total),
           event.phase === "periodic"
             ? `全片每 ${config.worker.candidateFrameSeconds} 秒密集帧已抽取 ${event.frameCount} 张。`
             : `镜头变化帧已合并，共 ${event.frameCount} 张视觉证据。`,
         );
       },
     });
-    const denseRecallResult = await denseVisualRecall({
-      frameManifest: denseFrameManifest,
-      transcript,
-      coreBundle,
-      mode,
-      client: visualEvidenceClient,
-      model: visualEvidenceModel,
-      expectedPeriodicIntervalSec: config.worker.candidateFrameSeconds,
-      framesPerBatch: Math.max(18, config.worker.visionBatchSize * 3),
-      overlapFrames: 2,
-      safetyIdentifier: job.projectId,
-      onProgress: async (event: { completed: number; total: number }) => {
-        const progress = 72 + Math.floor(7 * event.completed / event.total);
-        await repository.updateJobStage(
-          job.id,
-          job.workerId,
-          "dense_visual_reverse_recall",
-          progress,
-          `视觉反向补召回批次 ${event.completed}/${event.total} 已完成；输入不含逐字稿。`,
-        );
-      },
-    });
-    const augmentedVisualMap = visualMapAugment(
-      visualMap,
+    const {
+      visualMap: augmentedVisualMap,
       denseRecallResult,
-    );
+    } = prepareTranscriptFirstVisualEvidence(denseFrameManifest);
 
     await repository.updateJobStage(
       job.id,
       job.workerId,
       "private_core_reasoning",
-      80,
+      56,
       job.editorMode === "compare"
         ? "OpenAI 与火山正在读取同一份证据、独立执行同一版天总 Skill；不预设候选条数。"
         : `${job.editorMode === "openai" ? "OpenAI" : "火山 Seed Pro"} 正在执行天总 Skill；不预设候选条数。`,
@@ -650,7 +653,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       const providerName = provider === "openai" ? "OpenAI" : "火山 Seed Pro";
       const textCandidateResult = await analyzeCandidateWindows({
         transcript,
-        visualMap: augmentedVisualMap,
+        visualMap: augmentedVisualMap as never,
         core,
         mode,
         client: providerClient,
@@ -658,8 +661,8 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         analysisWindowSeconds: config.worker.analysisWindowSeconds,
         safetyIdentifier: `${job.projectId}:${provider}`,
         onProgress: async (event) => {
-          const providerShare = 5 / editorialProviders.length;
-          const progress = 80
+          const providerShare = 24 / editorialProviders.length;
+          const progress = 56
             + Math.floor(providerShare * providerIndex)
             + Math.floor(
               providerShare * event.completed / Math.max(1, event.total),
@@ -1178,7 +1181,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             provider === "openai"
               ? config.openai.reasoningModel
               : config.doubao.ark.editorModel),
-          vision: visualEvidenceModel,
+          vision: null,
           nativeAudioVideoReview:
             nativeAvEvidenceCount > 0
               ? config.doubao.ark.avModel
@@ -1206,7 +1209,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         coreProvenance: core.provenance,
         visualCoverage: {
           method: evidenceVisualMap.method,
-          sparseFrameCount: visualMap.coverage.frameCount,
+          sparseFrameCount: 0,
           denseFrameCount: denseFrameManifest.coverage.extractedFrameCount,
           densePeriodicIntervalSec: denseFrameManifest.periodicIntervalSec,
           denseVisualReverseRecallComplete: true,

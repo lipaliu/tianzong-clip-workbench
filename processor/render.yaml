@@ -94,9 +94,9 @@ services:
       - key: TIANCLIP_CORE_SHA256
         sync: false
       - key: TIANCLIP_CORE_VERSION
-        value: 1.2.2-private.1
+        value: 1.2.3-private.1
       - key: TIANCLIP_PROMPT_VERSION
-        value: 1.2.2
+        value: 1.2.3
       - key: TIANCLIP_SCHEMA_VERSION
         value: 1.1.0
       - key: TIANCLIP_FACT_SCHEMA_VERSION
