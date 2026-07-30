@@ -272,8 +272,8 @@ test("dense frame extraction decodes the full timeline in two ffmpeg passes, not
       outputDir: directory,
       durationSec: 5,
       intervalSec: 2,
-      runner: async (command, args) => {
-        calls.push({ command, args });
+      runner: async (command, args, options) => {
+        calls.push({ command, args, options });
         const isPeriodic = args.some((arg) => String(arg).includes("fps=fps=1/2"));
         if (isPeriodic) {
           await Promise.all([
@@ -299,6 +299,8 @@ test("dense frame extraction decodes the full timeline in two ffmpeg passes, not
     });
     assert.equal(calls.length, 2);
     assert.ok(calls.every((call) => call.command === "ffmpeg"));
+    assert.ok(calls.every((call) => call.options.timeoutMs >= 30 * 60 * 1000));
+    assert.ok(calls.every((call) => call.options.maxOutputBytes === 64 * 1024 * 1024));
     assert.equal(manifest.coverage.extractionPassCount, 2);
     assert.equal(manifest.coverage.periodicFrameCount, 3);
     assert.equal(manifest.coverage.shotChangeFrameCount, 1);

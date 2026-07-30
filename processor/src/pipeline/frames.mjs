@@ -329,6 +329,20 @@ export async function extractDenseTimelineFrames({
     stage: "dense_frame_extract",
   });
   await mkdir(outputDir, { recursive: true });
+  // A two-core production worker needs materially longer than the generic
+  // ten-minute command budget to decode a multi-hour livestream twice. Keep a
+  // finite fail-closed deadline, but derive it from source duration so a
+  // healthy full-timeline pass is never killed merely because the source is
+  // long.
+  const commandTimeoutMs = Math.max(
+    30 * 60 * 1000,
+    Math.ceil(durationSec * 250),
+  );
+  const commandOptions = {
+    signal,
+    timeoutMs: commandTimeoutMs,
+    maxOutputBytes: 64 * 1024 * 1024,
+  };
 
   const periodicPattern = path.join(outputDir, "periodic_%07d.jpg");
   const periodicResult = await runner("ffmpeg", [
@@ -342,7 +356,7 @@ export async function extractDenseTimelineFrames({
     "-q:v", "3",
     "-y",
     periodicPattern,
-  ], { signal });
+  ], commandOptions);
   const periodicTimestamps = parseShotChangeTimestamps(periodicResult.stderr, {
     durationSec,
   });
@@ -385,7 +399,7 @@ export async function extractDenseTimelineFrames({
     "-q:v", "3",
     "-y",
     shotPattern,
-  ], { signal });
+  ], commandOptions);
   const rawShotTimestamps = parseShotChangeTimestamps(shotResult.stderr, {
     durationSec,
   });
