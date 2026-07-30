@@ -836,7 +836,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         }
       };
       const reviewWorkerCount = Math.min(
-        2,
+        6,
         mergedCandidateResult.candidates.length,
       );
       await Promise.all(

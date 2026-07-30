@@ -994,7 +994,7 @@ export async function refineCandidatesWithDenseEvidence({
   signal = undefined,
   safetyIdentifier = undefined,
   onProgress = undefined,
-  concurrency = 2,
+  concurrency = 6,
 } = {}) {
   invariant(
     candidateResult
@@ -1264,7 +1264,7 @@ export async function refineCandidatesWithDenseEvidence({
   };
   const requestedConcurrency = Number.isSafeInteger(concurrency)
     ? concurrency
-    : 2;
+    : 6;
   const workerCount = Math.max(
     1,
     Math.min(
