@@ -1198,6 +1198,7 @@ export default function Home() {
       let job: ProcessorJob | null = null;
       if (project.processorJobId) {
         ({ job } = await readProcessorJob(project.processorJobId));
+        let provisionalCandidatesShown = false;
         while (
           runId === projectResumeRunRef.current &&
           processorJobIsPending(job)
@@ -1209,6 +1210,24 @@ export default function Home() {
           setAnalysisProgress(currentProject.progress ?? 29);
           setAnalysisStage(currentProject.stage ?? "真实分析进行中");
           await persistProjectMirror(currentProject).catch(() => currentProject);
+          if (!provisionalCandidatesShown && job.clipCount > 0) {
+            const { candidates } = await readProcessorCandidates(project.id);
+            const provisionalIdeas = applyProcessorCandidateSet(
+              candidates,
+              project.mode,
+            );
+            if (provisionalIdeas.length) {
+              provisionalCandidatesShown = true;
+              setAnalysisReady(true);
+              setActiveClipId(provisionalIdeas[0]!.id);
+              setSelectedIds([provisionalIdeas[0]!.id]);
+              setReviewSourceMode("candidate");
+              setStep(2);
+              showToast(
+                `先交付 ${provisionalIdeas.length} 条批量粗剪；模型精修完成后会逐条更新。`,
+              );
+            }
+          }
           await wait(2_500);
           if (runId !== projectResumeRunRef.current) return;
           ({ job } = await readProcessorJob(project.processorJobId!));
@@ -1432,6 +1451,7 @@ export default function Home() {
       ));
 
       let job = startedJob;
+      let provisionalCandidatesShown = false;
       while (processorJobIsPending(job)) {
         const normalizedProgress = processorProgress(job);
         const stageLabel = processorStageLabel(job.stage);
@@ -1442,6 +1462,24 @@ export default function Home() {
           stage: stageLabel,
           progress: normalizedProgress,
         } : project));
+        if (!provisionalCandidatesShown && job.clipCount > 0) {
+          const { candidates } = await readProcessorCandidates(projectId);
+          const provisionalIdeas = applyProcessorCandidateSet(
+            candidates,
+            selectedMode,
+          );
+          if (provisionalIdeas.length) {
+            provisionalCandidatesShown = true;
+            setAnalysisReady(true);
+            setActiveClipId(provisionalIdeas[0]!.id);
+            setSelectedIds([provisionalIdeas[0]!.id]);
+            setReviewSourceMode("candidate");
+            setStep(2);
+            showToast(
+              `先交付 ${provisionalIdeas.length} 条批量粗剪；模型精修完成后会逐条更新。`,
+            );
+          }
+        }
         await wait(2_500);
         ({ job } = await readProcessorJob(startedJob.id));
       }

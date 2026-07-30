@@ -235,7 +235,9 @@ test("rough-cut renderer removes other-speaker audio instead of exporting the sa
   });
   const filter = command.args[command.args.indexOf("-filter_complex") + 1];
   assert.equal(command.name, "ffmpeg");
-  assert.match(filter, /trim=start=8\.000:end=60\.000/);
+  assert.equal(command.args[command.args.indexOf("-ss") + 1], "7.750");
+  assert.equal(command.args[command.args.indexOf("-t") + 1], "52.250");
+  assert.match(filter, /trim=start=0\.250:end=52\.250/);
   assert.doesNotMatch(filter, /trim=start=0\.000:end=100\.000/);
   assert.deepEqual(result.keptRanges, [{ startSec: 8, endSec: 60 }]);
   assert.equal(result.sourceWindow.durationSec, 52);

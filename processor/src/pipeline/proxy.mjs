@@ -100,8 +100,8 @@ export async function renderCandidateSafetyProxy({
 
   await runner("ffmpeg", [
     "-v", "error",
-    "-i", sourcePath,
     "-ss", startSec.toFixed(3),
+    "-i", sourcePath,
     "-t", (endSec - startSec).toFixed(3),
     "-map", "0:v:0",
     "-map", "0:a:0",
@@ -187,12 +187,16 @@ export async function renderCandidateRoughCut({
   });
   const filterParts = [];
   const concatInputs = [];
+  const inputStartSec = Math.max(0, ranges[0].startSec - 0.25);
+  const inputEndSec = ranges.at(-1).endSec;
   for (let index = 0; index < ranges.length; index += 1) {
     const range = ranges[index];
+    const localStartSec = roundMillis(range.startSec - inputStartSec);
+    const localEndSec = roundMillis(range.endSec - inputStartSec);
     filterParts.push(
-      `[0:v:0]trim=start=${range.startSec.toFixed(3)}:end=${range.endSec.toFixed(3)},`
+      `[0:v:0]trim=start=${localStartSec.toFixed(3)}:end=${localEndSec.toFixed(3)},`
       + `setpts=PTS-STARTPTS,scale=-2:min(1280\\,ih)[v${index}]`,
-      `[0:a:0]atrim=start=${range.startSec.toFixed(3)}:end=${range.endSec.toFixed(3)},`
+      `[0:a:0]atrim=start=${localStartSec.toFixed(3)}:end=${localEndSec.toFixed(3)},`
       + `asetpts=PTS-STARTPTS[a${index}]`,
     );
     concatInputs.push(`[v${index}][a${index}]`);
@@ -203,7 +207,9 @@ export async function renderCandidateRoughCut({
   await mkdir(path.dirname(outputPath), { recursive: true });
   await runner("ffmpeg", [
     "-v", "error",
+    "-ss", inputStartSec.toFixed(3),
     "-i", sourcePath,
+    "-t", (inputEndSec - inputStartSec).toFixed(3),
     "-filter_complex", filterParts.join(";"),
     "-map", "[vout]",
     "-map", "[aout]",
