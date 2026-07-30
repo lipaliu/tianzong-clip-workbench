@@ -282,6 +282,41 @@ async function listExtractedFrames(directory, prefix) {
   return names.map((name) => path.join(directory, name));
 }
 
+function reconcileSequentialFrameEvidence(paths, timestamps, {
+  label,
+  maximumTerminalDifference = 1,
+} = {}) {
+  const difference = Math.abs(paths.length - timestamps.length);
+  invariant(
+    paths.length > 0
+    && timestamps.length > 0
+    && difference <= maximumTerminalDifference,
+    `Dense ${label} frame files do not match ffmpeg timestamp evidence`,
+    {
+      code: `DENSE_${String(label).toUpperCase()}_TIMESTAMP_MISMATCH`,
+      stage: "dense_frame_extract",
+      details: {
+        frameFileCount: paths.length,
+        timestampCount: timestamps.length,
+        maximumTerminalDifference,
+      },
+    },
+  );
+
+  // ffmpeg's image2 muxer can omit or add one terminal output relative to
+  // showinfo at EOF because the final decoded timestamp lands on the muxer's
+  // rounding boundary. The streams remain positionally identical before that
+  // terminal boundary. Pair the proven common prefix and let the subsequent
+  // coverage checks fail closed if the retained periodic evidence no longer
+  // reaches the end of the source.
+  const commonCount = Math.min(paths.length, timestamps.length);
+  return {
+    paths: paths.slice(0, commonCount),
+    timestamps: timestamps.slice(0, commonCount),
+    terminalDifference: difference,
+  };
+}
+
 function thinTimestamps(timestamps, minimumGapSec) {
   const thinned = [];
   for (const timestamp of timestamps) {
@@ -351,29 +386,23 @@ export async function extractDenseTimelineFrames({
     "-i", sourcePath,
     "-an",
     "-vf",
-    `fps=fps=1/${intervalSec}:start_time=0,showinfo,scale=min(${maximumWidth}\\,iw):-2`,
+    `fps=fps=1/${intervalSec}:start_time=0,scale=min(${maximumWidth}\\,iw):-2,showinfo`,
     "-fps_mode", "vfr",
     "-q:v", "3",
     "-y",
     periodicPattern,
   ], commandOptions);
-  const periodicTimestamps = parseShotChangeTimestamps(periodicResult.stderr, {
+  const parsedPeriodicTimestamps = parseShotChangeTimestamps(periodicResult.stderr, {
     durationSec,
   });
-  const periodicPaths = await listExtractedFrames(outputDir, "periodic_");
-  invariant(
-    periodicPaths.length > 0
-    && periodicPaths.length === periodicTimestamps.length,
-    "Dense periodic frame files do not match ffmpeg timestamp evidence",
-    {
-      code: "DENSE_PERIODIC_TIMESTAMP_MISMATCH",
-      stage: "dense_frame_extract",
-      details: {
-        frameFileCount: periodicPaths.length,
-        timestampCount: periodicTimestamps.length,
-      },
-    },
+  const extractedPeriodicPaths = await listExtractedFrames(outputDir, "periodic_");
+  const periodicEvidence = reconcileSequentialFrameEvidence(
+    extractedPeriodicPaths,
+    parsedPeriodicTimestamps,
+    { label: "periodic" },
   );
+  const periodicPaths = periodicEvidence.paths;
+  const periodicTimestamps = periodicEvidence.timestamps;
   assertPeriodicFrameCoverage(periodicTimestamps, {
     durationSec,
     intervalSec,
@@ -394,28 +423,27 @@ export async function extractDenseTimelineFrames({
     "-i", sourcePath,
     "-an",
     "-vf",
-    `select=gt(scene\\,${shotChangeThreshold}),showinfo,scale=min(${maximumWidth}\\,iw):-2`,
+    `select=gt(scene\\,${shotChangeThreshold}),scale=min(${maximumWidth}\\,iw):-2,showinfo`,
     "-fps_mode", "vfr",
     "-q:v", "3",
     "-y",
     shotPattern,
   ], commandOptions);
-  const rawShotTimestamps = parseShotChangeTimestamps(shotResult.stderr, {
+  const parsedShotTimestamps = parseShotChangeTimestamps(shotResult.stderr, {
     durationSec,
   });
-  const rawShotPaths = await listExtractedFrames(outputDir, "shot_");
-  invariant(
-    rawShotPaths.length === rawShotTimestamps.length,
-    "Dense shot-change frame files do not match ffmpeg timestamp evidence",
-    {
-      code: "DENSE_SHOT_TIMESTAMP_MISMATCH",
-      stage: "dense_frame_extract",
-      details: {
-        frameFileCount: rawShotPaths.length,
-        timestampCount: rawShotTimestamps.length,
-      },
-    },
-  );
+  const extractedShotPaths = await listExtractedFrames(outputDir, "shot_");
+  let rawShotPaths = extractedShotPaths;
+  let rawShotTimestamps = parsedShotTimestamps;
+  if (extractedShotPaths.length || parsedShotTimestamps.length) {
+    const shotEvidence = reconcileSequentialFrameEvidence(
+      extractedShotPaths,
+      parsedShotTimestamps,
+      { label: "shot" },
+    );
+    rawShotPaths = shotEvidence.paths;
+    rawShotTimestamps = shotEvidence.timestamps;
+  }
 
   const keptShotTimestamps = thinTimestamps(rawShotTimestamps, minimumShotGapSec);
   const keptShotTimestampSet = new Set(keptShotTimestamps);

@@ -313,6 +313,43 @@ test("dense frame extraction decodes the full timeline in two ffmpeg passes, not
   });
 });
 
+test("dense frame extraction tolerates one ffmpeg EOF timestamp without a terminal image", async () => {
+  await withTempDir(async (directory) => {
+    const manifest = await extractDenseTimelineFrames({
+      sourcePath: "/tmp/live.mp4",
+      outputDir: directory,
+      durationSec: 5,
+      intervalSec: 2,
+      runner: async (_command, args) => {
+        const isPeriodic = args.some((arg) => String(arg).includes("fps=fps=1/2"));
+        if (isPeriodic) {
+          await Promise.all([
+            writeFile(path.join(directory, "periodic_0000001.jpg"), "p0"),
+            writeFile(path.join(directory, "periodic_0000002.jpg"), "p1"),
+            writeFile(path.join(directory, "periodic_0000003.jpg"), "p2"),
+          ]);
+          return {
+            stdout: "",
+            stderr: [
+              "showinfo n:0 pts_time:0",
+              "showinfo n:1 pts_time:2",
+              "showinfo n:2 pts_time:4",
+              "showinfo n:3 pts_time:5",
+            ].join("\n"),
+          };
+        }
+        return { stdout: "", stderr: "" };
+      },
+    });
+
+    assert.equal(manifest.coverage.periodicFrameCount, 3);
+    assert.deepEqual(
+      manifest.frames.map((frame) => frame.timestampSec),
+      [0, 2, 4],
+    );
+  });
+});
+
 test("visual timeline analysis sends GPT-5.6 Sol image inputs and remains screening-only", async () => {
   await withTempDir(async (directory) => {
     const frames = [];
