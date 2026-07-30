@@ -1652,6 +1652,54 @@ test("candidate generation computes score totals deterministically without retry
   assert.equal(result.candidates[0].score.total, 100);
 });
 
+test("candidate generation rejects one unsupported opening without restarting the livestream", async () => {
+  const fixtures = candidateFixtures();
+  let calls = 0;
+  const result = await generateCandidates({
+    transcript: fixtures.transcript,
+    visualMap: fixtures.visualMap,
+    coreBundle: fixtures.coreBundle,
+    mode: "chat",
+    client: {
+      async createStructuredResponse(value) {
+        calls += 1;
+        return {
+          parsed: {
+            candidates: [
+              fixtures.candidate,
+              {
+                ...fixtures.candidate,
+                candidateId: "unsupported-opening",
+                openingLine: "这句原话并不存在于逐字稿里。",
+              },
+            ],
+            selectionSummary: {
+              qualifyingCount: 2,
+              rejectedThemes: [],
+              notes: [],
+            },
+          },
+          responseId: `resp_candidate_salvage_${calls}`,
+          model: value.model,
+          usage: { total_tokens: 20 },
+        };
+      },
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].openingLine, fixtures.candidate.openingLine);
+  assert.match(
+    result.selectionSummary.rejectedThemes.join("\n"),
+    /CANDIDATE_OPENING_LINE_UNSUPPORTED/,
+  );
+  assert.match(
+    result.selectionSummary.notes.join("\n"),
+    /without restarting the livestream/,
+  );
+});
+
 test("semantic recall planning keeps a question and its answer together", () => {
   const transcript = {
     mediaDurationSec: 500,

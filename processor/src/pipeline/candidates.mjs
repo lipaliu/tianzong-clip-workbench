@@ -1045,6 +1045,76 @@ function validateCandidateWithinBatch(candidate, batch) {
   }
 }
 
+export function retainDeterministicallyValidCandidates(result, {
+  transcript,
+  visualMap,
+  durationSec,
+  batch,
+} = {}) {
+  const individuallyRejectableCodes = new Set([
+    "INVALID_CANDIDATE_ID",
+    "CANDIDATE_OPENING_LINE_UNSUPPORTED",
+  ]);
+  const retained = [];
+  const rejected = [];
+  const seenIds = new Set();
+  for (const candidate of result?.candidates ?? []) {
+    if (seenIds.has(candidate.candidateId)) {
+      rejected.push({
+        candidateId: candidate.candidateId,
+        code: "INVALID_CANDIDATE_ID",
+      });
+      continue;
+    }
+    seenIds.add(candidate.candidateId);
+    try {
+      validateCandidateResult({
+        candidates: [candidate],
+        selectionSummary: {
+          qualifyingCount: 1,
+          rejectedThemes: [],
+          notes: [],
+        },
+      }, {
+        transcript,
+        visualMap,
+        durationSec,
+      });
+      if (batch) validateCandidateWithinBatch(candidate, batch);
+      retained.push(candidate);
+    } catch (error) {
+      if (error?.stage !== "candidate_generation") throw error;
+      if (!individuallyRejectableCodes.has(error.code)) throw error;
+      rejected.push({
+        candidateId: candidate.candidateId,
+        code: error.code ?? "CANDIDATE_DETERMINISTIC_VALIDATION_FAILED",
+      });
+    }
+  }
+  return {
+    ...result,
+    candidates: retained,
+    selectionSummary: {
+      qualifyingCount: retained.length,
+      rejectedThemes: [
+        ...(result?.selectionSummary?.rejectedThemes ?? []),
+        ...rejected.map(
+          ({ candidateId, code }) =>
+            `${candidateId || "unnamed_candidate"} rejected by ${code}`,
+        ),
+      ],
+      notes: [
+        ...(result?.selectionSummary?.notes ?? []),
+        ...(rejected.length > 0
+          ? [
+              `${rejected.length} invalid candidate(s) were rejected individually; valid candidates continued without restarting the livestream.`,
+            ]
+          : []),
+      ],
+    },
+  };
+}
+
 export async function generateCandidates({
   transcript,
   visualMap,
@@ -1219,11 +1289,25 @@ export async function generateCandidates({
         validationError = undefined;
         break;
       } catch (error) {
-        if (
-          validationAttempt === 2
-          || error?.stage !== "candidate_generation"
-        ) {
+        if (error?.stage !== "candidate_generation") {
           throw error;
+        }
+        if (validationAttempt === 2) {
+          response = {
+            ...response,
+            parsed: retainDeterministicallyValidCandidates(response.parsed, {
+              transcript: batchTranscript,
+              visualMap: batchVisualMap,
+              durationSec: transcript.mediaDurationSec,
+              batch,
+            }),
+          };
+          validateCandidateResult(response.parsed, {
+            transcript: batchTranscript,
+            visualMap: batchVisualMap,
+            durationSec: transcript.mediaDurationSec,
+          });
+          break;
         }
         validationError = error;
       }
