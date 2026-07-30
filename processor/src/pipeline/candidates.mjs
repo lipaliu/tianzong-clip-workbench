@@ -1051,10 +1051,6 @@ export function retainDeterministicallyValidCandidates(result, {
   durationSec,
   batch,
 } = {}) {
-  const individuallyRejectableCodes = new Set([
-    "INVALID_CANDIDATE_ID",
-    "CANDIDATE_OPENING_LINE_UNSUPPORTED",
-  ]);
   const retained = [];
   const rejected = [];
   const seenIds = new Set();
@@ -1084,7 +1080,6 @@ export function retainDeterministicallyValidCandidates(result, {
       retained.push(candidate);
     } catch (error) {
       if (error?.stage !== "candidate_generation") throw error;
-      if (!individuallyRejectableCodes.has(error.code)) throw error;
       rejected.push({
         candidateId: candidate.candidateId,
         code: error.code ?? "CANDIDATE_DETERMINISTIC_VALIDATION_FAILED",

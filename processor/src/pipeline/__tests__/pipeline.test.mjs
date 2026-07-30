@@ -925,6 +925,7 @@ test("candidate refinement collapses exact duplicate delivery windows", async ()
       },
       coreBundle: fixtures.coreBundle,
       mode: "chat",
+      concurrency: 1,
       client: {
         async createStructuredResponse(value) {
           const candidateId = candidates[calls].candidateId;
@@ -1700,6 +1701,59 @@ test("candidate generation rejects one unsupported opening without restarting th
   );
 });
 
+test("candidate generation rejects one out-of-window deletion without restarting the livestream", async () => {
+  const fixtures = candidateFixtures();
+  let calls = 0;
+  const result = await generateCandidates({
+    transcript: fixtures.transcript,
+    visualMap: fixtures.visualMap,
+    coreBundle: fixtures.coreBundle,
+    mode: "chat",
+    client: {
+      async createStructuredResponse(value) {
+        calls += 1;
+        return {
+          parsed: {
+            candidates: [
+              fixtures.candidate,
+              {
+                ...fixtures.candidate,
+                candidateId: "invalid-deletion",
+                deleteSuggestions: [{
+                  startSec: 22,
+                  endSec: 24,
+                  transcriptSegmentIds: ["tx_2"],
+                  reason: "错误地越过候选安全窗。",
+                }],
+              },
+            ],
+            selectionSummary: {
+              qualifyingCount: 2,
+              rejectedThemes: [],
+              notes: [],
+            },
+          },
+          responseId: `resp_candidate_delete_salvage_${calls}`,
+          model: value.model,
+          usage: { total_tokens: 20 },
+        };
+      },
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].openingLine, fixtures.candidate.openingLine);
+  assert.match(
+    result.selectionSummary.rejectedThemes.join("\n"),
+    /DELETE_SUGGESTION_OUTSIDE_WINDOW/,
+  );
+  assert.match(
+    result.selectionSummary.notes.join("\n"),
+    /without restarting the livestream/,
+  );
+});
+
 test("semantic recall planning keeps a question and its answer together", () => {
   const transcript = {
     mediaDurationSec: 500,
@@ -1975,7 +2029,7 @@ test("global merge removes overlap duplicates but preserves independent angles",
   assert.equal(result.selectionSummary.qualifyingCount, 2);
 });
 
-test("candidate recall fails closed when a model extends beyond its supplied evidence window", async () => {
+test("candidate recall rejects an out-of-batch proposal without restarting the livestream", async () => {
   const fixtures = candidateFixtures();
   const client = {
     async createStructuredResponse(value) {
@@ -1998,23 +2052,25 @@ test("candidate recall fails closed when a model extends beyond its supplied evi
       };
     },
   };
-  await assert.rejects(
-    () => generateCandidates({
-      transcript: fixtures.transcript,
-      visualMap: fixtures.visualMap,
-      coreBundle: fixtures.coreBundle,
-      mode: "chat",
-      client,
-      recallConfig: {
-        targetWindowSec: 8,
-        maxWindowSec: 10,
-        minWindowSec: 2,
-        overlapSec: 1,
-        maxTranscriptChars: 5_000,
-        maxOutputTokensPerBatch: 1_000,
-      },
-    }),
-    (error) => error.code === "CANDIDATE_OUTSIDE_RECALL_BATCH",
+  const result = await generateCandidates({
+    transcript: fixtures.transcript,
+    visualMap: fixtures.visualMap,
+    coreBundle: fixtures.coreBundle,
+    mode: "chat",
+    client,
+    recallConfig: {
+      targetWindowSec: 8,
+      maxWindowSec: 10,
+      minWindowSec: 2,
+      overlapSec: 1,
+      maxTranscriptChars: 5_000,
+      maxOutputTokensPerBatch: 1_000,
+    },
+  });
+  assert.equal(result.candidates.length, 0);
+  assert.match(
+    result.selectionSummary.rejectedThemes.join("\n"),
+    /CANDIDATE_OUTSIDE_RECALL_BATCH/,
   );
 });
 
