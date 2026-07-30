@@ -149,6 +149,8 @@ export async function extractAudioTrack({
 export async function extractRemoteAsrAudio({
   sourcePath,
   outputPath,
+  startSec = undefined,
+  durationSec = undefined,
   runner = runCommand,
   signal = undefined,
   verifyOutput = true,
@@ -158,8 +160,35 @@ export async function extractRemoteAsrAudio({
     stage: "remote_asr_audio_extract",
   });
   await mkdir(path.dirname(outputPath), { recursive: true });
+  invariant(
+    startSec === undefined
+      || (Number.isFinite(startSec) && startSec >= 0),
+    "startSec must be a non-negative number",
+    {
+      code: "REMOTE_ASR_AUDIO_START_INVALID",
+      stage: "remote_asr_audio_extract",
+    },
+  );
+  invariant(
+    durationSec === undefined
+      || (Number.isFinite(durationSec) && durationSec > 0),
+    "durationSec must be a positive number",
+    {
+      code: "REMOTE_ASR_AUDIO_DURATION_INVALID",
+      stage: "remote_asr_audio_extract",
+    },
+  );
+  const trimArgs = [
+    ...(startSec === undefined
+      ? []
+      : ["-ss", Number(startSec).toFixed(3)]),
+    ...(durationSec === undefined
+      ? []
+      : ["-t", Number(durationSec).toFixed(3)]),
+  ];
   await runner("ffmpeg", [
     "-v", "error",
+    ...trimArgs,
     "-i", sourcePath,
     "-map", "0:a:0",
     "-vn",
@@ -180,6 +209,8 @@ export async function extractRemoteAsrAudio({
     sampleRate: 16000,
     channels: 1,
     bitrate: 64_000,
+    startSec: startSec ?? 0,
+    durationSec: durationSec ?? null,
   };
 }
 

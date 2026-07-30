@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   createDoubaoBigAsrClient,
+  mergeDoubaoChunkTranscripts,
   normalizeDoubaoBigAsrResult,
 } from "../doubao-asr.mjs";
 
@@ -157,6 +158,106 @@ test("Doubao BigASR supports legacy AppID and access-token authentication", asyn
   assert.equal(request.init.headers["X-Api-App-Key"], "legacy-app");
   assert.equal(request.init.headers["X-Api-Access-Key"], "legacy-token");
   assert.equal(request.init.headers["X-Api-Key"], undefined);
+});
+
+test("long Doubao transcripts merge chunk-local timestamps through ownership windows", () => {
+  const chunks = [
+    {
+      id: "audio_0001",
+      startSec: 0,
+      endSec: 7_200,
+      ownershipStartSec: 0,
+      ownershipEndSec: 7_199,
+    },
+    {
+      id: "audio_0002",
+      startSec: 7_198,
+      endSec: 10_000,
+      ownershipStartSec: 7_199,
+      ownershipEndSec: 10_000,
+    },
+  ];
+  const result = mergeDoubaoChunkTranscripts([
+    {
+      model: "doubao-bigasr-2.0",
+      provenance: {
+        resourceId: "volc.bigasr.auc",
+        taskId: "task-1",
+      },
+      segments: [
+        {
+          id: "local-1",
+          speaker: "speaker_0",
+          text: "第一段正文。",
+          startSec: 7_197,
+          endSec: 7_198.5,
+          localStartSec: 7_197,
+          localEndSec: 7_198.5,
+        },
+        {
+          id: "overlap-old",
+          speaker: "speaker_0",
+          text: "重叠句。",
+          startSec: 7_198.5,
+          endSec: 7_199.5,
+          localStartSec: 7_198.5,
+          localEndSec: 7_199.5,
+        },
+      ],
+    },
+    {
+      model: "doubao-bigasr-2.0",
+      provenance: {
+        resourceId: "volc.bigasr.auc",
+        taskId: "task-2",
+      },
+      segments: [
+        {
+          id: "overlap-new",
+          speaker: "speaker_0",
+          text: "重叠句。",
+          startSec: 0.5,
+          endSec: 1.5,
+          localStartSec: 0.5,
+          localEndSec: 1.5,
+        },
+        {
+          id: "local-2",
+          speaker: "speaker_0",
+          text: "第二段正文。",
+          startSec: 2,
+          endSec: 4,
+          localStartSec: 2,
+          localEndSec: 4,
+        },
+      ],
+    },
+  ], {
+    chunks,
+    mediaDurationSec: 10_000,
+    generatedAt: "2026-07-31T00:00:00.000Z",
+  });
+
+  assert.equal(result.mediaDurationSec, 10_000);
+  assert.equal(result.coverage.chunkCount, 2);
+  assert.equal(result.coverage.ownershipPartitionApplied, true);
+  assert.deepEqual(
+    result.segments.map((segment) => [
+      segment.text,
+      segment.startSec,
+      segment.endSec,
+      segment.chunkId,
+    ]),
+    [
+      ["第一段正文。", 7_197, 7_198.5, "audio_0001"],
+      ["重叠句。", 7_198.5, 7_199.5, "audio_0002"],
+      ["第二段正文。", 7_200, 7_202, "audio_0002"],
+    ],
+  );
+  assert.equal(
+    result.provenance.service,
+    "recording_file_asr_chunked",
+  );
 });
 
 test("Doubao BigASR polling has a hard attempt limit and reports a typed timeout", async () => {

@@ -22,6 +22,7 @@ import {
   extractRemoteAsrAudio,
 } from "./pipeline/audio.mjs";
 import { createDoubaoBigAsrClient } from "./pipeline/doubao-asr.mjs";
+import { mergeDoubaoChunkTranscripts } from "./pipeline/doubao-asr.mjs";
 import { createDoubaoAvReviewProvider } from "./pipeline/doubao-av-review.mjs";
 import { createDoubaoEditorClient } from "./pipeline/doubao-editor-client.mjs";
 import { createOpenAIClient } from "./pipeline/openai-client.mjs";
@@ -62,6 +63,7 @@ const audioPlan = planAudioChunks as AnyFunction;
 const audioExtract = extractAudioChunks as AnyFunction;
 const remoteAsrAudioExtract = extractRemoteAsrAudio as AnyFunction;
 const doubaoAsrFactory = createDoubaoBigAsrClient as AnyFunction;
+const doubaoAsrChunkMerge = mergeDoubaoChunkTranscripts as AnyFunction;
 const doubaoAvFactory = createDoubaoAvReviewProvider as AnyFunction;
 const doubaoEditorFactory = createDoubaoEditorClient as AnyFunction;
 const mediaProbe = probeMedia as AnyFunction;
@@ -511,56 +513,115 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           { expose: false },
         );
       }
-      const remoteAudio = await remoteAsrAudioExtract({
-        sourcePath,
-        outputPath: join(workDir, "doubao-asr", "full-recording.m4a"),
-      });
-      await repository.updateJobStage(
-        job.id,
-        job.workerId,
-        "transcribing",
-        21,
-        "中文音轨已整理，正在通过一次性地址交给豆包转写。",
-      );
-      const objectKey =
-        `provider-inputs/${job.projectId}/${job.id}/doubao-asr.m4a`;
-      transientObjectKeys.add(objectKey);
-      await storage.uploadFile(
-        objectKey,
-        remoteAudio.path,
-        remoteAudio.mimeType,
-        {
-          "project-id": job.projectId,
-          "job-id": job.id,
-          "provider-purpose": "doubao-asr-transient-input",
-        },
-      );
-      const signed = await storage.presignProviderDownload({
-        objectKey,
-        contentType: remoteAudio.mimeType,
-        expiresIn: config.providers.providerUrlTtlSeconds,
-      });
-      const result = await doubaoAsr.transcribeRecording({
-        audioUrl: signed.url,
-        audioFormat: remoteAudio.format,
-        mediaDurationSec: media.durationSec,
-        onProgress: async (event: { status: string; attempt?: number }) => {
-          const detail = event.status === "completed"
-            ? "豆包中文逐字稿已完成。"
-            : `豆包转写状态：${event.status}`
-              + (event.attempt ? `（第 ${event.attempt} 次查询）` : "");
-          await repository.updateJobStage(
-            job.id,
-            job.workerId,
-            "transcribing",
-            event.status === "completed" ? 42 : 24,
-            detail,
+      const chunked = media.durationSec > 4 * 60 * 60;
+      const chunks = chunked
+        ? audioPlan({
+            durationSec: media.durationSec,
+            chunkDurationSec: 2 * 60 * 60,
+            overlapSec: 2,
+          })
+        : [{
+            id: "audio_full",
+            index: 0,
+            startSec: 0,
+            endSec: media.durationSec,
+            durationSec: media.durationSec,
+            ownershipStartSec: 0,
+            ownershipEndSec: media.durationSec,
+          }];
+      const chunkResults: Array<Record<string, any>> = [];
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+        const chunk = chunks[chunkIndex]!;
+        const remoteAudio = await remoteAsrAudioExtract({
+          sourcePath,
+          outputPath: join(
+            workDir,
+            "doubao-asr",
+            `${chunk.id}.m4a`,
+          ),
+          ...(chunked
+            ? {
+                startSec: chunk.startSec,
+                durationSec: chunk.durationSec,
+              }
+            : {}),
+        });
+        await repository.updateJobStage(
+          job.id,
+          job.workerId,
+          "transcribing",
+          21 + Math.floor(2 * chunkIndex / chunks.length),
+          chunked
+            ? `近六小时直播按完整时间轴分为 ${chunks.length} 段；`
+              + `第 ${chunkIndex + 1}/${chunks.length} 段音轨已整理，`
+              + "正在交给豆包转写。"
+            : "中文音轨已整理，正在通过一次性地址交给豆包转写。",
+        );
+        const objectKey =
+          `provider-inputs/${job.projectId}/${job.id}/doubao-asr/`
+          + `${chunk.id}.m4a`;
+        transientObjectKeys.add(objectKey);
+        try {
+          await storage.uploadFile(
+            objectKey,
+            remoteAudio.path,
+            remoteAudio.mimeType,
+            {
+              "project-id": job.projectId,
+              "job-id": job.id,
+              "provider-purpose": "doubao-asr-transient-input",
+              "source-chunk-id": chunk.id,
+            },
           );
-        },
-      });
-      await storage.delete(objectKey).catch(() => undefined);
-      transientObjectKeys.delete(objectKey);
-      return result;
+          const signed = await storage.presignProviderDownload({
+            objectKey,
+            contentType: remoteAudio.mimeType,
+            expiresIn: config.providers.providerUrlTtlSeconds,
+          });
+          const result = await doubaoAsr.transcribeRecording({
+            audioUrl: signed.url,
+            audioFormat: remoteAudio.format,
+            mediaDurationSec: chunk.durationSec,
+            chunkId: chunk.id,
+            onProgress: async (event: {
+              status: string;
+              attempt?: number;
+            }) => {
+              const detail = event.status === "completed"
+                ? `豆包中文逐字稿 ${chunkIndex + 1}/${chunks.length} 已完成。`
+                : `豆包转写 ${chunkIndex + 1}/${chunks.length}：`
+                  + `${event.status}`
+                  + (event.attempt
+                    ? `（第 ${event.attempt} 次查询）`
+                    : "");
+              const baseProgress = 24
+                + Math.floor(18 * chunkIndex / chunks.length);
+              await repository.updateJobStage(
+                job.id,
+                job.workerId,
+                "transcribing",
+                event.status === "completed"
+                  ? 24 + Math.floor(
+                      18 * (chunkIndex + 1) / chunks.length,
+                    )
+                  : baseProgress,
+                detail,
+              );
+            },
+          });
+          chunkResults.push(result);
+        } finally {
+          await storage.delete(objectKey).catch(() => undefined);
+          transientObjectKeys.delete(objectKey);
+          await rm(remoteAudio.path, { force: true }).catch(() => undefined);
+        }
+      }
+      return chunked
+        ? doubaoAsrChunkMerge(chunkResults, {
+            chunks,
+            mediaDurationSec: media.durationSec,
+          })
+        : chunkResults[0];
     };
 
     const transcriptRoute = config.providers.transcription === "doubao"
