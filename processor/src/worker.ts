@@ -35,9 +35,15 @@ import {
   augmentVisualMapWithDenseRecall,
   mergeTextAndVisualCandidateResults,
 } from "./pipeline/dense-visual-recall.mjs";
-import { refineCandidatesWithDenseEvidence } from "./pipeline/candidate-refinement.mjs";
+import {
+  expandCandidateEvidenceWindow,
+  refineCandidatesWithDenseEvidence,
+} from "./pipeline/candidate-refinement.mjs";
 import { probeMedia } from "./pipeline/media.mjs";
-import { renderCandidateSafetyProxy } from "./pipeline/proxy.mjs";
+import {
+  renderCandidateRoughCut,
+  renderCandidateSafetyProxy,
+} from "./pipeline/proxy.mjs";
 import {
   applyNativeAvBoundarySuggestions,
   augmentVisualMapWithNativeAvReviews,
@@ -73,7 +79,9 @@ const denseVisualRecall = analyzeDenseVisualRecall as AnyFunction;
 const visualMapAugment = augmentVisualMapWithDenseRecall as AnyFunction;
 const candidateSourceMerge = mergeTextAndVisualCandidateResults as AnyFunction;
 const candidateDenseRefine = refineCandidatesWithDenseEvidence as AnyFunction;
-const renderRoughProxy = renderCandidateSafetyProxy as AnyFunction;
+const expandCandidateWindow = expandCandidateEvidenceWindow as AnyFunction;
+const renderSafetyProxy = renderCandidateSafetyProxy as AnyFunction;
+const renderRoughProxy = renderCandidateRoughCut as AnyFunction;
 const providerRouteExecute = executeProviderRoute as AnyFunction;
 const nativeAvBoundaryApply =
   applyNativeAvBoundarySuggestions as AnyFunction;
@@ -678,8 +686,18 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         tagEditorialResult(merged, provider, providerModel),
       );
     }
-    const mergedCandidateResult =
+    const mergedCandidateResultRaw =
       combineEditorialResults(mergedEditorialResults);
+    const mergedCandidateResult = {
+      ...mergedCandidateResultRaw,
+      candidates: mergedCandidateResultRaw.candidates.map(
+        (candidate: Record<string, any>) =>
+          expandCandidateWindow(candidate, {
+            mediaDurationSec: media.durationSec,
+            mode,
+          }),
+      ),
+    };
 
     let candidateResultForFinalRefinement = mergedCandidateResult;
     let candidateEvidenceVisualMap = augmentedVisualMap;
@@ -728,7 +746,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       ) {
         const candidate = mergedCandidateResult.candidates[index]!;
         const outputPath = join(avProxyDir, `${candidate.candidateId}.mp4`);
-        await renderRoughProxy({
+        await renderSafetyProxy({
           sourcePath,
           candidate,
           outputPath,

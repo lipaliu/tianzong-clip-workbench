@@ -465,14 +465,14 @@ function candidateFixtures() {
         speaker: "A",
         startSec: 2,
         endSec: 5,
-        text: "赚钱和事业根本不是一回事",
+        text: "赚钱和事业根本不是一回事。",
       },
       {
         id: "tx_2",
         speaker: "A",
         startSec: 5,
-        endSec: 9,
-        text: "你要先想清楚长期价值",
+        endSec: 20,
+        text: "你要先想清楚长期价值。",
       },
     ],
   };
@@ -504,10 +504,10 @@ function candidateFixtures() {
     hook: "很多人把短期收入当成事业",
     openingLine: "赚钱和事业根本不是一回事",
     topic: "事业",
-    contentPillar: "商业判断",
-    rationale: "结论先行且因果完整",
-    recallWindow: { startSec: 2, endSec: 9 },
-    safetyWindow: { startSec: 1, endSec: 10 },
+    contentPillar: "幽默反转测试",
+    rationale: "天然完整的短反应测试候选",
+    recallWindow: { startSec: 2, endSec: 20 },
+    safetyWindow: { startSec: 1, endSec: 21 },
     transcriptSegmentIds: ["tx_1", "tx_2"],
     visualEventIds: ["visual_1"],
     requiredVisualProof: ["确认抬手动作与重音同步", "确认前后没有他人必要提问"],
@@ -539,6 +539,21 @@ function candidateFixtures() {
         sales: "带货保留长期价值判断、产品证据与真实使用动作。",
       },
     },
+  };
+}
+
+function completeRefinementFields() {
+  return {
+    closureText: "你要先想清楚长期价值。",
+    tianzongSpeakerLabel: "A",
+    openingSegmentId: "tx_1",
+    closingSegmentId: "tx_2",
+    spokenContentSegmentIds: ["tx_1", "tx_2"],
+    contextOnlySegmentIds: [],
+    questionCardText: "",
+    semanticClosureStatus: "complete",
+    roughCutCategory: "micro_complete",
+    roughCutDurationRationale: "测试候选是天然完整的短反应闭环。",
   };
 }
 
@@ -783,9 +798,10 @@ test("candidate-level dense still plus transcript refinement remains human-gated
             parsed: {
               candidateId: "candidate_1",
               decision: "retain",
-              refinedRecallWindow: { startSec: 2, endSec: 9 },
-              refinedSafetyWindow: { startSec: 1, endSec: 10 },
+              refinedRecallWindow: { startSec: 2, endSec: 20 },
+              refinedSafetyWindow: { startSec: 1, endSec: 21 },
               openingLine: "赚钱和事业根本不是一回事",
+              ...completeRefinementFields(),
               transcriptSegmentIds: ["tx_1", "tx_2"],
               visualEventIds: ["visual_1"],
               visualPunchline: {
@@ -801,7 +817,7 @@ test("candidate-level dense still plus transcript refinement remains human-gated
               },
               boundaryAssessment: {
                 openingStatus: "supported",
-                closingStatus: "uncertain",
+                closingStatus: "supported",
                 riskNotes: ["句尾后的表情是否完成需正常播放"],
               },
               requiredHumanNormalPlaybackChecks: [
@@ -917,9 +933,10 @@ test("candidate refinement collapses exact duplicate delivery windows", async ()
             parsed: {
               candidateId,
               decision: "retain",
-              refinedRecallWindow: { startSec: 2, endSec: 9 },
-              refinedSafetyWindow: { startSec: 1, endSec: 10 },
+              refinedRecallWindow: { startSec: 2, endSec: 20 },
+              refinedSafetyWindow: { startSec: 1, endSec: 21 },
               openingLine: "赚钱和事业根本不是一回事",
+              ...completeRefinementFields(),
               transcriptSegmentIds: ["tx_1", "tx_2"],
               visualEventIds: ["visual_1"],
               visualPunchline: {
@@ -981,9 +998,10 @@ test("candidate refinement retries a single invalid evidence answer instead of r
     const validAnswer = {
       candidateId: "candidate_1",
       decision: "retain",
-      refinedRecallWindow: { startSec: 2, endSec: 9 },
-      refinedSafetyWindow: { startSec: 1, endSec: 10 },
+      refinedRecallWindow: { startSec: 2, endSec: 20 },
+      refinedSafetyWindow: { startSec: 1, endSec: 21 },
       openingLine: "赚钱和事业根本不是一回事",
+      ...completeRefinementFields(),
       transcriptSegmentIds: ["tx_1", "tx_2"],
       visualEventIds: ["visual_1"],
       visualPunchline: {
@@ -999,7 +1017,7 @@ test("candidate refinement retries a single invalid evidence answer instead of r
       },
       boundaryAssessment: {
         openingStatus: "supported",
-        closingStatus: "uncertain",
+        closingStatus: "supported",
         riskNotes: ["句尾需人工确认"],
       },
       requiredHumanNormalPlaybackChecks: ["完整播放1到10秒"],
@@ -1167,9 +1185,10 @@ test("candidate refinement only adopts native AV evidence after a successful bou
             parsed: {
               candidateId: "candidate_1",
               decision: "retain",
-              refinedRecallWindow: { startSec: 2, endSec: 9 },
-              refinedSafetyWindow: { startSec: 1, endSec: 10 },
+              refinedRecallWindow: { startSec: 2, endSec: 20 },
+              refinedSafetyWindow: { startSec: 1, endSec: 21 },
               openingLine: "赚钱和事业根本不是一回事",
+              ...completeRefinementFields(),
               transcriptSegmentIds: ["tx_1", "tx_2"],
               visualEventIds: ["doubao_av_candidate_1_001"],
               visualPunchline: {
@@ -1185,7 +1204,7 @@ test("candidate refinement only adopts native AV evidence after a successful bou
               },
               boundaryAssessment: {
                 openingStatus: "supported",
-                closingStatus: "uncertain",
+                closingStatus: "supported",
                 riskNotes: ["句尾动作必须人工正常倍速确认"],
               },
               requiredHumanNormalPlaybackChecks: ["完整播放1到10秒"],
@@ -1323,9 +1342,10 @@ test("uncertain and contradicted native AV decisions remain risk or counter-evid
               parsed: {
                 candidateId: "candidate_1",
                 decision: "reject",
-                refinedRecallWindow: { startSec: 2, endSec: 9 },
-                refinedSafetyWindow: { startSec: 1, endSec: 10 },
+                refinedRecallWindow: { startSec: 2, endSec: 20 },
+                refinedSafetyWindow: { startSec: 1, endSec: 21 },
                 openingLine: "赚钱和事业根本不是一回事",
+                ...completeRefinementFields(),
                 transcriptSegmentIds: ["tx_1", "tx_2"],
                 visualEventIds: [nativeEventId],
                 visualPunchline: {
@@ -1420,9 +1440,10 @@ test("candidate dense refinement fails closed on a premature continuous-AV claim
               parsed: {
                 candidateId: "candidate_1",
                 decision: "retain",
-                refinedRecallWindow: { startSec: 2, endSec: 9 },
-                refinedSafetyWindow: { startSec: 1, endSec: 10 },
+                refinedRecallWindow: { startSec: 2, endSec: 20 },
+                refinedSafetyWindow: { startSec: 1, endSec: 21 },
                 openingLine: "赚钱和事业根本不是一回事",
+                ...completeRefinementFields(),
                 transcriptSegmentIds: ["tx_1", "tx_2"],
                 visualEventIds: ["visual_1"],
                 visualPunchline: {
@@ -1825,6 +1846,7 @@ test("candidate recall fails closed when a model extends beyond its supplied evi
         parsed: {
           candidates: [{
             ...fixtures.candidate,
+            recallWindow: { startSec: 2, endSec: 9 },
             safetyWindow: { startSec: 0, endSec: 11 },
           }],
           selectionSummary: {
@@ -1922,7 +1944,7 @@ test("safety-window proxy renders a continuous audio-video review artifact, not 
 
   assert.equal(invocation.command, "ffmpeg");
   assert.equal(invocation.args[invocation.args.indexOf("-ss") + 1], "1.000");
-  assert.equal(invocation.args[invocation.args.indexOf("-t") + 1], "9.000");
+  assert.equal(invocation.args[invocation.args.indexOf("-t") + 1], "20.000");
   assert.ok(invocation.args.includes("0:v:0"));
   assert.ok(invocation.args.includes("0:a:0"));
   assert.equal(proxy.isFinalCut, false);

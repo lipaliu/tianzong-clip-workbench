@@ -77,8 +77,8 @@ const envSchema = z.object({
   DOUBAO_AV_TIMEOUT_MS: positiveInteger(900_000),
   TIANCLIP_CORE_S3_KEY: z.string().min(1),
   TIANCLIP_CORE_SHA256: z.string().regex(/^[a-f0-9]{64}$/),
-  TIANCLIP_CORE_VERSION: z.literal("1.2.0-private.1"),
-  TIANCLIP_PROMPT_VERSION: z.literal("1.2.0"),
+  TIANCLIP_CORE_VERSION: z.literal("1.2.1-private.1"),
+  TIANCLIP_PROMPT_VERSION: z.literal("1.2.1"),
   TIANCLIP_SCHEMA_VERSION: z.literal("1.1.0"),
   TIANCLIP_FACT_SCHEMA_VERSION: z.literal("1.0.0"),
   TIANCLIP_LEDGER_SCHEMA_VERSION: z.literal("1.0.0"),
@@ -178,8 +178,8 @@ export type ProcessorConfig = {
   core: {
     objectKey: string;
     sha256: string;
-    version: "1.2.0-private.1";
-    promptVersion: "1.2.0";
+    version: "1.2.1-private.1";
+    promptVersion: "1.2.1";
     schemaVersion: "1.1.0";
     factSchemaVersion: "1.0.0";
     ledgerSchemaVersion: "1.0.0";

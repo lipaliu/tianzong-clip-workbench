@@ -39,8 +39,8 @@ const config = {
   core: {
     objectKey: "private/core.skill",
     sha256: createHash("sha256").update(coreBytes).digest("hex"),
-    version: "1.2.0-private.1",
-    promptVersion: "1.2.0",
+    version: "1.2.1-private.1",
+    promptVersion: "1.2.1",
     schemaVersion: "1.1.0",
     factSchemaVersion: "1.0.0",
     ledgerSchemaVersion: "1.0.0",

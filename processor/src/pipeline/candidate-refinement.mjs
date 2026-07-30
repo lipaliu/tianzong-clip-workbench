@@ -15,6 +15,9 @@ const RETRYABLE_REFINEMENT_VALIDATION_CODES = new Set([
   "CANDIDATE_REFINEMENT_FRAME_EVIDENCE_INVALID",
   "CANDIDATE_REFINEMENT_HUMAN_CHECK_MISSING",
   "CANDIDATE_REFINEMENT_REJECTION_REASON_MISSING",
+  "CANDIDATE_REFINEMENT_TIANZONG_SPEAKER_INVALID",
+  "CANDIDATE_REFINEMENT_CLOSURE_INVALID",
+  "CANDIDATE_REFINEMENT_ROUGH_DURATION_INVALID",
 ]);
 
 export const CANDIDATE_DENSE_REFINEMENT_SCHEMA = {
@@ -42,6 +45,36 @@ export const CANDIDATE_DENSE_REFINEMENT_SCHEMA = {
       required: ["startSec", "endSec"],
     },
     openingLine: { type: "string" },
+    closureText: { type: "string" },
+    tianzongSpeakerLabel: { type: "string" },
+    openingSegmentId: { type: "string" },
+    closingSegmentId: { type: "string" },
+    spokenContentSegmentIds: {
+      type: "array",
+      minItems: 1,
+      items: { type: "string" },
+    },
+    contextOnlySegmentIds: {
+      type: "array",
+      items: { type: "string" },
+    },
+    questionCardText: { type: "string" },
+    semanticClosureStatus: {
+      type: "string",
+      enum: ["complete", "incomplete", "source_truncated", "uncertain"],
+    },
+    roughCutCategory: {
+      type: "string",
+      enum: [
+        "chat_value",
+        "business_judgment",
+        "sales_product",
+        "micro_complete",
+        "deep_dive",
+        "custom_complete",
+      ],
+    },
+    roughCutDurationRationale: { type: "string" },
     transcriptSegmentIds: {
       type: "array",
       minItems: 1,
@@ -129,6 +162,16 @@ export const CANDIDATE_DENSE_REFINEMENT_SCHEMA = {
     "refinedRecallWindow",
     "refinedSafetyWindow",
     "openingLine",
+    "closureText",
+    "tianzongSpeakerLabel",
+    "openingSegmentId",
+    "closingSegmentId",
+    "spokenContentSegmentIds",
+    "contextOnlySegmentIds",
+    "questionCardText",
+    "semanticClosureStatus",
+    "roughCutCategory",
+    "roughCutDurationRationale",
     "transcriptSegmentIds",
     "visualEventIds",
     "visualPunchline",
@@ -157,6 +200,61 @@ function normalizedEvidenceText(value) {
     .normalize("NFKC")
     .replace(/[\s\p{P}\p{S}]+/gu, "")
     .toLowerCase();
+}
+
+function terminalPunctuation(text) {
+  return /[。！!？?…」』”’）)]\s*$/.test(String(text ?? "").trim());
+}
+
+function looksLikeUnfinishedSpeech(text) {
+  const value = String(text ?? "").trim();
+  if (!value) return true;
+  if (/[，,：:、]\s*$/.test(value)) return true;
+  return /(因为|所以|但是|然后|而且|就是|比如|如果|那我问你|他为什么|怎么办|怎么做)\s*[？?]?\s*$/.test(value);
+}
+
+const ROUGH_CUT_MIN_SECONDS = Object.freeze({
+  chat_value: 50,
+  business_judgment: 45,
+  sales_product: 30,
+  micro_complete: 12,
+  deep_dive: 90,
+  // `custom_complete` is an exception for naturally complete structures, not
+  // an escape hatch for shrinking a normal opinion/business rough cut to 20s.
+  custom_complete: 30,
+});
+
+export function expandCandidateEvidenceWindow(candidate, {
+  mediaDurationSec,
+  mode,
+} = {}) {
+  // The evidence window is intentionally wider than the rough-cut target so
+  // deleting other speakers still leaves 50–75s / 30–60s of Tianzong speech.
+  const targetSec = mode === "chat" ? 105 : 90;
+  const original = candidate.safetyWindow;
+  let startSec = Math.max(
+    0,
+    Math.min(original.startSec, candidate.recallWindow.startSec - 8),
+  );
+  let endSec = Math.min(
+    mediaDurationSec,
+    Math.max(original.endSec, candidate.recallWindow.startSec + targetSec),
+  );
+  if (endSec - startSec < targetSec && endSec >= mediaDurationSec - 0.05) {
+    startSec = Math.max(0, endSec - targetSec);
+  }
+  return {
+    ...candidate,
+    safetyWindow: {
+      startSec: roundMillis(startSec),
+      endSec: roundMillis(endSec),
+    },
+    evidenceWindowPolicy: {
+      kind: "right_biased_rough_cut_review",
+      targetSec,
+      originalSafetyWindow: original,
+    },
+  };
 }
 
 function arrayUnion(...values) {
@@ -203,6 +301,7 @@ function compactCandidate(candidate) {
     requiredVisualProof: candidate.requiredVisualProof,
     risks: candidate.risks,
     discoveryMethods: candidate.discoveryMethods ?? [],
+    evidenceWindowPolicy: candidate.evidenceWindowPolicy ?? null,
   };
 }
 
@@ -232,6 +331,14 @@ function refinementInstructions({
         ].join(" ")
       : "No prior native audio-video model evidence is bound to this candidate window.",
     "Refine boundaries and identify visual punchlines, action-completeness risks, interruptions, product handling, expression changes, and context requirements.",
+    "The rendered rough cut must begin with Tianzong's own complete speech. Another speaker's question or story is contextOnlySegmentIds and must not become delivered audio.",
+    "Identify Tianzong's diarized speaker label, exact opening and closing segment ids, exact openingLine and closureText, and list only Tianzong segments in spokenContentSegmentIds.",
+    "A necessary other-speaker question may become questionCardText, but never pretend it was Tianzong's speech.",
+    "Retain only when semanticClosureStatus=complete and Tianzong herself reaches a complete conclusion, recommendation, punchline, boundary, product proof, or emotional landing.",
+    "Reject source_truncated, incomplete, or uncertain endings. Never use the end of the source file as a fake ending when speech or causal explanation is unfinished.",
+    mode === "chat"
+      ? "Rough cuts are right-biased: chat/value usually keeps 50–75 seconds; business judgment 45–75 seconds. Only a naturally complete joke/reaction may be micro_complete."
+      : "Rough cuts are right-biased: sales/product usually keeps 30–60 seconds; business method may keep 45–75 seconds. Only a naturally complete joke/reaction may be micro_complete.",
     "Never call the material continuous video reviewed, audio-video verified, human reviewed, publish ready, or final.",
     "A human must still watch the entire rendered safety window at normal playback speed.",
     validationRetry
@@ -324,7 +431,11 @@ async function buildRefinementInput({
         "They remain sampled stills, not continuous video and not audio.",
         "refinedSafetyWindow must stay inside the candidate's supplied safetyWindow.",
         "refinedRecallWindow must stay inside refinedSafetyWindow.",
-        "openingLine must be an exact contiguous quote from transcriptSegmentIds.",
+        "openingLine must be an exact contiguous quote from openingSegmentId.",
+        "closureText must be an exact contiguous quote from closingSegmentId.",
+        "openingSegmentId and closingSegmentId must belong to Tianzong and to spokenContentSegmentIds.",
+        "All spokenContentSegmentIds must share tianzongSpeakerLabel. Put every other speaker in contextOnlySegmentIds.",
+        "decision=retain requires semanticClosureStatus=complete, supported opening and closing boundaries, and a right-biased complete rough-cut duration.",
         "Use only supplied transcript segment ids, visual event ids, and frame ids.",
         `machineReviewMethod must equal ${expectedMachineReviewMethod}.`,
         expectedMachineReviewMethod === DENSE_PLUS_NATIVE_AV_METHOD
@@ -448,6 +559,119 @@ export function validateCandidateDenseRefinement(result, {
       },
     },
   );
+  const openingSegment = transcriptById.get(result.openingSegmentId);
+  const closingSegment = transcriptById.get(result.closingSegmentId);
+  const spokenSegments = (result.spokenContentSegmentIds ?? [])
+    .map((id) => transcriptById.get(id));
+  const contextSegments = (result.contextOnlySegmentIds ?? [])
+    .map((id) => transcriptById.get(id));
+  invariant(
+    typeof result.tianzongSpeakerLabel === "string"
+    && result.tianzongSpeakerLabel.trim().length > 0
+    && openingSegment
+    && closingSegment
+    && spokenSegments.length > 0
+    && spokenSegments.every(Boolean)
+    && contextSegments.every(Boolean)
+    && openingSegment.speaker === result.tianzongSpeakerLabel
+    && closingSegment.speaker === result.tianzongSpeakerLabel
+    && spokenSegments.every(
+      (segment) => segment.speaker === result.tianzongSpeakerLabel,
+    )
+    && result.spokenContentSegmentIds.includes(result.openingSegmentId)
+    && result.spokenContentSegmentIds.includes(result.closingSegmentId),
+    "Candidate refinement did not bind the delivered speech to Tianzong only",
+    {
+      code: "CANDIDATE_REFINEMENT_TIANZONG_SPEAKER_INVALID",
+      stage: "candidate_dense_refinement",
+      details: {
+        candidateId: candidate.candidateId,
+        tianzongSpeakerLabel: result.tianzongSpeakerLabel,
+        openingSegmentId: result.openingSegmentId,
+        closingSegmentId: result.closingSegmentId,
+        spokenContentSegmentIds: result.spokenContentSegmentIds,
+      },
+    },
+  );
+  invariant(
+    normalizedEvidenceText(openingSegment.text)
+      .includes(normalizedEvidenceText(result.openingLine))
+    && normalizedEvidenceText(closingSegment.text)
+      .includes(normalizedEvidenceText(result.closureText)),
+    "Candidate opening or closure quote is not bound to its claimed Tianzong segment",
+    {
+      code: "CANDIDATE_REFINEMENT_CLOSURE_INVALID",
+      stage: "candidate_dense_refinement",
+      details: {
+        candidateId: candidate.candidateId,
+        openingLine: result.openingLine,
+        closureText: result.closureText,
+      },
+    },
+  );
+  if (result.decision === "retain") {
+    const nonTianzongInRecall = transcriptSegments.filter(
+      (segment) =>
+        overlaps(segment, result.refinedRecallWindow)
+        && segment.speaker !== result.tianzongSpeakerLabel,
+    );
+    const contextIds = new Set(result.contextOnlySegmentIds);
+    const roughDurationSec =
+      result.refinedRecallWindow.endSec - result.refinedRecallWindow.startSec;
+    const minimumSec = ROUGH_CUT_MIN_SECONDS[result.roughCutCategory];
+    const microEvidence =
+      `${candidate.contentPillar} ${candidate.topic} ${candidate.rationale}`;
+    invariant(
+      result.semanticClosureStatus === "complete"
+      && result.boundaryAssessment.openingStatus === "supported"
+      && result.boundaryAssessment.closingStatus === "supported"
+      && terminalPunctuation(closingSegment.text)
+      && !looksLikeUnfinishedSpeech(result.closureText)
+      && nonTianzongInRecall.every((segment) => contextIds.has(segment.id)),
+      "Retained candidate lacks a complete Tianzong-only opening-to-closure chain",
+      {
+        code: "CANDIDATE_REFINEMENT_CLOSURE_INVALID",
+        stage: "candidate_dense_refinement",
+        details: {
+          candidateId: candidate.candidateId,
+          semanticClosureStatus: result.semanticClosureStatus,
+          boundaryAssessment: result.boundaryAssessment,
+          closureText: result.closureText,
+          uncoveredContextSegmentIds: nonTianzongInRecall
+            .filter((segment) => !contextIds.has(segment.id))
+            .map((segment) => segment.id),
+        },
+      },
+    );
+    invariant(
+      Number.isFinite(minimumSec)
+      && roughDurationSec + 0.05 >= minimumSec
+      && (
+        result.roughCutCategory !== "micro_complete"
+        || (
+          roughDurationSec <= 27.05
+          && /(搞笑|幽默|反转|反应|笑|唱|跳|翻车|宠物|humor|comedy|reaction)/i
+            .test(microEvidence)
+        )
+      )
+      && (
+        result.roughCutCategory !== "custom_complete"
+        || result.roughCutDurationRationale.trim().length >= 12
+      ),
+      "Retained rough cut is shorter than the right-biased Tianzong duration policy",
+      {
+        code: "CANDIDATE_REFINEMENT_ROUGH_DURATION_INVALID",
+        stage: "candidate_dense_refinement",
+        details: {
+          candidateId: candidate.candidateId,
+          roughCutCategory: result.roughCutCategory,
+          roughDurationSec,
+          minimumSec,
+          roughCutDurationRationale: result.roughCutDurationRationale,
+        },
+      },
+    );
+  }
   const visualIds = new Set(visualEvents.map((event) => event.id));
   invariant(
     Array.isArray(result.visualEventIds)
@@ -549,7 +773,7 @@ function buildRefinementObservationEvent(result, candidate, ordinal) {
   };
 }
 
-function applyRefinement(candidate, result, refinementEvent) {
+function applyRefinement(candidate, result, refinementEvent, transcriptSegments) {
   const risks = arrayUnion(
     candidate.risks,
     result.risks,
@@ -563,9 +787,36 @@ function applyRefinement(candidate, result, refinementEvent) {
     result.visualEventIds,
     refinementEvent ? [refinementEvent.id] : [],
   );
+  const transcriptById = new Map(
+    transcriptSegments.map((segment) => [segment.id, segment]),
+  );
+  const contextDeletions = result.contextOnlySegmentIds.map((id) => {
+    const segment = transcriptById.get(id);
+    return {
+      startSec: roundMillis(segment.startSec),
+      endSec: roundMillis(segment.endSec),
+      reason:
+        "该段属于场外人、提问者或连麦人，只作为理解证据；天总粗剪交付音轨默认删除。",
+      transcriptSegmentIds: [id],
+    };
+  });
+  const deleteSuggestions = arrayUnion(
+    candidate.deleteSuggestions ?? [],
+    contextDeletions,
+  );
   return {
     ...candidate,
     openingLine: result.openingLine,
+    closureText: result.closureText,
+    tianzongSpeakerLabel: result.tianzongSpeakerLabel,
+    openingSegmentId: result.openingSegmentId,
+    closingSegmentId: result.closingSegmentId,
+    spokenContentSegmentIds: [...result.spokenContentSegmentIds],
+    contextOnlySegmentIds: [...result.contextOnlySegmentIds],
+    questionCardText: result.questionCardText,
+    semanticClosureStatus: result.semanticClosureStatus,
+    roughCutCategory: result.roughCutCategory,
+    roughCutDurationRationale: result.roughCutDurationRationale,
     recallWindow: {
       startSec: roundMillis(result.refinedRecallWindow.startSec),
       endSec: roundMillis(result.refinedRecallWindow.endSec),
@@ -574,7 +825,11 @@ function applyRefinement(candidate, result, refinementEvent) {
       startSec: roundMillis(result.refinedSafetyWindow.startSec),
       endSec: roundMillis(result.refinedSafetyWindow.endSec),
     },
-    transcriptSegmentIds: [...result.transcriptSegmentIds],
+    transcriptSegmentIds: arrayUnion(
+      result.spokenContentSegmentIds,
+      result.contextOnlySegmentIds,
+    ),
+    deleteSuggestions,
     visualEventIds,
     requiredVisualProof: arrayUnion(
       candidate.requiredVisualProof,
@@ -902,7 +1157,14 @@ export async function refineCandidatesWithDenseEvidence({
     );
     if (event) refinementEvents.push(event);
     if (response.parsed.decision === "retain") {
-      retained.push(applyRefinement(candidate, response.parsed, event));
+      retained.push(
+        applyRefinement(
+          candidate,
+          response.parsed,
+          event,
+          transcriptSegments,
+        ),
+      );
     } else {
       rejected.push({
         candidateId: candidate.candidateId,

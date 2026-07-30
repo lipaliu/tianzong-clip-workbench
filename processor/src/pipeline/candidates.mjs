@@ -214,6 +214,47 @@ function looksLikeContinuation(text) {
   );
 }
 
+function looksLikeUnfinishedClosure(text) {
+  const value = String(text ?? "").trim();
+  return !terminalPunctuation(value)
+    || /[，,：:、]\s*$/.test(value)
+    || /(因为|所以|但是|然后|而且|就是|比如|如果|那我问你|他为什么|怎么办|怎么做)\s*[？?]?\s*$/.test(value);
+}
+
+const ROUGH_CUT_MIN_SECONDS = Object.freeze({
+  chat_value: 50,
+  business_judgment: 45,
+  sales_product: 30,
+  micro_complete: 12,
+  deep_dive: 90,
+  // Custom may exceed a normal window, but it may not be used to disguise an
+  // incomplete 20-second opinion/business rough cut.
+  custom_complete: 30,
+});
+
+function keptDurationSec(candidate) {
+  const recall = candidate.recallWindow;
+  const removals = (candidate.deleteSuggestions ?? [])
+    .map((range) => ({
+      startSec: Math.max(recall.startSec, range.startSec),
+      endSec: Math.min(recall.endSec, range.endSec),
+    }))
+    .filter((range) => range.endSec > range.startSec)
+    .sort((left, right) => left.startSec - right.startSec);
+  let removedSec = 0;
+  let current = null;
+  for (const removal of removals) {
+    if (current && removal.startSec <= current.endSec) {
+      current.endSec = Math.max(current.endSec, removal.endSec);
+      continue;
+    }
+    if (current) removedSec += current.endSec - current.startSec;
+    current = { ...removal };
+  }
+  if (current) removedSec += current.endSec - current.startSec;
+  return recall.endSec - recall.startSec - removedSec;
+}
+
 function boundaryScore({
   segments,
   startIndex,
@@ -627,6 +668,78 @@ export function validateCandidateResult(result, {
       stage: "candidate_generation",
       details: { candidateId: candidate.candidateId, componentTotal, total: candidate.score.total },
     });
+
+    if (candidate.refinement) {
+      const openingSegment = transcriptById.get(candidate.openingSegmentId);
+      const closingSegment = transcriptById.get(candidate.closingSegmentId);
+      const spokenSegments = (candidate.spokenContentSegmentIds ?? [])
+        .map((id) => transcriptById.get(id));
+      const deletionIds = new Set(
+        (candidate.deleteSuggestions ?? [])
+          .flatMap((deletion) => deletion.transcriptSegmentIds),
+      );
+      const nonTianzongInRecall = transcript.segments.filter(
+        (segment) =>
+          segment.endSec >= candidate.recallWindow.startSec
+          && segment.startSec <= candidate.recallWindow.endSec
+          && segment.speaker !== candidate.tianzongSpeakerLabel,
+      );
+      invariant(
+        candidate.semanticClosureStatus === "complete"
+        && openingSegment
+        && closingSegment
+        && openingSegment.speaker === candidate.tianzongSpeakerLabel
+        && closingSegment.speaker === candidate.tianzongSpeakerLabel
+        && spokenSegments.length > 0
+        && spokenSegments.every(
+          (segment) =>
+            segment
+            && segment.speaker === candidate.tianzongSpeakerLabel,
+        )
+        && candidate.spokenContentSegmentIds.includes(candidate.openingSegmentId)
+        && candidate.spokenContentSegmentIds.includes(candidate.closingSegmentId)
+        && normalizedEvidenceText(openingSegment.text)
+          .includes(normalizedEvidenceText(candidate.openingLine))
+        && normalizedEvidenceText(closingSegment.text)
+          .includes(normalizedEvidenceText(candidate.closureText))
+        && !looksLikeUnfinishedClosure(closingSegment.text)
+        && nonTianzongInRecall.every((segment) => deletionIds.has(segment.id)),
+        "Refined candidate is not a complete Tianzong-only deliverable",
+        {
+          code: "CANDIDATE_NOT_TIANZONG_ONLY_COMPLETE",
+          stage: "candidate_generation",
+          details: {
+            candidateId: candidate.candidateId,
+            tianzongSpeakerLabel: candidate.tianzongSpeakerLabel,
+            semanticClosureStatus: candidate.semanticClosureStatus,
+            undeletedOtherSpeakerIds: nonTianzongInRecall
+              .filter((segment) => !deletionIds.has(segment.id))
+              .map((segment) => segment.id),
+          },
+        },
+      );
+      const actualRoughDurationSec = keptDurationSec(candidate);
+      const minimumSec = ROUGH_CUT_MIN_SECONDS[candidate.roughCutCategory];
+      invariant(
+        Number.isFinite(minimumSec)
+        && actualRoughDurationSec + 0.05 >= minimumSec
+        && (
+          candidate.roughCutCategory !== "micro_complete"
+          || actualRoughDurationSec <= 27.05
+        ),
+        "Refined candidate violates the right-biased rough-cut duration policy",
+        {
+          code: "CANDIDATE_ROUGH_DURATION_INVALID",
+          stage: "candidate_generation",
+          details: {
+            candidateId: candidate.candidateId,
+            roughCutCategory: candidate.roughCutCategory,
+            actualRoughDurationSec,
+            minimumSec,
+          },
+        },
+      );
+    }
   }
   return true;
 }
@@ -1015,7 +1128,11 @@ export async function generateCandidates({
         "openingLine must be an exact contiguous quote from cited transcriptSegmentIds.",
         "Both recallWindow and safetyWindow must remain inside recallBatch.evidenceWindow.",
         "safetyWindow must include continuous context around recallWindow for later normal-playback review.",
-        "Do not remove another speaker when their question is required to understand Tianzong's answer.",
+        "Another speaker's question or story is context evidence only. Never use their voice as the delivered opening; prefer Tianzong's own restatement, otherwise register it for a later text question card.",
+        mode === "chat"
+          ? "Recall enough right-side context for a 50–75s chat/value rough cut or 45–75s business rough cut. Only a naturally complete joke/reaction may be 12–27s."
+          : "Recall enough right-side context for a 30–60s sales rough cut or 45–75s business-method rough cut. Only a naturally complete joke/reaction may be 12–27s.",
+        "Do not end on unfinished speech, an unresolved causal chain, before the recommendation, or at a source-file truncation.",
         "Do not claim a gesture, expression, interruption, product interaction, or visual punchline unless a cited visual event supports it.",
         "List in requiredVisualProof everything that still needs continuous audio-video confirmation.",
         "validationStatus must remain editorial_candidate_needs_av_review.",

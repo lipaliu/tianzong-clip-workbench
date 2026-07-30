@@ -92,6 +92,22 @@ type CandidateResultItem = {
   title: string;
   hook: string;
   openingLine: string;
+  closureText?: string;
+  tianzongSpeakerLabel?: string;
+  openingSegmentId?: string;
+  closingSegmentId?: string;
+  spokenContentSegmentIds?: string[];
+  contextOnlySegmentIds?: string[];
+  questionCardText?: string;
+  semanticClosureStatus?: "complete" | "incomplete" | "source_truncated" | "uncertain";
+  roughCutCategory?:
+    | "chat_value"
+    | "business_judgment"
+    | "sales_product"
+    | "micro_complete"
+    | "deep_dive"
+    | "custom_complete";
+  roughCutDurationRationale?: string;
   topic: string;
   contentPillar: string;
   rationale: string;
@@ -548,7 +564,13 @@ function publicPayload(
   media: MediaProbe,
 ): CandidatePayload {
   const safety = safeRange(candidate.safetyWindow, transcript.mediaDurationSec);
-  const duration = roundMillis(safety.endSec - safety.startSec);
+  const recall = safeRange(candidate.recallWindow, transcript.mediaDurationSec);
+  const removals = candidate.deleteSuggestions.map((item) =>
+    safeRange(item, transcript.mediaDurationSec));
+  const keeps = subtractRanges(recall, removals);
+  const duration = roundMillis(
+    keeps.reduce((sum, range) => sum + range.endSec - range.startSec, 0),
+  );
   const profile = durationProfile(duration);
   const scoreParts = [
     ["钩子", candidate.score.hook, 20],
@@ -566,8 +588,8 @@ function publicPayload(
       : {}),
     index: String(ordinal).padStart(2, "0"),
     title: candidate.title,
-    sourceStart: safety.startSec,
-    sourceEnd: safety.endSec,
+    sourceStart: recall.startSec,
+    sourceEnd: recall.endSec,
     originalSafetyStart: safety.startSec,
     originalSafetyEnd: safety.endSec,
     mediaDurationSeconds: transcript.mediaDurationSec,
@@ -581,7 +603,10 @@ function publicPayload(
     durationWindow: profile.reference_window_sec
       ? `${profile.reference_window_sec.min}–${profile.reference_window_sec.max} 秒`
       : "不设硬窗口",
-    durationReason: profile.exception_reason ?? "落在该内容类型的校准参考窗内。",
+    durationReason:
+      candidate.roughCutDurationRationale
+      ?? profile.exception_reason
+      ?? "首轮粗剪按完整语义单元向区间右侧保留，团队确认后再精修。",
     selectionReasons: [
       candidate.rationale,
       ...(candidate.discoveryMethods?.includes("visual_only_dense_reverse_recall")
