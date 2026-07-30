@@ -51,6 +51,10 @@ import { transcribeAudioChunks } from "./pipeline/transcription.mjs";
 import { ProcessorRepository } from "./repository.js";
 import { renderCandidateRevision } from "./revision-render.js";
 import { PrivateObjectStorage } from "./storage.js";
+import {
+  buildTranscriptCheckpoint,
+  restoreTranscriptCheckpoint,
+} from "./transcript-checkpoint.js";
 import type {
   CandidatePayload,
   ClaimedJob,
@@ -624,24 +628,74 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         : chunkResults[0];
     };
 
-    const transcriptRoute = config.providers.transcription === "doubao"
-      ? await providerRouteExecute({
-          requestedProvider: "doubao",
-          primaryProvider: "doubao",
-          primary: transcribeWithDoubao,
-          fallbackProvider: "openai",
-          fallback: transcribeWithOpenAi,
-          allowFallback: config.providers.transcriptionFallbackToOpenai,
-        })
-      : {
-          value: await transcribeWithOpenAi(),
-          route: {
-            requestedProvider: "openai",
-            effectiveProvider: "openai",
-            fallbackUsed: false,
-            primaryFailure: null,
-          },
-        };
+    const transcriptCheckpointKey =
+      `checkpoints/${job.projectId}/${job.id}/transcript-v1.json`;
+    const transcriptCheckpointIdentity = {
+      sourceSha256: sourceIntegrity.sha256,
+      sourceSizeBytes: sourceIntegrity.sizeBytes,
+      mediaDurationSec: media.durationSec,
+      transcriptionProvider: config.providers.transcription,
+    };
+    let transcriptRoute: Record<string, any> | null = null;
+    try {
+      const checkpoint = JSON.parse(
+        (await storage.getBuffer(transcriptCheckpointKey)).toString("utf8"),
+      );
+      transcriptRoute = restoreTranscriptCheckpoint(
+        checkpoint,
+        transcriptCheckpointIdentity,
+      );
+    } catch {
+      transcriptRoute = null;
+    }
+    if (transcriptRoute) {
+      await repository.updateJobStage(
+        job.id,
+        job.workerId,
+        "transcribing",
+        42,
+        "已校验并复用同一原片的完整逐字稿检查点，避免重试时重复转写。",
+      );
+    } else {
+      transcriptRoute = config.providers.transcription === "doubao"
+        ? await providerRouteExecute({
+            requestedProvider: "doubao",
+            primaryProvider: "doubao",
+            primary: transcribeWithDoubao,
+            fallbackProvider: "openai",
+            fallback: transcribeWithOpenAi,
+            allowFallback: config.providers.transcriptionFallbackToOpenai,
+          })
+        : {
+            value: await transcribeWithOpenAi(),
+            route: {
+              requestedProvider: "openai",
+              effectiveProvider: "openai",
+              fallbackUsed: false,
+              primaryFailure: null,
+            },
+          };
+      await storage.uploadJson(
+        transcriptCheckpointKey,
+        buildTranscriptCheckpoint(
+          transcriptRoute as never,
+          transcriptCheckpointIdentity,
+        ),
+        {
+          "project-id": job.projectId,
+          "job-id": job.id,
+          kind: "retry-safe-transcript-checkpoint",
+        },
+      );
+    }
+    if (!transcriptRoute) {
+      throw new AppError(
+        500,
+        "transcript_route_missing",
+        "完整逐字稿没有生成可用的提供商路由。",
+        { expose: false },
+      );
+    }
     const transcript = transcriptRoute.value;
 
     await repository.updateJobStage(
