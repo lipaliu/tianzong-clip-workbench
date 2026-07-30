@@ -83,6 +83,10 @@ export type CandidatePayload = {
   title: string;
   douyinTitle: string;
   xiaohongshuTitle: string;
+  topic: string;
+  hook: string;
+  openingLine: string;
+  closingLine: string;
   sourceStart: number;
   sourceEnd: number;
   /**

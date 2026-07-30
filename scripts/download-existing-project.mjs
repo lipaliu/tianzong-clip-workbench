@@ -181,7 +181,11 @@ const rows = candidates.map((candidate, index) => {
     candidate.topic || title,
     candidate.douyinTitle || title,
     candidate.xiaohongshuTitle || title,
-    candidate.quotableLine || candidate.goldQuote || "",
+    candidate.quotableLine
+      || candidate.goldQuote
+      || candidate.openingLine
+      || keptTranscript.at(0)?.text
+      || "",
     candidate.score?.total ?? candidate.score ?? "",
     candidate.durationSeconds,
     timecode(candidate.sourceStart),
