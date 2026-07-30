@@ -1616,10 +1616,9 @@ test("candidate generation binds the private core, transcript, and visual map wi
   assert.equal(result.coreBinding.coreSha256, "a".repeat(64));
 });
 
-test("candidate generation retries a model score mismatch inside the same batch", async () => {
+test("candidate generation computes score totals deterministically without retrying the model", async () => {
   const fixtures = candidateFixtures();
   let calls = 0;
-  let retryInstructions = "";
   const result = await generateCandidates({
     transcript: fixtures.transcript,
     visualMap: fixtures.visualMap,
@@ -1628,14 +1627,11 @@ test("candidate generation retries a model score mismatch inside the same batch"
     client: {
       async createStructuredResponse(value) {
         calls += 1;
-        if (calls === 2) retryInstructions = value.instructions;
         return {
           parsed: {
             candidates: [{
               ...fixtures.candidate,
-              score: calls === 1
-                ? { ...fixtures.candidate.score, total: 99 }
-                : fixtures.candidate.score,
+              score: { ...fixtures.candidate.score, total: 99 },
             }],
             selectionSummary: {
               qualifyingCount: 1,
@@ -1651,9 +1647,7 @@ test("candidate generation retries a model score mismatch inside the same batch"
     },
   });
 
-  assert.equal(calls, 2);
-  assert.match(retryInstructions, /CANDIDATE_SCORE_MISMATCH/);
-  assert.match(retryInstructions, /score\.total/);
+  assert.equal(calls, 1);
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].score.total, 100);
 });

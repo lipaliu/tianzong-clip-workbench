@@ -345,8 +345,8 @@ function refinementInstructions({
     "Retain only when semanticClosureStatus=complete and Tianzong herself reaches a complete conclusion, recommendation, punchline, boundary, product proof, or emotional landing.",
     "Reject source_truncated, incomplete, or uncertain endings. Never use the end of the source file as a fake ending when speech or causal explanation is unfinished.",
     mode === "chat"
-      ? "Rough cuts are right-biased: chat/value usually keeps 50–75 seconds; business judgment 45–75 seconds. Only a naturally complete joke/reaction may be micro_complete."
-      : "Rough cuts are right-biased: sales/product usually keeps 30–60 seconds; business method may keep 45–75 seconds. Only a naturally complete joke/reaction may be micro_complete.",
+      ? "Rough cuts are right-biased: chat/value keeps 50–75 seconds and should normally aim for 60–75 seconds when source evidence exists; business judgment keeps 45–75 seconds and should normally aim for 55–75 seconds. The minimum is an admission gate, never a target. Keep extending right until Tianzong completes the reason, evidence, recommendation, and emotional landing. Only a naturally complete joke/reaction may be micro_complete."
+      : "Rough cuts are right-biased: sales/product keeps 30–60 seconds and should normally aim for 45–60 seconds when source evidence exists; business method keeps 45–75 seconds and should normally aim for 55–75 seconds. The minimum is an admission gate, never a target. Keep extending right until Tianzong completes the product proof, reason, recommendation, and closing line. Only a naturally complete joke/reaction may be micro_complete.",
     "Never call the material continuous video reviewed, audio-video verified, human reviewed, publish ready, or final.",
     "A human must still watch the entire rendered safety window at normal playback speed.",
     validationRetry
@@ -444,6 +444,7 @@ async function buildRefinementInput({
         "openingSegmentId and closingSegmentId must belong to Tianzong and to spokenContentSegmentIds.",
         "All spokenContentSegmentIds must share tianzongSpeakerLabel. Put every other speaker in contextOnlySegmentIds.",
         "decision=retain requires semanticClosureStatus=complete, supported opening and closing boundaries, and a right-biased complete rough-cut duration.",
+        "Do not stop merely because the minimum duration has been reached. The minimum is only an admission gate; prefer the middle-right of the applicable range whenever later Tianzong speech still provides reason, evidence, recommendation, product proof, punchline, or emotional landing.",
         "Use only supplied transcript segment ids, visual event ids, and frame ids.",
         `machineReviewMethod must equal ${expectedMachineReviewMethod}.`,
         expectedMachineReviewMethod === DENSE_PLUS_NATIVE_AV_METHOD

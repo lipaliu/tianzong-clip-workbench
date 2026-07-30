@@ -232,6 +232,31 @@ const ROUGH_CUT_MIN_SECONDS = Object.freeze({
   custom_complete: 30,
 });
 
+function candidateScoreComponentTotal(score) {
+  return [
+    score?.hook,
+    score?.emotion,
+    score?.insight,
+    score?.controversy,
+    score?.completeness,
+    score?.titlePotential,
+  ].reduce((sum, value) => sum + value, 0);
+}
+
+export function normalizeCandidateScoreTotals(result) {
+  if (!result || !Array.isArray(result.candidates)) return result;
+  return {
+    ...result,
+    candidates: result.candidates.map((candidate) => ({
+      ...candidate,
+      score: {
+        ...candidate.score,
+        total: candidateScoreComponentTotal(candidate.score),
+      },
+    })),
+  };
+}
+
 function keptDurationSec(candidate) {
   const recall = candidate.recallWindow;
   const removals = (candidate.deleteSuggestions ?? [])
@@ -655,14 +680,7 @@ export function validateCandidateResult(result, {
       });
     }
 
-    const componentTotal = [
-      candidate.score.hook,
-      candidate.score.emotion,
-      candidate.score.insight,
-      candidate.score.controversy,
-      candidate.score.completeness,
-      candidate.score.titlePotential,
-    ].reduce((sum, value) => sum + value, 0);
+    const componentTotal = candidateScoreComponentTotal(candidate.score);
     invariant(Math.abs(componentTotal - candidate.score.total) <= 0.5, "Candidate score components do not add up to the total", {
       code: "CANDIDATE_SCORE_MISMATCH",
       stage: "candidate_generation",
@@ -1130,8 +1148,8 @@ export async function generateCandidates({
         "safetyWindow must include continuous context around recallWindow for later normal-playback review.",
         "Another speaker's question or story is context evidence only. Never use their voice as the delivered opening; prefer Tianzong's own restatement, otherwise register it for a later text question card.",
         mode === "chat"
-          ? "Recall enough right-side context for a 50–75s chat/value rough cut or 45–75s business rough cut. Only a naturally complete joke/reaction may be 12–27s."
-          : "Recall enough right-side context for a 30–60s sales rough cut or 45–75s business-method rough cut. Only a naturally complete joke/reaction may be 12–27s.",
+          ? "Recall enough right-side context for a 50–75s chat/value rough cut or 45–75s business rough cut. The lower bound is only an admission gate: normally keep toward 60–75s until Tianzong has completed the reason, evidence, recommendation, and emotional landing. Only a naturally complete joke/reaction may be 12–27s."
+          : "Recall enough right-side context for a 30–60s sales rough cut or 45–75s business-method rough cut. The lower bound is only an admission gate: normally keep toward the middle-right of the range until Tianzong has completed the product proof, reason, recommendation, and closing line. Only a naturally complete joke/reaction may be 12–27s.",
         "Do not end on unfinished speech, an unresolved causal chain, before the recommendation, or at a source-file truncation.",
         "Do not claim a gesture, expression, interruption, product interaction, or visual punchline unless a cited visual event supports it.",
         "List in requiredVisualProof everything that still needs continuous audio-video confirmation.",
@@ -1184,6 +1202,10 @@ export async function generateCandidates({
         safetyIdentifier,
         signal,
       });
+      response = {
+        ...response,
+        parsed: normalizeCandidateScoreTotals(response.parsed),
+      };
 
       try {
         validateCandidateResult(response.parsed, {
