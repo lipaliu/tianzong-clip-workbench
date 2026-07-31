@@ -350,6 +350,49 @@ test("dense frame extraction tolerates one ffmpeg EOF timestamp without a termin
   });
 });
 
+test("dense frame extraction adds one explicit EOF still when muxer rounding leaves the tail uncovered", async () => {
+  await withTempDir(async (directory) => {
+    const calls = [];
+    const manifest = await extractDenseTimelineFrames({
+      sourcePath: "/tmp/live.mp4",
+      outputDir: directory,
+      durationSec: 5,
+      intervalSec: 2,
+      runner: async (_command, args) => {
+        calls.push(args);
+        const isPeriodic = args.some((arg) => String(arg).includes("fps=fps=1/2"));
+        if (isPeriodic) {
+          await Promise.all([
+            writeFile(path.join(directory, "periodic_0000001.jpg"), "p0"),
+            writeFile(path.join(directory, "periodic_0000002.jpg"), "p1"),
+          ]);
+          return {
+            stdout: "",
+            stderr: [
+              "showinfo n:0 pts_time:0",
+              "showinfo n:1 pts_time:2",
+              "showinfo n:2 pts_time:4",
+            ].join("\n"),
+          };
+        }
+        if (args.includes("-sseof")) {
+          await writeFile(path.join(directory, "periodic_terminal.jpg"), "pend");
+          return { stdout: "", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      },
+    });
+
+    assert.equal(calls.length, 3);
+    assert.equal(manifest.coverage.extractionPassCount, 3);
+    assert.equal(manifest.coverage.periodicTerminalSupplemented, true);
+    assert.deepEqual(
+      manifest.frames.map((frame) => frame.timestampSec),
+      [0, 2, 4.75],
+    );
+  });
+});
+
 test("visual timeline analysis sends GPT-5.6 Sol image inputs and remains screening-only", async () => {
   await withTempDir(async (directory) => {
     const frames = [];

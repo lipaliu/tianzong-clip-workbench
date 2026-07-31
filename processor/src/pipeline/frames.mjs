@@ -401,12 +401,47 @@ export async function extractDenseTimelineFrames({
     parsedPeriodicTimestamps,
     { label: "periodic" },
   );
-  const periodicPaths = periodicEvidence.paths;
-  const periodicTimestamps = periodicEvidence.timestamps;
+  const periodicPaths = [...periodicEvidence.paths];
+  const periodicTimestamps = [...periodicEvidence.timestamps];
+  let periodicTerminalSupplemented = false;
+  if (
+    durationSec - periodicTimestamps.at(-1)
+    > intervalSec + 0.25
+  ) {
+    const terminalOffsetSec = Math.min(0.25, durationSec / 2);
+    const terminalTimestampSec = roundMillis(durationSec - terminalOffsetSec);
+    const terminalPath = path.join(outputDir, "periodic_terminal.jpg");
+    await runner("ffmpeg", [
+      "-hide_banner",
+      "-loglevel", "error",
+      "-sseof", `-${terminalOffsetSec.toFixed(3)}`,
+      "-i", sourcePath,
+      "-an",
+      "-frames:v", "1",
+      "-vf", `scale=min(${maximumWidth}\\,iw):-2`,
+      "-q:v", "3",
+      "-y",
+      terminalPath,
+    ], {
+      signal,
+      timeoutMs: Math.min(commandTimeoutMs, 5 * 60 * 1000),
+      maxOutputBytes: 8 * 1024 * 1024,
+    });
+    await assertFrameArtifact(terminalPath);
+    periodicPaths.push(terminalPath);
+    periodicTimestamps.push(terminalTimestampSec);
+    periodicTerminalSupplemented = true;
+  }
+  const periodicTerminalGapSec = periodicTerminalSupplemented
+    ? periodicTimestamps.at(-1) - periodicTimestamps.at(-2)
+    : intervalSec;
+  const periodicCoverageToleranceSec = periodicTerminalSupplemented
+    ? Math.max(0.25, periodicTerminalGapSec - intervalSec + 0.01)
+    : 0.25;
   assertPeriodicFrameCoverage(periodicTimestamps, {
     durationSec,
     intervalSec,
-    toleranceSec: 0.25,
+    toleranceSec: periodicCoverageToleranceSec,
   });
   await onProgress?.({
     stage: "dense_frame_extract",
@@ -513,11 +548,15 @@ export async function extractDenseTimelineFrames({
       shotChangeFrameCount: shotEntries.length,
       rawShotChangeFrameCount: rawShotPaths.length,
       shotChangeMinimumGapSec: minimumShotGapSec,
-      extractionPassCount: 2,
+      extractionPassCount: periodicTerminalSupplemented ? 3 : 2,
+      periodicTerminalSupplemented,
+      periodicCoverageToleranceSec,
       fullTimelineScreeningExtracted: true,
       continuousVideoReviewed: false,
       limitation:
-        "Two ffmpeg decoding passes extracted fixed-interval and scene-change still frames. This proves still-frame coverage only, not continuous video review.",
+        periodicTerminalSupplemented
+          ? "Two full decoding passes plus one EOF still extracted fixed-interval, terminal, and scene-change evidence. This proves still-frame coverage only, not continuous video review."
+          : "Two ffmpeg decoding passes extracted fixed-interval and scene-change still frames. This proves still-frame coverage only, not continuous video review.",
     },
     generatedAt: new Date().toISOString(),
   };
