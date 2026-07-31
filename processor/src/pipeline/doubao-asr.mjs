@@ -151,6 +151,131 @@ function resolveDurationSec(raw, explicitDurationSec, lastSegmentEndSec) {
   return roundMillis(lastSegmentEndSec);
 }
 
+export function mergeDoubaoChunkTranscripts(
+  chunkResults,
+  {
+    chunks,
+    mediaDurationSec,
+    generatedAt = new Date().toISOString(),
+  } = {},
+) {
+  invariant(
+    Array.isArray(chunkResults)
+      && Array.isArray(chunks)
+      && chunkResults.length === chunks.length
+      && chunks.length > 0,
+    "Doubao ASR chunk results do not match the chunk plan",
+    {
+      code: "DOUBAO_ASR_CHUNK_RESULTS_INVALID",
+      stage: "doubao_asr_chunk_merge",
+    },
+  );
+  invariant(
+    Number.isFinite(mediaDurationSec) && mediaDurationSec > 0,
+    "Doubao ASR chunk merge requires the source duration",
+    {
+      code: "DOUBAO_ASR_CHUNK_DURATION_INVALID",
+      stage: "doubao_asr_chunk_merge",
+    },
+  );
+  const segments = [];
+  const chunkProvenance = [];
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    const result = chunkResults[index];
+    invariant(
+      result && Array.isArray(result.segments),
+      "Doubao ASR chunk is missing transcript segments",
+      {
+        code: "DOUBAO_ASR_CHUNK_TRANSCRIPT_MISSING",
+        stage: "doubao_asr_chunk_merge",
+        details: { chunkId: chunk?.id },
+      },
+    );
+    for (const segment of result.segments) {
+      const localStartSec = Number(
+        segment.localStartSec ?? segment.startSec,
+      );
+      const localEndSec = Number(
+        segment.localEndSec ?? segment.endSec,
+      );
+      const startSec = roundMillis(chunk.startSec + localStartSec);
+      const endSec = roundMillis(chunk.startSec + localEndSec);
+      const midpointSec = (startSec + endSec) / 2;
+      const ownsMidpoint =
+        midpointSec >= chunk.ownershipStartSec - 0.001
+        && (
+          index === chunks.length - 1
+            ? midpointSec <= chunk.ownershipEndSec + 0.001
+            : midpointSec < chunk.ownershipEndSec - 0.001
+        );
+      if (!ownsMidpoint) continue;
+      invariant(
+        startSec >= -0.001
+          && endSec >= startSec
+          && endSec <= mediaDurationSec + 0.5,
+        "Merged Doubao ASR segment falls outside the source timeline",
+        {
+          code: "DOUBAO_ASR_CHUNK_SEGMENT_OUTSIDE_MEDIA",
+          stage: "doubao_asr_chunk_merge",
+          details: { chunkId: chunk.id, segmentId: segment.id },
+        },
+      );
+      segments.push({
+        ...segment,
+        id: `tx_${chunk.id}_${String(segments.length + 1).padStart(6, "0")}`,
+        chunkId: chunk.id,
+        localStartSec,
+        localEndSec,
+        startSec,
+        endSec,
+      });
+    }
+    chunkProvenance.push({
+      chunkId: chunk.id,
+      startSec: chunk.startSec,
+      endSec: chunk.endSec,
+      ownershipStartSec: chunk.ownershipStartSec,
+      ownershipEndSec: chunk.ownershipEndSec,
+      providerTaskId: result.provenance?.taskId ?? null,
+      segmentCount: result.segments.length,
+    });
+  }
+  segments.sort(
+    (left, right) =>
+      left.startSec - right.startSec || left.endSec - right.endSec,
+  );
+  invariant(segments.length > 0, "Merged Doubao ASR transcript is empty", {
+    code: "DOUBAO_ASR_CHUNK_MERGE_EMPTY",
+    stage: "doubao_asr_chunk_merge",
+  });
+  return {
+    provider: "doubao",
+    model: chunkResults[0].model ?? "doubao-bigasr-2.0",
+    mediaDurationSec: roundMillis(mediaDurationSec),
+    segments,
+    text: segments.map((segment) => segment.text).join("\n"),
+    speakerLabels: [...new Set(segments.map((segment) => segment.speaker))],
+    coverage: {
+      firstSegmentStartSec: segments[0].startSec,
+      lastSegmentEndSec: segments.at(-1).endSec,
+      chunkCount: chunks.length,
+      ownershipPartitionApplied: true,
+    },
+    provenance: {
+      provider: "doubao",
+      service: "recording_file_asr_chunked",
+      apiVersion: "v3",
+      resourceId: chunkResults[0].provenance?.resourceId
+        ?? "volc.bigasr.auc",
+      originalTimestampUnit: "milliseconds",
+      speakerDiarizationRequested: true,
+      chunkProvenance,
+    },
+    generatedAt,
+  };
+}
+
 /**
  * Convert a completed Doubao BigASR response to the transcript contract used by
  * the TianClip pipeline.

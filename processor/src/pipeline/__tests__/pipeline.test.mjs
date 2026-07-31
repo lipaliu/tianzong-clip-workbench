@@ -272,8 +272,8 @@ test("dense frame extraction decodes the full timeline in two ffmpeg passes, not
       outputDir: directory,
       durationSec: 5,
       intervalSec: 2,
-      runner: async (command, args) => {
-        calls.push({ command, args });
+      runner: async (command, args, options) => {
+        calls.push({ command, args, options });
         const isPeriodic = args.some((arg) => String(arg).includes("fps=fps=1/2"));
         if (isPeriodic) {
           await Promise.all([
@@ -299,6 +299,8 @@ test("dense frame extraction decodes the full timeline in two ffmpeg passes, not
     });
     assert.equal(calls.length, 2);
     assert.ok(calls.every((call) => call.command === "ffmpeg"));
+    assert.ok(calls.every((call) => call.options.timeoutMs >= 30 * 60 * 1000));
+    assert.ok(calls.every((call) => call.options.maxOutputBytes === 64 * 1024 * 1024));
     assert.equal(manifest.coverage.extractionPassCount, 2);
     assert.equal(manifest.coverage.periodicFrameCount, 3);
     assert.equal(manifest.coverage.shotChangeFrameCount, 1);
@@ -308,6 +310,86 @@ test("dense frame extraction decodes the full timeline in two ffmpeg passes, not
     );
     assert.equal(manifest.coverage.fullTimelineScreeningExtracted, true);
     assert.equal(manifest.coverage.continuousVideoReviewed, false);
+  });
+});
+
+test("dense frame extraction tolerates one ffmpeg EOF timestamp without a terminal image", async () => {
+  await withTempDir(async (directory) => {
+    const manifest = await extractDenseTimelineFrames({
+      sourcePath: "/tmp/live.mp4",
+      outputDir: directory,
+      durationSec: 5,
+      intervalSec: 2,
+      runner: async (_command, args) => {
+        const isPeriodic = args.some((arg) => String(arg).includes("fps=fps=1/2"));
+        if (isPeriodic) {
+          await Promise.all([
+            writeFile(path.join(directory, "periodic_0000001.jpg"), "p0"),
+            writeFile(path.join(directory, "periodic_0000002.jpg"), "p1"),
+            writeFile(path.join(directory, "periodic_0000003.jpg"), "p2"),
+          ]);
+          return {
+            stdout: "",
+            stderr: [
+              "showinfo n:0 pts_time:0",
+              "showinfo n:1 pts_time:2",
+              "showinfo n:2 pts_time:4",
+              "showinfo n:3 pts_time:5",
+            ].join("\n"),
+          };
+        }
+        return { stdout: "", stderr: "" };
+      },
+    });
+
+    assert.equal(manifest.coverage.periodicFrameCount, 3);
+    assert.deepEqual(
+      manifest.frames.map((frame) => frame.timestampSec),
+      [0, 2, 4],
+    );
+  });
+});
+
+test("dense frame extraction adds one explicit EOF still when muxer rounding leaves the tail uncovered", async () => {
+  await withTempDir(async (directory) => {
+    const calls = [];
+    const manifest = await extractDenseTimelineFrames({
+      sourcePath: "/tmp/live.mp4",
+      outputDir: directory,
+      durationSec: 5,
+      intervalSec: 2,
+      runner: async (_command, args) => {
+        calls.push(args);
+        const isPeriodic = args.some((arg) => String(arg).includes("fps=fps=1/2"));
+        if (isPeriodic) {
+          await Promise.all([
+            writeFile(path.join(directory, "periodic_0000001.jpg"), "p0"),
+            writeFile(path.join(directory, "periodic_0000002.jpg"), "p1"),
+          ]);
+          return {
+            stdout: "",
+            stderr: [
+              "showinfo n:0 pts_time:0",
+              "showinfo n:1 pts_time:2",
+              "showinfo n:2 pts_time:4",
+            ].join("\n"),
+          };
+        }
+        if (args.includes("-sseof")) {
+          await writeFile(path.join(directory, "periodic_terminal.jpg"), "pend");
+          return { stdout: "", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      },
+    });
+
+    assert.equal(calls.length, 3);
+    assert.equal(manifest.coverage.extractionPassCount, 3);
+    assert.equal(manifest.coverage.periodicTerminalSupplemented, true);
+    assert.deepEqual(
+      manifest.frames.map((frame) => frame.timestampSec),
+      [0, 2, 4.75],
+    );
   });
 });
 
@@ -385,6 +467,77 @@ test("visual timeline analysis sends GPT-5.6 Sol image inputs and remains screen
   });
 });
 
+test("visual timeline namespaces repeated provider event ids across batches", async () => {
+  await withTempDir(async (directory) => {
+    const framePath = path.join(directory, "visual-batch-frame.jpg");
+    await writeFile(framePath, "visual-batch-jpeg");
+    const frames = [0, 10, 20].map((timestampSec, index) => ({
+      id: `frame_repeat_${index + 1}`,
+      timestampSec,
+      reasons: ["periodic"],
+      path: framePath,
+      mimeType: "image/jpeg",
+    }));
+    let requestIndex = 0;
+    const visualMap = await analyzeVisualTimeline({
+      frameManifest: {
+        durationSec: 20,
+        periodicIntervalSec: 10,
+        frames,
+        coverage: {
+          fullTimelineScreeningExtracted: true,
+          continuousVideoReviewed: false,
+        },
+      },
+      framesPerBatch: 2,
+      client: {
+        async createStructuredResponse(value) {
+          const batchIndex = requestIndex;
+          requestIndex += 1;
+          const frameId = batchIndex === 0 ? "frame_repeat_1" : "frame_repeat_3";
+          const timestamp = batchIndex === 0 ? 0 : 20;
+          return {
+            parsed: {
+              events: [{
+                id: "event_1",
+                startSec: timestamp,
+                endSec: timestamp,
+                eventType: "speaker_expression",
+                description: `批次 ${batchIndex + 1} 的可见表情`,
+                people: ["天总"],
+                actions: [],
+                expressions: ["微笑"],
+                products: [],
+                onscreenText: [],
+                clipSignals: ["人物反应"],
+                evidenceFrameIds: [frameId],
+                confidence: 0.8,
+                uncertainties: ["静帧证据"],
+              }],
+              batchSummary: {
+                dominantScene: "直播间",
+                visibleSpeakerCount: 1,
+                notes: [],
+              },
+            },
+            responseId: `resp_repeat_${batchIndex + 1}`,
+            model: value.model,
+            usage: { total_tokens: 10 },
+          };
+        },
+      },
+    });
+
+    assert.deepEqual(
+      visualMap.events.map((event) => event.id),
+      [
+        "visual_batch_0001_event_0001",
+        "visual_batch_0002_event_0001",
+      ],
+    );
+  });
+});
+
 function candidateFixtures() {
   const transcript = {
     mediaDurationSec: 30,
@@ -394,14 +547,14 @@ function candidateFixtures() {
         speaker: "A",
         startSec: 2,
         endSec: 5,
-        text: "赚钱和事业根本不是一回事",
+        text: "赚钱和事业根本不是一回事。",
       },
       {
         id: "tx_2",
         speaker: "A",
         startSec: 5,
-        endSec: 9,
-        text: "你要先想清楚长期价值",
+        endSec: 20,
+        text: "你要先想清楚长期价值。",
       },
     ],
   };
@@ -430,13 +583,15 @@ function candidateFixtures() {
   const candidate = {
     candidateId: "candidate_1",
     title: "赚钱和事业不是一回事",
+    douyinTitle: "赚钱和事业，根本不是一回事",
+    xiaohongshuTitle: "为什么赚钱了，也不一定是在做事业？",
     hook: "很多人把短期收入当成事业",
     openingLine: "赚钱和事业根本不是一回事",
     topic: "事业",
-    contentPillar: "商业判断",
-    rationale: "结论先行且因果完整",
-    recallWindow: { startSec: 2, endSec: 9 },
-    safetyWindow: { startSec: 1, endSec: 10 },
+    contentPillar: "幽默反转测试",
+    rationale: "天然完整的短反应测试候选",
+    recallWindow: { startSec: 2, endSec: 20 },
+    safetyWindow: { startSec: 1, endSec: 21 },
     transcriptSegmentIds: ["tx_1", "tx_2"],
     visualEventIds: ["visual_1"],
     requiredVisualProof: ["确认抬手动作与重音同步", "确认前后没有他人必要提问"],
@@ -471,7 +626,22 @@ function candidateFixtures() {
   };
 }
 
-test("dense visual-only recall uses image evidence first, then binds adjacent transcript", async () => {
+function completeRefinementFields() {
+  return {
+    closureText: "你要先想清楚长期价值。",
+    tianzongSpeakerLabel: "A",
+    openingSegmentId: "tx_1",
+    closingSegmentId: "tx_2",
+    spokenContentSegmentIds: ["tx_1", "tx_2"],
+    contextOnlySegmentIds: [],
+    questionCardText: "",
+    semanticClosureStatus: "complete",
+    roughCutCategory: "micro_complete",
+    roughCutDurationRationale: "测试候选是天然完整的短反应闭环。",
+  };
+}
+
+test("dense visual-only recall records evidence but never creates standalone delivery candidates", async () => {
   await withTempDir(async (directory) => {
     const fixtures = candidateFixtures();
     const frames = [];
@@ -551,15 +721,16 @@ test("dense visual-only recall uses image evidence first, then binds adjacent tr
       request.input[0].content.filter((item) => item.type === "input_image").length,
       4,
     );
-    assert.equal(result.candidates.length, 1);
-    assert.equal(result.candidates[0].openingLine, "你看这个动作");
-    assert.deepEqual(result.candidates[0].transcriptSegmentIds, ["dense_tx_1"]);
+    assert.equal(result.candidates.length, 0);
+    assert.equal(result.selectionSummary.qualifyingCount, 0);
+    assert.match(result.selectionSummary.notes.join("\n"), /不直接生成交付候选/);
+    assert.deepEqual(result.events[0].transcriptSegmentIds, ["dense_tx_1"]);
     assert.equal(result.events[0].continuousRangeReviewed, false);
     assert.equal(result.coverage.continuousAudioVideoReviewed, false);
   });
 });
 
-test("text and visual candidate merge preserves different visual cuts from the same theme", () => {
+test("text and visual candidate merge rejects visual-only candidates", () => {
   const fixtures = candidateFixtures();
   const visualMap = {
     ...fixtures.visualMap,
@@ -636,11 +807,8 @@ test("text and visual candidate merge preserves different visual cuts from the s
     coreBundle: fixtures.coreBundle,
     mode: "chat",
   });
-  assert.equal(result.candidates.length, 2);
-  assert.deepEqual(
-    result.candidates.map((candidate) => candidate.visualEventIds[0]),
-    ["visual_cut_a", "visual_cut_b"],
-  );
+  assert.equal(result.candidates.length, 0);
+  assert.equal(result.sourceFunnel.visualCandidateCount, 0);
   assert.equal(result.sourceFunnel.exactDuplicateCount, 0);
 });
 
@@ -712,9 +880,10 @@ test("candidate-level dense still plus transcript refinement remains human-gated
             parsed: {
               candidateId: "candidate_1",
               decision: "retain",
-              refinedRecallWindow: { startSec: 2, endSec: 9 },
-              refinedSafetyWindow: { startSec: 1, endSec: 10 },
+              refinedRecallWindow: { startSec: 2, endSec: 20 },
+              refinedSafetyWindow: { startSec: 1, endSec: 21 },
               openingLine: "赚钱和事业根本不是一回事",
+              ...completeRefinementFields(),
               transcriptSegmentIds: ["tx_1", "tx_2"],
               visualEventIds: ["visual_1"],
               visualPunchline: {
@@ -730,7 +899,7 @@ test("candidate-level dense still plus transcript refinement remains human-gated
               },
               boundaryAssessment: {
                 openingStatus: "supported",
-                closingStatus: "uncertain",
+                closingStatus: "supported",
                 riskNotes: ["句尾后的表情是否完成需正常播放"],
               },
               requiredHumanNormalPlaybackChecks: [
@@ -767,6 +936,333 @@ test("candidate-level dense still plus transcript refinement remains human-gated
       true,
     );
     assert.equal(result.refinementRuns[0].denseFrameCount, 5);
+  });
+});
+
+test("candidate refinement collapses exact duplicate delivery windows", async () => {
+  await withTempDir(async (directory) => {
+    const fixtures = candidateFixtures();
+    const framePath = path.join(directory, "candidate-dedupe.jpg");
+    await writeFile(framePath, "candidate-dedupe-jpeg");
+    const candidates = [
+      {
+        ...fixtures.candidate,
+        candidateId: "visual_candidate",
+        title: "Visual-only duplicate",
+        score: {
+          hook: 15,
+          emotion: 10,
+          insight: 15,
+          controversy: 10,
+          completeness: 15,
+          titlePotential: 15,
+          total: 80,
+        },
+        discoveryMethods: ["visual_only_dense_reverse_recall"],
+        recallProvenance: { sources: [{ discoveryMethod: "visual" }] },
+      },
+      {
+        ...fixtures.candidate,
+        candidateId: "text_candidate",
+        title: "赚钱和事业不是一回事",
+        score: {
+          hook: 20,
+          emotion: 10,
+          insight: 20,
+          controversy: 10,
+          completeness: 15,
+          titlePotential: 15,
+          total: 90,
+        },
+        discoveryMethods: ["transcript_core_recall"],
+        recallProvenance: { sources: [{ discoveryMethod: "transcript" }] },
+      },
+    ];
+    let calls = 0;
+    const result = await refineCandidatesWithDenseEvidence({
+      candidateResult: {
+        candidates,
+        selectionSummary: {
+          qualifyingCount: 2,
+          rejectedThemes: [],
+          notes: [],
+        },
+      },
+      transcript: fixtures.transcript,
+      visualMap: fixtures.visualMap,
+      frameManifest: {
+        durationSec: 30,
+        periodicIntervalSec: 2,
+        frames: [{
+          id: "candidate_frame_1",
+          timestampSec: 4,
+          reasons: ["periodic"],
+          path: framePath,
+          mimeType: "image/jpeg",
+        }],
+        coverage: {
+          fullTimelineScreeningExtracted: true,
+          continuousVideoReviewed: false,
+        },
+      },
+      coreBundle: fixtures.coreBundle,
+      mode: "chat",
+      concurrency: 1,
+      client: {
+        async createStructuredResponse(value) {
+          const candidateId = candidates[calls].candidateId;
+          calls += 1;
+          return {
+            parsed: {
+              candidateId,
+              decision: "retain",
+              refinedRecallWindow: { startSec: 2, endSec: 20 },
+              refinedSafetyWindow: { startSec: 1, endSec: 21 },
+              openingLine: "赚钱和事业根本不是一回事",
+              ...completeRefinementFields(),
+              transcriptSegmentIds: ["tx_1", "tx_2"],
+              visualEventIds: ["visual_1"],
+              visualPunchline: {
+                present: false,
+                description: "未确认独立视觉梗",
+                evidenceFrameIds: ["candidate_frame_1"],
+                confidence: 0.4,
+              },
+              actionCompleteness: {
+                status: "uncertain",
+                description: "仍需人工正常倍速确认",
+                evidenceFrameIds: ["candidate_frame_1"],
+              },
+              boundaryAssessment: {
+                openingStatus: "supported",
+                closingStatus: "supported",
+                riskNotes: [],
+              },
+              requiredHumanNormalPlaybackChecks: ["完整播放1到10秒"],
+              risks: [],
+              rejectionReason: "",
+              machineReviewMethod:
+                "dense_still_frames_plus_diarized_transcript",
+              continuousAudioVideoReviewed: false,
+              humanNormalPlaybackRequired: true,
+              validationStatus:
+                "candidate_dense_av_screening_needs_human_normal_playback",
+            },
+            responseId: `resp_dedupe_${calls}`,
+            model: value.model,
+            usage: { total_tokens: 20 },
+          };
+        },
+      },
+    });
+
+    assert.equal(calls, 2);
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.candidates[0].title, "赚钱和事业不是一回事");
+    assert.deepEqual(
+      result.candidates[0].discoveryMethods.sort(),
+      ["transcript_core_recall", "visual_only_dense_reverse_recall"],
+    );
+    assert.equal(result.refinementSummary.exactDeliveryDuplicateCount, 1);
+    assert.match(
+      result.selectionSummary.notes.join("\n"),
+      /重复候选已合并/,
+    );
+  });
+});
+
+test("candidate refinement retries a single invalid evidence answer instead of restarting the job", async () => {
+  await withTempDir(async (directory) => {
+    const fixtures = candidateFixtures();
+    const framePath = path.join(directory, "candidate-retry.jpg");
+    await writeFile(framePath, "candidate-retry-jpeg");
+    let calls = 0;
+    let retryInstructions = "";
+    const validAnswer = {
+      candidateId: "candidate_1",
+      decision: "retain",
+      refinedRecallWindow: { startSec: 2, endSec: 20 },
+      refinedSafetyWindow: { startSec: 1, endSec: 21 },
+      openingLine: "赚钱和事业根本不是一回事",
+      ...completeRefinementFields(),
+      transcriptSegmentIds: ["tx_1", "tx_2"],
+      visualEventIds: ["visual_1"],
+      visualPunchline: {
+        present: false,
+        description: "未确认独立视觉梗",
+        evidenceFrameIds: ["candidate_frame_1"],
+        confidence: 0.4,
+      },
+      actionCompleteness: {
+        status: "uncertain",
+        description: "仍需人工正常倍速确认",
+        evidenceFrameIds: ["candidate_frame_1"],
+      },
+      boundaryAssessment: {
+        openingStatus: "supported",
+        closingStatus: "supported",
+        riskNotes: ["句尾需人工确认"],
+      },
+      requiredHumanNormalPlaybackChecks: ["完整播放1到10秒"],
+      risks: ["机器证据不能替代人工确认"],
+      rejectionReason: "",
+      machineReviewMethod: "dense_still_frames_plus_diarized_transcript",
+      continuousAudioVideoReviewed: false,
+      humanNormalPlaybackRequired: true,
+      validationStatus:
+        "candidate_dense_av_screening_needs_human_normal_playback",
+    };
+    const result = await refineCandidatesWithDenseEvidence({
+      candidateResult: {
+        candidates: [fixtures.candidate],
+        selectionSummary: {
+          qualifyingCount: 1,
+          rejectedThemes: [],
+          notes: [],
+        },
+      },
+      transcript: fixtures.transcript,
+      visualMap: fixtures.visualMap,
+      frameManifest: {
+        durationSec: 30,
+        periodicIntervalSec: 2,
+        frames: [{
+          id: "candidate_frame_1",
+          timestampSec: 4,
+          reasons: ["periodic"],
+          path: framePath,
+          mimeType: "image/jpeg",
+        }],
+        coverage: {
+          fullTimelineScreeningExtracted: true,
+          continuousVideoReviewed: false,
+        },
+      },
+      coreBundle: fixtures.coreBundle,
+      mode: "chat",
+      client: {
+        async createStructuredResponse(value) {
+          calls += 1;
+          if (calls === 2) retryInstructions = value.instructions;
+          return {
+            parsed: calls === 1
+              ? {
+                  ...validAnswer,
+                  visualPunchline: {
+                    ...validAnswer.visualPunchline,
+                    evidenceFrameIds: ["invented_frame"],
+                  },
+                }
+              : validAnswer,
+            responseId: `resp_candidate_retry_${calls}`,
+            model: value.model,
+            usage: { total_tokens: 20 },
+          };
+        },
+      },
+    });
+    assert.equal(calls, 2);
+    assert.match(
+      retryInstructions,
+      /CANDIDATE_REFINEMENT_FRAME_EVIDENCE_INVALID/,
+    );
+    assert.match(retryInstructions, /frameIds=candidate_frame_1/);
+    assert.equal(result.candidates.length, 1);
+  });
+});
+
+test("an incomplete provider response only retries the affected candidate", async () => {
+  await withTempDir(async (directory) => {
+    const fixtures = candidateFixtures();
+    const framePath = path.join(directory, "candidate-provider-retry.jpg");
+    await writeFile(framePath, "candidate-provider-retry-jpeg");
+    let calls = 0;
+    let retryInstructions = "";
+    const validAnswer = {
+      candidateId: "candidate_1",
+      decision: "retain",
+      refinedRecallWindow: { startSec: 2, endSec: 20 },
+      refinedSafetyWindow: { startSec: 1, endSec: 21 },
+      openingLine: "赚钱和事业根本不是一回事",
+      ...completeRefinementFields(),
+      transcriptSegmentIds: ["tx_1", "tx_2"],
+      visualEventIds: ["visual_1"],
+      visualPunchline: {
+        present: false,
+        description: "未确认独立视觉梗",
+        evidenceFrameIds: ["candidate_frame_1"],
+        confidence: 0.4,
+      },
+      actionCompleteness: {
+        status: "uncertain",
+        description: "仍需人工正常倍速确认",
+        evidenceFrameIds: ["candidate_frame_1"],
+      },
+      boundaryAssessment: {
+        openingStatus: "supported",
+        closingStatus: "supported",
+        riskNotes: ["句尾需人工确认"],
+      },
+      requiredHumanNormalPlaybackChecks: ["完整播放安全窗"],
+      risks: ["机器证据不能替代人工确认"],
+      rejectionReason: "",
+      machineReviewMethod: "dense_still_frames_plus_diarized_transcript",
+      continuousAudioVideoReviewed: false,
+      humanNormalPlaybackRequired: true,
+      validationStatus:
+        "candidate_dense_av_screening_needs_human_normal_playback",
+    };
+    const result = await refineCandidatesWithDenseEvidence({
+      candidateResult: {
+        candidates: [fixtures.candidate],
+        selectionSummary: {
+          qualifyingCount: 1,
+          rejectedThemes: [],
+          notes: [],
+        },
+      },
+      transcript: fixtures.transcript,
+      visualMap: fixtures.visualMap,
+      frameManifest: {
+        durationSec: 30,
+        periodicIntervalSec: 2,
+        frames: [{
+          id: "candidate_frame_1",
+          timestampSec: 4,
+          reasons: ["periodic"],
+          path: framePath,
+          mimeType: "image/jpeg",
+        }],
+        coverage: {
+          fullTimelineScreeningExtracted: true,
+          continuousVideoReviewed: false,
+        },
+      },
+      coreBundle: fixtures.coreBundle,
+      mode: "chat",
+      client: {
+        async createStructuredResponse(value) {
+          calls += 1;
+          if (calls === 1) {
+            const error = new Error("provider response incomplete");
+            error.code = "OPENAI_RESPONSE_INCOMPLETE";
+            error.details = { reason: "max_output_tokens" };
+            throw error;
+          }
+          retryInstructions = value.instructions;
+          return {
+            parsed: validAnswer,
+            responseId: "resp_candidate_provider_retry",
+            model: value.model,
+            usage: { total_tokens: 20 },
+          };
+        },
+      },
+    });
+    assert.equal(calls, 2);
+    assert.match(retryInstructions, /OPENAI_RESPONSE_INCOMPLETE/);
+    assert.equal(result.candidates.length, 1);
+    assert.equal(result.refinementSummary.rejected.length, 0);
   });
 });
 
@@ -867,9 +1363,10 @@ test("candidate refinement only adopts native AV evidence after a successful bou
             parsed: {
               candidateId: "candidate_1",
               decision: "retain",
-              refinedRecallWindow: { startSec: 2, endSec: 9 },
-              refinedSafetyWindow: { startSec: 1, endSec: 10 },
+              refinedRecallWindow: { startSec: 2, endSec: 20 },
+              refinedSafetyWindow: { startSec: 1, endSec: 21 },
               openingLine: "赚钱和事业根本不是一回事",
+              ...completeRefinementFields(),
               transcriptSegmentIds: ["tx_1", "tx_2"],
               visualEventIds: ["doubao_av_candidate_1_001"],
               visualPunchline: {
@@ -885,7 +1382,7 @@ test("candidate refinement only adopts native AV evidence after a successful bou
               },
               boundaryAssessment: {
                 openingStatus: "supported",
-                closingStatus: "uncertain",
+                closingStatus: "supported",
                 riskNotes: ["句尾动作必须人工正常倍速确认"],
               },
               requiredHumanNormalPlaybackChecks: ["完整播放1到10秒"],
@@ -1023,9 +1520,10 @@ test("uncertain and contradicted native AV decisions remain risk or counter-evid
               parsed: {
                 candidateId: "candidate_1",
                 decision: "reject",
-                refinedRecallWindow: { startSec: 2, endSec: 9 },
-                refinedSafetyWindow: { startSec: 1, endSec: 10 },
+                refinedRecallWindow: { startSec: 2, endSec: 20 },
+                refinedSafetyWindow: { startSec: 1, endSec: 21 },
                 openingLine: "赚钱和事业根本不是一回事",
+                ...completeRefinementFields(),
                 transcriptSegmentIds: ["tx_1", "tx_2"],
                 visualEventIds: [nativeEventId],
                 visualPunchline: {
@@ -1120,9 +1618,10 @@ test("candidate dense refinement fails closed on a premature continuous-AV claim
               parsed: {
                 candidateId: "candidate_1",
                 decision: "retain",
-                refinedRecallWindow: { startSec: 2, endSec: 9 },
-                refinedSafetyWindow: { startSec: 1, endSec: 10 },
+                refinedRecallWindow: { startSec: 2, endSec: 20 },
+                refinedSafetyWindow: { startSec: 1, endSec: 21 },
                 openingLine: "赚钱和事业根本不是一回事",
+                ...completeRefinementFields(),
                 transcriptSegmentIds: ["tx_1", "tx_2"],
                 visualEventIds: ["visual_1"],
                 visualPunchline: {
@@ -1198,6 +1697,143 @@ test("candidate generation binds the private core, transcript, and visual map wi
   assert.match(request.input[0].content[0].text, /There is no target number/);
   assert.equal(result.candidates[0].validationStatus, "editorial_candidate_needs_av_review");
   assert.equal(result.coreBinding.coreSha256, "a".repeat(64));
+});
+
+test("candidate generation computes score totals deterministically without retrying the model", async () => {
+  const fixtures = candidateFixtures();
+  let calls = 0;
+  const result = await generateCandidates({
+    transcript: fixtures.transcript,
+    visualMap: fixtures.visualMap,
+    coreBundle: fixtures.coreBundle,
+    mode: "chat",
+    client: {
+      async createStructuredResponse(value) {
+        calls += 1;
+        return {
+          parsed: {
+            candidates: [{
+              ...fixtures.candidate,
+              score: { ...fixtures.candidate.score, total: 99 },
+            }],
+            selectionSummary: {
+              qualifyingCount: 1,
+              rejectedThemes: [],
+              notes: [],
+            },
+          },
+          responseId: `resp_candidate_score_${calls}`,
+          model: value.model,
+          usage: { total_tokens: 20 },
+        };
+      },
+    },
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].score.total, 100);
+});
+
+test("candidate generation rejects one unsupported opening without restarting the livestream", async () => {
+  const fixtures = candidateFixtures();
+  let calls = 0;
+  const result = await generateCandidates({
+    transcript: fixtures.transcript,
+    visualMap: fixtures.visualMap,
+    coreBundle: fixtures.coreBundle,
+    mode: "chat",
+    client: {
+      async createStructuredResponse(value) {
+        calls += 1;
+        return {
+          parsed: {
+            candidates: [
+              fixtures.candidate,
+              {
+                ...fixtures.candidate,
+                candidateId: "unsupported-opening",
+                openingLine: "这句原话并不存在于逐字稿里。",
+              },
+            ],
+            selectionSummary: {
+              qualifyingCount: 2,
+              rejectedThemes: [],
+              notes: [],
+            },
+          },
+          responseId: `resp_candidate_salvage_${calls}`,
+          model: value.model,
+          usage: { total_tokens: 20 },
+        };
+      },
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].openingLine, fixtures.candidate.openingLine);
+  assert.match(
+    result.selectionSummary.rejectedThemes.join("\n"),
+    /CANDIDATE_OPENING_LINE_UNSUPPORTED/,
+  );
+  assert.match(
+    result.selectionSummary.notes.join("\n"),
+    /without restarting the livestream/,
+  );
+});
+
+test("candidate generation rejects one out-of-window deletion without restarting the livestream", async () => {
+  const fixtures = candidateFixtures();
+  let calls = 0;
+  const result = await generateCandidates({
+    transcript: fixtures.transcript,
+    visualMap: fixtures.visualMap,
+    coreBundle: fixtures.coreBundle,
+    mode: "chat",
+    client: {
+      async createStructuredResponse(value) {
+        calls += 1;
+        return {
+          parsed: {
+            candidates: [
+              fixtures.candidate,
+              {
+                ...fixtures.candidate,
+                candidateId: "invalid-deletion",
+                deleteSuggestions: [{
+                  startSec: 22,
+                  endSec: 24,
+                  transcriptSegmentIds: ["tx_2"],
+                  reason: "错误地越过候选安全窗。",
+                }],
+              },
+            ],
+            selectionSummary: {
+              qualifyingCount: 2,
+              rejectedThemes: [],
+              notes: [],
+            },
+          },
+          responseId: `resp_candidate_delete_salvage_${calls}`,
+          model: value.model,
+          usage: { total_tokens: 20 },
+        };
+      },
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].openingLine, fixtures.candidate.openingLine);
+  assert.match(
+    result.selectionSummary.rejectedThemes.join("\n"),
+    /DELETE_SUGGESTION_OUTSIDE_WINDOW/,
+  );
+  assert.match(
+    result.selectionSummary.notes.join("\n"),
+    /without restarting the livestream/,
+  );
 });
 
 test("semantic recall planning keeps a question and its answer together", () => {
@@ -1316,6 +1952,8 @@ test("multi-hour recall is batched, core-bound on every request, and naturally c
           candidates: [{
             candidateId: `source_${payload.recallBatch.batchId}`,
             title: owned.text,
+            douyinTitle: owned.text,
+            xiaohongshuTitle: `天总把这件事讲明白了：${owned.text}`,
             hook: owned.text,
             openingLine: owned.text,
             topic: "自然主题",
@@ -1475,7 +2113,7 @@ test("global merge removes overlap duplicates but preserves independent angles",
   assert.equal(result.selectionSummary.qualifyingCount, 2);
 });
 
-test("candidate recall fails closed when a model extends beyond its supplied evidence window", async () => {
+test("candidate recall rejects an out-of-batch proposal without restarting the livestream", async () => {
   const fixtures = candidateFixtures();
   const client = {
     async createStructuredResponse(value) {
@@ -1483,6 +2121,7 @@ test("candidate recall fails closed when a model extends beyond its supplied evi
         parsed: {
           candidates: [{
             ...fixtures.candidate,
+            recallWindow: { startSec: 2, endSec: 9 },
             safetyWindow: { startSec: 0, endSec: 11 },
           }],
           selectionSummary: {
@@ -1497,23 +2136,25 @@ test("candidate recall fails closed when a model extends beyond its supplied evi
       };
     },
   };
-  await assert.rejects(
-    () => generateCandidates({
-      transcript: fixtures.transcript,
-      visualMap: fixtures.visualMap,
-      coreBundle: fixtures.coreBundle,
-      mode: "chat",
-      client,
-      recallConfig: {
-        targetWindowSec: 8,
-        maxWindowSec: 10,
-        minWindowSec: 2,
-        overlapSec: 1,
-        maxTranscriptChars: 5_000,
-        maxOutputTokensPerBatch: 1_000,
-      },
-    }),
-    (error) => error.code === "CANDIDATE_OUTSIDE_RECALL_BATCH",
+  const result = await generateCandidates({
+    transcript: fixtures.transcript,
+    visualMap: fixtures.visualMap,
+    coreBundle: fixtures.coreBundle,
+    mode: "chat",
+    client,
+    recallConfig: {
+      targetWindowSec: 8,
+      maxWindowSec: 10,
+      minWindowSec: 2,
+      overlapSec: 1,
+      maxTranscriptChars: 5_000,
+      maxOutputTokensPerBatch: 1_000,
+    },
+  });
+  assert.equal(result.candidates.length, 0);
+  assert.match(
+    result.selectionSummary.rejectedThemes.join("\n"),
+    /CANDIDATE_OUTSIDE_RECALL_BATCH/,
   );
 });
 
@@ -1580,7 +2221,7 @@ test("safety-window proxy renders a continuous audio-video review artifact, not 
 
   assert.equal(invocation.command, "ffmpeg");
   assert.equal(invocation.args[invocation.args.indexOf("-ss") + 1], "1.000");
-  assert.equal(invocation.args[invocation.args.indexOf("-t") + 1], "9.000");
+  assert.equal(invocation.args[invocation.args.indexOf("-t") + 1], "20.000");
   assert.ok(invocation.args.includes("0:v:0"));
   assert.ok(invocation.args.includes("0:a:0"));
   assert.equal(proxy.isFinalCut, false);
@@ -1721,6 +2362,60 @@ test("OpenAI Responses client sends the official image and strict text.format co
   assert.equal(requestBody.text.format.name, "answer_schema");
   assert.equal(requestBody.text.format.strict, true);
   assert.equal(requestBody.input[0].content[1].type, "input_image");
+});
+
+test("OpenAI client routes through an authenticated Cloudflare AI Gateway without replacing the provider key", async () => {
+  let request;
+  const client = createOpenAIClient({
+    apiKey: "openai-provider-key",
+    baseUrl:
+      "https://gateway.ai.cloudflare.com/v1/account/gateway/openai",
+    gatewayToken: "cloudflare-gateway-token",
+    fetchImpl: async (url, init) => {
+      request = { url, init };
+      return jsonResponse({
+        id: "resp_gateway_1",
+        status: "completed",
+        model: "gpt-5.6-sol",
+        output: [{
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({ answer: "gateway-ok" }),
+          }],
+        }],
+      });
+    },
+  });
+
+  const result = await client.createStructuredResponse({
+    instructions: "Use the Tianzong Skill.",
+    input: [{
+      role: "user",
+      content: [{ type: "input_text", text: "测试" }],
+    }],
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { answer: { type: "string" } },
+      required: ["answer"],
+    },
+    schemaName: "gateway_answer",
+  });
+
+  assert.deepEqual(result.parsed, { answer: "gateway-ok" });
+  assert.equal(
+    request.url,
+    "https://gateway.ai.cloudflare.com/v1/account/gateway/openai/responses",
+  );
+  assert.equal(
+    request.init.headers.Authorization,
+    "Bearer openai-provider-key",
+  );
+  assert.equal(
+    request.init.headers["cf-aig-authorization"],
+    "Bearer cloudflare-gateway-token",
+  );
 });
 
 test("Doubao editor executes the same structured Skill contract through Ark Responses", async () => {

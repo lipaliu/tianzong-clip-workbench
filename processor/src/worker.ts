@@ -22,22 +22,25 @@ import {
   extractRemoteAsrAudio,
 } from "./pipeline/audio.mjs";
 import { createDoubaoBigAsrClient } from "./pipeline/doubao-asr.mjs";
+import { mergeDoubaoChunkTranscripts } from "./pipeline/doubao-asr.mjs";
 import { createDoubaoAvReviewProvider } from "./pipeline/doubao-av-review.mjs";
 import { createDoubaoEditorClient } from "./pipeline/doubao-editor-client.mjs";
 import { createOpenAIClient } from "./pipeline/openai-client.mjs";
 import {
-  buildFrameExtractionPlan,
   extractDenseTimelineFrames,
-  extractFrames,
 } from "./pipeline/frames.mjs";
 import {
-  analyzeDenseVisualRecall,
-  augmentVisualMapWithDenseRecall,
   mergeTextAndVisualCandidateResults,
 } from "./pipeline/dense-visual-recall.mjs";
-import { refineCandidatesWithDenseEvidence } from "./pipeline/candidate-refinement.mjs";
+import {
+  expandCandidateEvidenceWindow,
+  refineCandidatesWithDenseEvidence,
+} from "./pipeline/candidate-refinement.mjs";
 import { probeMedia } from "./pipeline/media.mjs";
-import { renderCandidateSafetyProxy } from "./pipeline/proxy.mjs";
+import {
+  renderCandidateRoughCut,
+  renderCandidateSafetyProxy,
+} from "./pipeline/proxy.mjs";
 import {
   applyNativeAvBoundarySuggestions,
   augmentVisualMapWithNativeAvReviews,
@@ -45,10 +48,13 @@ import {
 } from "./pipeline/provider-routing.mjs";
 import { checkMediaToolchain } from "./pipeline/toolchain.mjs";
 import { transcribeAudioChunks } from "./pipeline/transcription.mjs";
-import { analyzeVisualTimeline } from "./pipeline/visual-map.mjs";
 import { ProcessorRepository } from "./repository.js";
 import { renderCandidateRevision } from "./revision-render.js";
 import { PrivateObjectStorage } from "./storage.js";
+import {
+  buildTranscriptCheckpoint,
+  restoreTranscriptCheckpoint,
+} from "./transcript-checkpoint.js";
 import type {
   CandidatePayload,
   ClaimedJob,
@@ -61,19 +67,17 @@ const audioPlan = planAudioChunks as AnyFunction;
 const audioExtract = extractAudioChunks as AnyFunction;
 const remoteAsrAudioExtract = extractRemoteAsrAudio as AnyFunction;
 const doubaoAsrFactory = createDoubaoBigAsrClient as AnyFunction;
+const doubaoAsrChunkMerge = mergeDoubaoChunkTranscripts as AnyFunction;
 const doubaoAvFactory = createDoubaoAvReviewProvider as AnyFunction;
 const doubaoEditorFactory = createDoubaoEditorClient as AnyFunction;
 const mediaProbe = probeMedia as AnyFunction;
-const framePlan = buildFrameExtractionPlan as AnyFunction;
-const frameExtract = extractFrames as AnyFunction;
 const denseFrameExtract = extractDenseTimelineFrames as AnyFunction;
 const transcribe = transcribeAudioChunks as AnyFunction;
-const visualAnalyze = analyzeVisualTimeline as AnyFunction;
-const denseVisualRecall = analyzeDenseVisualRecall as AnyFunction;
-const visualMapAugment = augmentVisualMapWithDenseRecall as AnyFunction;
 const candidateSourceMerge = mergeTextAndVisualCandidateResults as AnyFunction;
 const candidateDenseRefine = refineCandidatesWithDenseEvidence as AnyFunction;
-const renderRoughProxy = renderCandidateSafetyProxy as AnyFunction;
+const expandCandidateWindow = expandCandidateEvidenceWindow as AnyFunction;
+const renderSafetyProxy = renderCandidateSafetyProxy as AnyFunction;
+const renderRoughProxy = renderCandidateRoughCut as AnyFunction;
 const providerRouteExecute = executeProviderRoute as AnyFunction;
 const nativeAvBoundaryApply =
   applyNativeAvBoundarySuggestions as AnyFunction;
@@ -88,6 +92,7 @@ const storage = new PrivateObjectStorage(config);
 const openai = createOpenAIClient({
   apiKey: config.openai.apiKey,
   baseUrl: config.openai.baseUrl,
+  gatewayToken: config.openai.gatewayToken,
   sitesBypassToken: config.openai.sitesBypassToken,
 });
 const doubaoEditor = config.doubao.ark.apiKey
@@ -249,6 +254,79 @@ function combineEditorialResults(
     ...(finalVisualMap ? { visualMap: finalVisualMap } : {}),
   };
   return combined;
+}
+
+function prepareTranscriptFirstVisualEvidence(
+  denseFrameManifest: Record<string, any>,
+): {
+  visualMap: Record<string, any>;
+  denseRecallResult: Record<string, any>;
+} {
+  const generatedAt = new Date().toISOString();
+  const frameIds = denseFrameManifest.frames.map(
+    (frame: Record<string, any>) => frame.id,
+  );
+  const coverage = {
+    fullTimelineScreeningComplete: true,
+    periodicIntervalSec: denseFrameManifest.periodicIntervalSec,
+    frameCount: denseFrameManifest.frames.length,
+    batchCount: 0,
+    continuousAudioVideoReviewed: false,
+    denseVisualReverseRecallComplete: true,
+    densePeriodicIntervalSec: denseFrameManifest.periodicIntervalSec,
+    denseFrameCount: denseFrameManifest.frames.length,
+    semanticVisualReviewScope: "candidate_windows_only",
+    limitation:
+      "整场已完成中文逐字稿召回与密集帧证据准备；纯画面事件不得独立成为切片。"
+      + " 只有逐字稿召回出的候选安全窗才进入豆包原生音视频复核，"
+      + "用于判断表情、动作、语气、场外插话、商品展示和真实边界；"
+      + "这不等于人工逐帧观看整场。",
+  };
+  const method =
+    "full_transcript_recall_plus_dense_frame_evidence_then_candidate_native_av";
+  const visualMap = {
+    model: null,
+    method,
+    durationSec: denseFrameManifest.durationSec,
+    events: [],
+    batchSummaries: [],
+    frameIds,
+    modelResponses: [],
+    denseVisualRecall: {
+      eventCount: 0,
+      candidateCount: 0,
+      unboundProposalCount: 0,
+      frameCount: denseFrameManifest.frames.length,
+      periodicIntervalSec: denseFrameManifest.periodicIntervalSec,
+      batchCount: 0,
+    },
+    coverage,
+    validationStatus:
+      "transcript_first_recall_complete_candidate_native_av_required",
+    generatedAt,
+  };
+  const denseRecallResult = {
+    model: "not_used_for_full_timeline_visual_candidates",
+    method,
+    frameManifestCoverage: denseFrameManifest.coverage,
+    events: [],
+    candidates: [],
+    selectionSummary: {
+      qualifyingCount: 0,
+      rejectedThemes: [],
+      notes: [
+        "纯静帧、表情、手势、动作或英文视觉描述不得独立生成交付候选。",
+        "整场候选数量只由逐字稿中的自然独立内容单元决定，不设 50 条或任何上限。",
+        "画面只在逐字稿候选安全窗内做原生音视频复核并校正边界。",
+      ],
+    },
+    runs: [],
+    unboundProposals: [],
+    visualMapAugmentation: visualMap,
+    coverage,
+    generatedAt,
+  };
+  return { visualMap, denseRecallResult };
 }
 let stopping = false;
 
@@ -440,123 +518,194 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           { expose: false },
         );
       }
-      const remoteAudio = await remoteAsrAudioExtract({
-        sourcePath,
-        outputPath: join(workDir, "doubao-asr", "full-recording.m4a"),
-      });
+      const chunked = media.durationSec > 4 * 60 * 60;
+      const chunks = chunked
+        ? audioPlan({
+            durationSec: media.durationSec,
+            chunkDurationSec: 2 * 60 * 60,
+            overlapSec: 2,
+          })
+        : [{
+            id: "audio_full",
+            index: 0,
+            startSec: 0,
+            endSec: media.durationSec,
+            durationSec: media.durationSec,
+            ownershipStartSec: 0,
+            ownershipEndSec: media.durationSec,
+          }];
+      const chunkResults: Array<Record<string, any>> = [];
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+        const chunk = chunks[chunkIndex]!;
+        const remoteAudio = await remoteAsrAudioExtract({
+          sourcePath,
+          outputPath: join(
+            workDir,
+            "doubao-asr",
+            `${chunk.id}.m4a`,
+          ),
+          ...(chunked
+            ? {
+                startSec: chunk.startSec,
+                durationSec: chunk.durationSec,
+              }
+            : {}),
+        });
+        await repository.updateJobStage(
+          job.id,
+          job.workerId,
+          "transcribing",
+          21 + Math.floor(2 * chunkIndex / chunks.length),
+          chunked
+            ? `近六小时直播按完整时间轴分为 ${chunks.length} 段；`
+              + `第 ${chunkIndex + 1}/${chunks.length} 段音轨已整理，`
+              + "正在交给豆包转写。"
+            : "中文音轨已整理，正在通过一次性地址交给豆包转写。",
+        );
+        const objectKey =
+          `provider-inputs/${job.projectId}/${job.id}/doubao-asr/`
+          + `${chunk.id}.m4a`;
+        transientObjectKeys.add(objectKey);
+        try {
+          await storage.uploadFile(
+            objectKey,
+            remoteAudio.path,
+            remoteAudio.mimeType,
+            {
+              "project-id": job.projectId,
+              "job-id": job.id,
+              "provider-purpose": "doubao-asr-transient-input",
+              "source-chunk-id": chunk.id,
+            },
+          );
+          const signed = await storage.presignProviderDownload({
+            objectKey,
+            contentType: remoteAudio.mimeType,
+            expiresIn: config.providers.providerUrlTtlSeconds,
+          });
+          const result = await doubaoAsr.transcribeRecording({
+            audioUrl: signed.url,
+            audioFormat: remoteAudio.format,
+            mediaDurationSec: chunk.durationSec,
+            chunkId: chunk.id,
+            onProgress: async (event: {
+              status: string;
+              attempt?: number;
+            }) => {
+              const detail = event.status === "completed"
+                ? `豆包中文逐字稿 ${chunkIndex + 1}/${chunks.length} 已完成。`
+                : `豆包转写 ${chunkIndex + 1}/${chunks.length}：`
+                  + `${event.status}`
+                  + (event.attempt
+                    ? `（第 ${event.attempt} 次查询）`
+                    : "");
+              const baseProgress = 24
+                + Math.floor(18 * chunkIndex / chunks.length);
+              await repository.updateJobStage(
+                job.id,
+                job.workerId,
+                "transcribing",
+                event.status === "completed"
+                  ? 24 + Math.floor(
+                      18 * (chunkIndex + 1) / chunks.length,
+                    )
+                  : baseProgress,
+                detail,
+              );
+            },
+          });
+          chunkResults.push(result);
+        } finally {
+          await storage.delete(objectKey).catch(() => undefined);
+          transientObjectKeys.delete(objectKey);
+          await rm(remoteAudio.path, { force: true }).catch(() => undefined);
+        }
+      }
+      return chunked
+        ? doubaoAsrChunkMerge(chunkResults, {
+            chunks,
+            mediaDurationSec: media.durationSec,
+          })
+        : chunkResults[0];
+    };
+
+    const transcriptCheckpointKey =
+      `checkpoints/${job.projectId}/${job.id}/transcript-v1.json`;
+    const transcriptCheckpointIdentity = {
+      sourceSha256: sourceIntegrity.sha256,
+      sourceSizeBytes: sourceIntegrity.sizeBytes,
+      mediaDurationSec: media.durationSec,
+      transcriptionProvider: config.providers.transcription,
+    };
+    let transcriptRoute: Record<string, any> | null = null;
+    try {
+      const checkpoint = JSON.parse(
+        (await storage.getBuffer(transcriptCheckpointKey)).toString("utf8"),
+      );
+      transcriptRoute = restoreTranscriptCheckpoint(
+        checkpoint,
+        transcriptCheckpointIdentity,
+      );
+    } catch {
+      transcriptRoute = null;
+    }
+    if (transcriptRoute) {
       await repository.updateJobStage(
         job.id,
         job.workerId,
         "transcribing",
-        21,
-        "中文音轨已整理，正在通过一次性地址交给豆包转写。",
+        42,
+        "已校验并复用同一原片的完整逐字稿检查点，避免重试时重复转写。",
       );
-      const objectKey =
-        `provider-inputs/${job.projectId}/${job.id}/doubao-asr.m4a`;
-      transientObjectKeys.add(objectKey);
-      await storage.uploadFile(
-        objectKey,
-        remoteAudio.path,
-        remoteAudio.mimeType,
+    } else {
+      transcriptRoute = config.providers.transcription === "doubao"
+        ? await providerRouteExecute({
+            requestedProvider: "doubao",
+            primaryProvider: "doubao",
+            primary: transcribeWithDoubao,
+            fallbackProvider: "openai",
+            fallback: transcribeWithOpenAi,
+            allowFallback: config.providers.transcriptionFallbackToOpenai,
+          })
+        : {
+            value: await transcribeWithOpenAi(),
+            route: {
+              requestedProvider: "openai",
+              effectiveProvider: "openai",
+              fallbackUsed: false,
+              primaryFailure: null,
+            },
+          };
+      await storage.uploadJson(
+        transcriptCheckpointKey,
+        buildTranscriptCheckpoint(
+          transcriptRoute as never,
+          transcriptCheckpointIdentity,
+        ),
         {
           "project-id": job.projectId,
           "job-id": job.id,
-          "provider-purpose": "doubao-asr-transient-input",
+          kind: "retry-safe-transcript-checkpoint",
         },
       );
-      const signed = await storage.presignProviderDownload({
-        objectKey,
-        contentType: remoteAudio.mimeType,
-        expiresIn: config.providers.providerUrlTtlSeconds,
-      });
-      const result = await doubaoAsr.transcribeRecording({
-        audioUrl: signed.url,
-        audioFormat: remoteAudio.format,
-        mediaDurationSec: media.durationSec,
-        onProgress: async (event: { status: string; attempt?: number }) => {
-          const detail = event.status === "completed"
-            ? "豆包中文逐字稿已完成。"
-            : `豆包转写状态：${event.status}`
-              + (event.attempt ? `（第 ${event.attempt} 次查询）` : "");
-          await repository.updateJobStage(
-            job.id,
-            job.workerId,
-            "transcribing",
-            event.status === "completed" ? 42 : 24,
-            detail,
-          );
-        },
-      });
-      await storage.delete(objectKey).catch(() => undefined);
-      transientObjectKeys.delete(objectKey);
-      return result;
-    };
-
-    const transcriptRoute = config.providers.transcription === "doubao"
-      ? await providerRouteExecute({
-          requestedProvider: "doubao",
-          primaryProvider: "doubao",
-          primary: transcribeWithDoubao,
-          fallbackProvider: "openai",
-          fallback: transcribeWithOpenAi,
-          allowFallback: config.providers.transcriptionFallbackToOpenai,
-        })
-      : {
-          value: await transcribeWithOpenAi(),
-          route: {
-            requestedProvider: "openai",
-            effectiveProvider: "openai",
-            fallbackUsed: false,
-            primaryFailure: null,
-          },
-        };
+    }
+    if (!transcriptRoute) {
+      throw new AppError(
+        500,
+        "transcript_route_missing",
+        "完整逐字稿没有生成可用的提供商路由。",
+        { expose: false },
+      );
+    }
     const transcript = transcriptRoute.value;
 
     await repository.updateJobStage(
       job.id,
       job.workerId,
-      "sparse_visual_screening",
+      "full_timeline_evidence_preparation",
       44,
-      "正在抽取定时帧和镜头变化帧；这是稀疏视觉筛查，不等于连续观看。",
-    );
-    const plannedFrames = await framePlan({
-      sourcePath,
-      durationSec: media.durationSec,
-      periodicIntervalSec: config.worker.visionSampleSeconds,
-    });
-    const frameManifest = await frameExtract({
-      sourcePath,
-      outputDir: join(workDir, "frames"),
-      plan: plannedFrames,
-    });
-    const visualEvidenceClient = doubaoEditor ?? openai;
-    const visualEvidenceModel = doubaoEditor
-      ? config.doubao.ark.editorModel
-      : config.openai.visionModel;
-    const visualMap = await visualAnalyze({
-      frameManifest,
-      client: visualEvidenceClient,
-      model: visualEvidenceModel,
-      framesPerBatch: config.worker.visionBatchSize,
-      safetyIdentifier: job.projectId,
-      onProgress: async (event: { completed: number; total: number }) => {
-        const progress = 48 + Math.floor(18 * event.completed / event.total);
-        await repository.updateJobStage(
-          job.id,
-          job.workerId,
-          "sparse_visual_screening",
-          progress,
-          `稀疏视觉批次 ${event.completed}/${event.total} 已完成。`,
-        );
-      },
-    });
-
-    await repository.updateJobStage(
-      job.id,
-      job.workerId,
-      "dense_visual_reverse_recall",
-      68,
-      `正在用两次全片解码抽取每 ${config.worker.candidateFrameSeconds} 秒与镜头变化帧，并做视觉反向补召回。`,
+      `正在为整场逐字稿准备每 ${config.worker.candidateFrameSeconds} 秒与镜头变化帧；`
+        + "画面不单独冒充切片，后续只在候选安全窗内做原生音视频复核。",
     );
     const denseFrameManifest = await denseFrameExtract({
       sourcePath,
@@ -572,46 +721,24 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         await repository.updateJobStage(
           job.id,
           job.workerId,
-          "dense_visual_reverse_recall",
-          68 + Math.floor(4 * event.completed / event.total),
+          "full_timeline_evidence_preparation",
+          44 + Math.floor(10 * event.completed / event.total),
           event.phase === "periodic"
             ? `全片每 ${config.worker.candidateFrameSeconds} 秒密集帧已抽取 ${event.frameCount} 张。`
             : `镜头变化帧已合并，共 ${event.frameCount} 张视觉证据。`,
         );
       },
     });
-    const denseRecallResult = await denseVisualRecall({
-      frameManifest: denseFrameManifest,
-      transcript,
-      coreBundle,
-      mode,
-      client: visualEvidenceClient,
-      model: visualEvidenceModel,
-      expectedPeriodicIntervalSec: config.worker.candidateFrameSeconds,
-      framesPerBatch: Math.max(18, config.worker.visionBatchSize * 3),
-      overlapFrames: 2,
-      safetyIdentifier: job.projectId,
-      onProgress: async (event: { completed: number; total: number }) => {
-        const progress = 72 + Math.floor(7 * event.completed / event.total);
-        await repository.updateJobStage(
-          job.id,
-          job.workerId,
-          "dense_visual_reverse_recall",
-          progress,
-          `视觉反向补召回批次 ${event.completed}/${event.total} 已完成；输入不含逐字稿。`,
-        );
-      },
-    });
-    const augmentedVisualMap = visualMapAugment(
-      visualMap,
+    const {
+      visualMap: augmentedVisualMap,
       denseRecallResult,
-    );
+    } = prepareTranscriptFirstVisualEvidence(denseFrameManifest);
 
     await repository.updateJobStage(
       job.id,
       job.workerId,
       "private_core_reasoning",
-      80,
+      56,
       job.editorMode === "compare"
         ? "OpenAI 与火山正在读取同一份证据、独立执行同一版天总 Skill；不预设候选条数。"
         : `${job.editorMode === "openai" ? "OpenAI" : "火山 Seed Pro"} 正在执行天总 Skill；不预设候选条数。`,
@@ -642,7 +769,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       const providerName = provider === "openai" ? "OpenAI" : "火山 Seed Pro";
       const textCandidateResult = await analyzeCandidateWindows({
         transcript,
-        visualMap: augmentedVisualMap,
+        visualMap: augmentedVisualMap as never,
         core,
         mode,
         client: providerClient,
@@ -650,8 +777,8 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         analysisWindowSeconds: config.worker.analysisWindowSeconds,
         safetyIdentifier: `${job.projectId}:${provider}`,
         onProgress: async (event) => {
-          const providerShare = 5 / editorialProviders.length;
-          const progress = 80
+          const providerShare = 24 / editorialProviders.length;
+          const progress = 56
             + Math.floor(providerShare * providerIndex)
             + Math.floor(
               providerShare * event.completed / Math.max(1, event.total),
@@ -678,8 +805,18 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         tagEditorialResult(merged, provider, providerModel),
       );
     }
-    const mergedCandidateResult =
+    const mergedCandidateResultRaw =
       combineEditorialResults(mergedEditorialResults);
+    const mergedCandidateResult = {
+      ...mergedCandidateResultRaw,
+      candidates: mergedCandidateResultRaw.candidates.map(
+        (candidate: Record<string, any>) =>
+          expandCandidateWindow(candidate, {
+            mediaDurationSec: media.durationSec,
+            mode,
+          }),
+      ),
+    };
 
     let candidateResultForFinalRefinement = mergedCandidateResult;
     let candidateEvidenceVisualMap = augmentedVisualMap;
@@ -720,89 +857,121 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       await mkdir(avProxyDir, { recursive: true });
       let failedCandidateCount = 0;
       let fallbackUsed = false;
-      const reviewResults = [];
-      for (
-        let index = 0;
-        index < mergedCandidateResult.candidates.length;
-        index += 1
-      ) {
-        const candidate = mergedCandidateResult.candidates[index]!;
-        const outputPath = join(avProxyDir, `${candidate.candidateId}.mp4`);
-        await renderRoughProxy({
-          sourcePath,
-          candidate,
-          outputPath,
-          mediaDurationSec: media.durationSec,
-        });
-        const objectKey =
-          `provider-inputs/${job.projectId}/${job.id}/doubao-av/`
-          + `${candidate.candidateId}.mp4`;
-        transientObjectKeys.add(objectKey);
-        await storage.uploadFile(objectKey, outputPath, "video/mp4", {
-          "project-id": job.projectId,
-          "job-id": job.id,
-          "candidate-id": candidate.candidateId,
-          "provider-purpose": "doubao-native-av-transient-input",
-        });
-        const signed = await storage.presignProviderDownload({
-          objectKey,
-          contentType: "video/mp4",
-          expiresIn: config.providers.providerUrlTtlSeconds,
-        });
-        const routed = await providerRouteExecute({
-          requestedProvider: "doubao",
-          primaryProvider: "doubao",
-          primary: async () =>
-            await doubaoAv.reviewCandidate({
-              candidateId: candidate.candidateId,
-              videoUrl: signed.url,
-              sourceOffsetSec: candidate.safetyWindow.startSec,
+      const reviewResultsByIndex: Array<Record<string, unknown> | undefined> =
+        new Array(mergedCandidateResult.candidates.length);
+      const nativeAvReviewRecordsByIndex:
+        Array<Record<string, unknown> | undefined> =
+        new Array(mergedCandidateResult.candidates.length);
+      let nextCandidateIndex = 0;
+      let completedCandidateCount = 0;
+      const reviewNextCandidate = async () => {
+        while (true) {
+          const index = nextCandidateIndex;
+          nextCandidateIndex += 1;
+          if (index >= mergedCandidateResult.candidates.length) return;
+          const candidate = mergedCandidateResult.candidates[index]!;
+          const outputPath = join(
+            avProxyDir,
+            `${candidate.candidateId}.mp4`,
+          );
+          const objectKey =
+            `provider-inputs/${job.projectId}/${job.id}/doubao-av/`
+            + `${candidate.candidateId}.mp4`;
+          try {
+            await renderSafetyProxy({
+              sourcePath,
               candidate,
-              transcript,
-              coreBundle,
-              mode,
-            }),
-          fallbackProvider: "sampled_stills",
-          fallback: async () => null,
-          allowFallback:
-            config.providers.avReviewFallbackToSampledStills,
-        });
-        if (routed.value) {
-          reviewResults.push(routed.value);
-          nativeAvReviewRecords.push({
-            candidateId: candidate.candidateId,
-            normalized: routed.value.normalized,
-            responseId: routed.value.responseId,
-            model: routed.value.model,
-            usage: routed.value.usage,
-            provider: routed.value.provider,
-            apiMode: routed.value.apiMode,
-            route: routed.route,
-          });
-        } else {
-          failedCandidateCount += 1;
-          fallbackUsed = true;
-          nativeAvReviewRecords.push({
-            candidateId: candidate.candidateId,
-            normalized: null,
-            route: routed.route,
-          });
+              outputPath,
+              mediaDurationSec: media.durationSec,
+            });
+            transientObjectKeys.add(objectKey);
+            await storage.uploadFile(objectKey, outputPath, "video/mp4", {
+              "project-id": job.projectId,
+              "job-id": job.id,
+              "candidate-id": candidate.candidateId,
+              "provider-purpose": "doubao-native-av-transient-input",
+            });
+            const signed = await storage.presignProviderDownload({
+              objectKey,
+              contentType: "video/mp4",
+              expiresIn: config.providers.providerUrlTtlSeconds,
+            });
+            const routed = await providerRouteExecute({
+              requestedProvider: "doubao",
+              primaryProvider: "doubao",
+              primary: async () =>
+                await doubaoAv.reviewCandidate({
+                  candidateId: candidate.candidateId,
+                  videoUrl: signed.url,
+                  sourceOffsetSec: candidate.safetyWindow.startSec,
+                  candidate,
+                  transcript,
+                  coreBundle,
+                  mode,
+                }),
+              fallbackProvider: "sampled_stills",
+              fallback: async () => null,
+              allowFallback:
+                config.providers.avReviewFallbackToSampledStills,
+            });
+            if (routed.value) {
+              reviewResultsByIndex[index] = routed.value;
+              nativeAvReviewRecordsByIndex[index] = {
+                candidateId: candidate.candidateId,
+                normalized: routed.value.normalized,
+                responseId: routed.value.responseId,
+                model: routed.value.model,
+                usage: routed.value.usage,
+                provider: routed.value.provider,
+                apiMode: routed.value.apiMode,
+                route: routed.route,
+              };
+            } else {
+              failedCandidateCount += 1;
+              fallbackUsed = true;
+              nativeAvReviewRecordsByIndex[index] = {
+                candidateId: candidate.candidateId,
+                normalized: null,
+                route: routed.route,
+              };
+            }
+          } finally {
+            await storage.delete(objectKey).catch(() => undefined);
+            transientObjectKeys.delete(objectKey);
+            await rm(outputPath, { force: true }).catch(() => undefined);
+          }
+          const completed = ++completedCandidateCount;
+          await repository.updateJobStage(
+            job.id,
+            job.workerId,
+            "candidate_native_av_review",
+            85 + Math.floor(
+              4 * completed
+                / Math.max(1, mergedCandidateResult.candidates.length),
+            ),
+            `豆包原生音视频候选复核 ${completed}/`
+              + `${mergedCandidateResult.candidates.length} 已完成。`,
+          );
         }
-        await storage.delete(objectKey).catch(() => undefined);
-        transientObjectKeys.delete(objectKey);
-        await rm(outputPath, { force: true }).catch(() => undefined);
-        await repository.updateJobStage(
-          job.id,
-          job.workerId,
-          "candidate_native_av_review",
-          85 + Math.floor(
-            4 * (index + 1)
-              / Math.max(1, mergedCandidateResult.candidates.length),
-          ),
-          `豆包原生音视频候选复核 ${index + 1}/`
-            + `${mergedCandidateResult.candidates.length} 已完成。`,
-        );
-      }
+      };
+      const reviewWorkerCount = Math.min(
+        6,
+        mergedCandidateResult.candidates.length,
+      );
+      await Promise.all(
+        Array.from(
+          { length: reviewWorkerCount },
+          () => reviewNextCandidate(),
+        ),
+      );
+      const reviewResults = reviewResultsByIndex.filter(
+        (result): result is Record<string, unknown> => Boolean(result),
+      );
+      nativeAvReviewRecords.push(
+        ...nativeAvReviewRecordsByIndex.filter(
+          (record): record is Record<string, unknown> => Boolean(record),
+        ),
+      );
       const augmentedNativeReview = nativeAvVisualMapAugment({
         visualMap: augmentedVisualMap,
         reviewResults,
@@ -1034,46 +1203,67 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     );
     const previewDir = join(workDir, "rough-previews");
     await mkdir(previewDir, { recursive: true });
-    for (let index = 0; index < artifacts.candidatePayloads.length; index += 1) {
-      const payload = artifacts.candidatePayloads[index]!;
-      // engine-artifacts preserves candidate order while exposing the
-      // publish-safe window in the public payload. Bind by that stable order,
-      // never by comparing recall and safety-window floats.
-      const sourceCandidate = candidateResult.candidates[index];
-      if (!sourceCandidate) {
-        throw new AppError(
-          500,
-          "candidate_mapping_failed",
-          "候选与编辑计划的时间窗无法对应。",
-          { expose: false },
+    let nextPreviewIndex = 0;
+    let completedPreviewCount = 0;
+    const renderNextPreview = async () => {
+      while (true) {
+        const index = nextPreviewIndex;
+        nextPreviewIndex += 1;
+        if (index >= artifacts.candidatePayloads.length) return;
+        const payload = artifacts.candidatePayloads[index]!;
+        // engine-artifacts preserves candidate order while exposing the
+        // publish-safe window in the public payload. Bind by that stable order,
+        // never by comparing recall and safety-window floats.
+        const sourceCandidate = candidateResult.candidates[index];
+        if (!sourceCandidate) {
+          throw new AppError(
+            500,
+            "candidate_mapping_failed",
+            "候选与编辑计划的时间窗无法对应。",
+            { expose: false },
+          );
+        }
+        const outputPath = join(previewDir, `${payload.id}.mp4`);
+        await renderRoughProxy({
+          sourcePath,
+          candidate: sourceCandidate,
+          outputPath,
+          mediaDurationSec: media.durationSec,
+        });
+        await storage.uploadFile(
+          `previews/${job.projectId}/${payload.id}.mp4`,
+          outputPath,
+          "video/mp4",
+          {
+            "project-id": job.projectId,
+            "job-id": job.id,
+            "candidate-id": payload.id,
+            "preview-kind": "rough-cut-needs-human-normal-playback",
+          },
+        );
+        const completed = ++completedPreviewCount;
+        await repository.updateJobStage(
+          job.id,
+          job.workerId,
+          "rendering_rough_proxies",
+          95 + Math.floor(
+            4 * completed
+              / Math.max(1, artifacts.candidatePayloads.length),
+          ),
+          `候选粗剪 ${completed}/${artifacts.candidatePayloads.length} 已生成。`,
         );
       }
-      const outputPath = join(previewDir, `${payload.id}.mp4`);
-      await renderRoughProxy({
-        sourcePath,
-        candidate: sourceCandidate,
-        outputPath,
-        mediaDurationSec: media.durationSec,
-      });
-      await storage.uploadFile(
-        `previews/${job.projectId}/${payload.id}.mp4`,
-        outputPath,
-        "video/mp4",
-        {
-          "project-id": job.projectId,
-          "job-id": job.id,
-          "candidate-id": payload.id,
-          "preview-kind": "rough-cut-needs-human-normal-playback",
-        },
-      );
-      await repository.updateJobStage(
-        job.id,
-        job.workerId,
-        "rendering_rough_proxies",
-        95 + Math.floor(4 * (index + 1) / Math.max(1, artifacts.candidatePayloads.length)),
-        `候选粗剪 ${index + 1}/${artifacts.candidatePayloads.length} 已生成。`,
-      );
-    }
+    };
+    const previewWorkerCount = Math.max(
+      1,
+      Math.min(2, artifacts.candidatePayloads.length),
+    );
+    await Promise.all(
+      Array.from(
+        { length: previewWorkerCount },
+        () => renderNextPreview(),
+      ),
+    );
 
     const [factStored, planStored, ledgerStored] = await Promise.all([
       storage.uploadJson(factLayerKey, artifacts.factLayer, {
@@ -1107,7 +1297,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             provider === "openai"
               ? config.openai.reasoningModel
               : config.doubao.ark.editorModel),
-          vision: visualEvidenceModel,
+          vision: null,
           nativeAudioVideoReview:
             nativeAvEvidenceCount > 0
               ? config.doubao.ark.avModel
@@ -1135,7 +1325,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         coreProvenance: core.provenance,
         visualCoverage: {
           method: evidenceVisualMap.method,
-          sparseFrameCount: visualMap.coverage.frameCount,
+          sparseFrameCount: 0,
           denseFrameCount: denseFrameManifest.coverage.extractedFrameCount,
           densePeriodicIntervalSec: denseFrameManifest.periodicIntervalSec,
           denseVisualReverseRecallComplete: true,

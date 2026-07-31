@@ -17,8 +17,8 @@ const baseEnv: NodeJS.ProcessEnv = {
   OPENAI_VISION_MODEL: "gpt-5.6-sol",
   TIANCLIP_CORE_S3_KEY: "private/core.skill",
   TIANCLIP_CORE_SHA256: "a".repeat(64),
-  TIANCLIP_CORE_VERSION: "1.2.0-private.1",
-  TIANCLIP_PROMPT_VERSION: "1.2.0",
+  TIANCLIP_CORE_VERSION: "1.2.3-private.1",
+  TIANCLIP_PROMPT_VERSION: "1.2.3",
   TIANCLIP_SCHEMA_VERSION: "1.1.0",
   TIANCLIP_FACT_SCHEMA_VERSION: "1.0.0",
   TIANCLIP_LEDGER_SCHEMA_VERSION: "1.0.0",
@@ -32,6 +32,21 @@ test("provider routing defaults preserve the existing OpenAI and sampled-still p
   assert.equal(config.providers.avReviewFallbackToSampledStills, true);
   assert.equal(config.doubao.asr.resourceId, "volc.bigasr.auc");
   assert.equal(config.doubao.ark.avModel, "doubao-seed-2-0-lite-260428");
+});
+
+test("OpenAI gateway routing keeps the provider key and parses the private gateway token", () => {
+  const config = loadConfig({
+    ...baseEnv,
+    OPENAI_BASE_URL:
+      "https://gateway.ai.cloudflare.com/v1/account/gateway/openai/",
+    OPENAI_GATEWAY_TOKEN: "cloudflare-gateway-token",
+  });
+
+  assert.equal(
+    config.openai.baseUrl,
+    "https://gateway.ai.cloudflare.com/v1/account/gateway/openai",
+  );
+  assert.equal(config.openai.gatewayToken, "cloudflare-gateway-token");
 });
 
 test("Doubao routes fail closed when their server-side credentials are absent", () => {

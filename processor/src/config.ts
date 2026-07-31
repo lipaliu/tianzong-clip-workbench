@@ -42,6 +42,7 @@ const envSchema = z.object({
   MULTIPART_PRESIGN_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(12),
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  OPENAI_GATEWAY_TOKEN: z.string().min(1).optional(),
   OPENAI_SITES_BYPASS_TOKEN: z.string().min(1).optional(),
   OPENAI_TRANSCRIPTION_MODEL: z.literal("gpt-4o-transcribe-diarize"),
   OPENAI_REASONING_MODEL: z.literal("gpt-5.6-sol"),
@@ -59,7 +60,7 @@ const envSchema = z.object({
     .default("https://openspeech.bytedance.com"),
   DOUBAO_ASR_REQUEST_TIMEOUT_MS: positiveInteger(60_000),
   DOUBAO_ASR_POLL_INTERVAL_MS: positiveInteger(5_000),
-  DOUBAO_ASR_POLL_TIMEOUT_MS: positiveInteger(1_800_000),
+  DOUBAO_ASR_POLL_TIMEOUT_MS: positiveInteger(14_400_000),
   DOUBAO_ARK_API_KEY: z.string().min(1).optional(),
   DOUBAO_ARK_BASE_URL: z.string().url()
     .default("https://ark.cn-beijing.volces.com/api/v3"),
@@ -77,8 +78,8 @@ const envSchema = z.object({
   DOUBAO_AV_TIMEOUT_MS: positiveInteger(900_000),
   TIANCLIP_CORE_S3_KEY: z.string().min(1),
   TIANCLIP_CORE_SHA256: z.string().regex(/^[a-f0-9]{64}$/),
-  TIANCLIP_CORE_VERSION: z.literal("1.2.0-private.1"),
-  TIANCLIP_PROMPT_VERSION: z.literal("1.2.0"),
+  TIANCLIP_CORE_VERSION: z.literal("1.2.3-private.1"),
+  TIANCLIP_PROMPT_VERSION: z.literal("1.2.3"),
   TIANCLIP_SCHEMA_VERSION: z.literal("1.1.0"),
   TIANCLIP_FACT_SCHEMA_VERSION: z.literal("1.0.0"),
   TIANCLIP_LEDGER_SCHEMA_VERSION: z.literal("1.0.0"),
@@ -141,6 +142,7 @@ export type ProcessorConfig = {
   openai: {
     apiKey: string;
     baseUrl: string;
+    gatewayToken: string | undefined;
     sitesBypassToken: string | undefined;
     transcriptionModel: "gpt-4o-transcribe-diarize";
     reasoningModel: "gpt-5.6-sol";
@@ -178,8 +180,8 @@ export type ProcessorConfig = {
   core: {
     objectKey: string;
     sha256: string;
-    version: "1.2.0-private.1";
-    promptVersion: "1.2.0";
+    version: "1.2.3-private.1";
+    promptVersion: "1.2.3";
     schemaVersion: "1.1.0";
     factSchemaVersion: "1.0.0";
     ledgerSchemaVersion: "1.0.0";
@@ -242,6 +244,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
     openai: {
       apiKey: value.OPENAI_API_KEY,
       baseUrl: value.OPENAI_BASE_URL.replace(/\/+$/, ""),
+      gatewayToken: value.OPENAI_GATEWAY_TOKEN,
       sitesBypassToken: value.OPENAI_SITES_BYPASS_TOKEN,
       transcriptionModel: value.OPENAI_TRANSCRIPTION_MODEL,
       reasoningModel: value.OPENAI_REASONING_MODEL,

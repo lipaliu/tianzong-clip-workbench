@@ -96,6 +96,12 @@ export type ProcessorCandidate = {
   editorProvider?: "openai" | "doubao";
   index: string;
   title: string;
+  douyinTitle: string;
+  xiaohongshuTitle: string;
+  topic?: string;
+  hook?: string;
+  openingLine?: string;
+  closingLine?: string;
   sourceStart: number;
   sourceEnd: number;
   durationSeconds: number;

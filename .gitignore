@@ -41,9 +41,15 @@ next-env.d.ts
 /dist/
 /.wrangler/
 /outputs/
+/production-e2e-delivery*/
+/production-e2e-output*/
+/production-openai-e2e*/
+/production-openai-delivery*/
+/production-public-acceptance*/
 /work/
 /.sites/
 /.qa/
+/deliveries/
 
 # private TianClip knowledge/runtime assets — deploy through private object storage only
 /private-core/

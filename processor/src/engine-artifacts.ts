@@ -90,8 +90,26 @@ type CandidateResultItem = {
   candidateId: string;
   editorProvider?: "openai" | "doubao";
   title: string;
+  douyinTitle: string;
+  xiaohongshuTitle: string;
   hook: string;
   openingLine: string;
+  closureText?: string;
+  tianzongSpeakerLabel?: string;
+  openingSegmentId?: string;
+  closingSegmentId?: string;
+  spokenContentSegmentIds?: string[];
+  contextOnlySegmentIds?: string[];
+  questionCardText?: string;
+  semanticClosureStatus?: "complete" | "incomplete" | "source_truncated" | "uncertain";
+  roughCutCategory?:
+    | "chat_value"
+    | "business_judgment"
+    | "sales_product"
+    | "micro_complete"
+    | "deep_dive"
+    | "custom_complete";
+  roughCutDurationRationale?: string;
   topic: string;
   contentPillar: string;
   rationale: string;
@@ -288,6 +306,20 @@ function calculateAsrGaps(
 }
 
 function visualScanMethod(visualMap: VisualMap): string {
+  if (
+    visualMap.method
+      === "full_transcript_recall_plus_dense_frame_evidence_then_candidate_native_av"
+  ) {
+    const nativeReviewCount =
+      visualMap.coverage?.candidateNativeAudioVideoModelReviewCount ?? 0;
+    return (
+      "full-transcript natural-unit recall + full-timeline dense frame evidence"
+      + ` + ${nativeReviewCount} candidate native audio-video model reviews`
+      + " + candidate safety-window dense still/transcript refinement;"
+      + " pure visual metadata cannot independently create a clip;"
+      + " not continuous human playback"
+    );
+  }
   if (!visualMap.coverage?.denseVisualReverseRecallComplete) {
     return "adaptive_proxy_scan: periodic + scene-change sparse frames; not continuous playback";
   }
@@ -548,7 +580,13 @@ function publicPayload(
   media: MediaProbe,
 ): CandidatePayload {
   const safety = safeRange(candidate.safetyWindow, transcript.mediaDurationSec);
-  const duration = roundMillis(safety.endSec - safety.startSec);
+  const recall = safeRange(candidate.recallWindow, transcript.mediaDurationSec);
+  const removals = candidate.deleteSuggestions.map((item) =>
+    safeRange(item, transcript.mediaDurationSec));
+  const keeps = subtractRanges(recall, removals);
+  const duration = roundMillis(
+    keeps.reduce((sum, range) => sum + range.endSec - range.startSec, 0),
+  );
   const profile = durationProfile(duration);
   const scoreParts = [
     ["钩子", candidate.score.hook, 20],
@@ -566,8 +604,14 @@ function publicPayload(
       : {}),
     index: String(ordinal).padStart(2, "0"),
     title: candidate.title,
-    sourceStart: safety.startSec,
-    sourceEnd: safety.endSec,
+    douyinTitle: candidate.douyinTitle,
+    xiaohongshuTitle: candidate.xiaohongshuTitle,
+    topic: candidate.topic,
+    hook: candidate.hook,
+    openingLine: candidate.openingLine,
+    closingLine: candidate.closureText ?? "",
+    sourceStart: recall.startSec,
+    sourceEnd: recall.endSec,
     originalSafetyStart: safety.startSec,
     originalSafetyEnd: safety.endSec,
     mediaDurationSeconds: transcript.mediaDurationSec,
@@ -581,7 +625,10 @@ function publicPayload(
     durationWindow: profile.reference_window_sec
       ? `${profile.reference_window_sec.min}–${profile.reference_window_sec.max} 秒`
       : "不设硬窗口",
-    durationReason: profile.exception_reason ?? "落在该内容类型的校准参考窗内。",
+    durationReason:
+      candidate.roughCutDurationRationale
+      ?? profile.exception_reason
+      ?? "首轮粗剪按完整语义单元向区间右侧保留，团队确认后再精修。",
     selectionReasons: [
       candidate.rationale,
       ...(candidate.discoveryMethods?.includes("visual_only_dense_reverse_recall")
@@ -777,6 +824,8 @@ export function buildAndValidateEngineArtifacts(
       topic: candidate.topic,
       hook_text_raw: candidate.openingLine,
       title_editorial: candidate.title,
+      title_douyin: candidate.douyinTitle,
+      title_xiaohongshu: candidate.xiaohongshuTitle,
       punchline_text_raw: candidate.hook || null,
       public_reason: candidate.rationale,
       private_trace: {
@@ -1107,7 +1156,7 @@ export function buildAndValidateEngineArtifacts(
       rendered_clip_count: 0,
       count_explanation:
         candidateResult.sourceFunnel
-          ? `文字召回 ${candidateResult.sourceFunnel.textCandidateCount} 条，密集视觉反向补召回 ${candidateResult.sourceFunnel.visualCandidateCount} 条，只删除 ${candidateResult.sourceFunnel.exactDuplicateCount} 条证据与切口完全相同的重复项；候选级密集静帧+逐字稿二次理解后保留 ${candidateResult.candidates.length} 条。数量不设配额，仍需人工正常倍速完整播放。`
+          ? `文字召回 ${candidateResult.sourceFunnel.textCandidateCount} 条；密集视觉反向筛查只记录动作、表情和边界证据，不独立生成候选；候选级音画复核后保留 ${candidateResult.candidates.length} 条。数量不设配额或上限，仍需人工正常倍速完整播放。`
           : `从 ${naturalUnits.length} 个证据绑定自然单元中，按私有 Skill 召回 ${candidateResult.candidates.length} 个独立候选；数量不设配额。`,
       no_candidate_reason: noCandidateReason,
     },

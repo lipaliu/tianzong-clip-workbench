@@ -282,6 +282,41 @@ async function listExtractedFrames(directory, prefix) {
   return names.map((name) => path.join(directory, name));
 }
 
+function reconcileSequentialFrameEvidence(paths, timestamps, {
+  label,
+  maximumTerminalDifference = 1,
+} = {}) {
+  const difference = Math.abs(paths.length - timestamps.length);
+  invariant(
+    paths.length > 0
+    && timestamps.length > 0
+    && difference <= maximumTerminalDifference,
+    `Dense ${label} frame files do not match ffmpeg timestamp evidence`,
+    {
+      code: `DENSE_${String(label).toUpperCase()}_TIMESTAMP_MISMATCH`,
+      stage: "dense_frame_extract",
+      details: {
+        frameFileCount: paths.length,
+        timestampCount: timestamps.length,
+        maximumTerminalDifference,
+      },
+    },
+  );
+
+  // ffmpeg's image2 muxer can omit or add one terminal output relative to
+  // showinfo at EOF because the final decoded timestamp lands on the muxer's
+  // rounding boundary. The streams remain positionally identical before that
+  // terminal boundary. Pair the proven common prefix and let the subsequent
+  // coverage checks fail closed if the retained periodic evidence no longer
+  // reaches the end of the source.
+  const commonCount = Math.min(paths.length, timestamps.length);
+  return {
+    paths: paths.slice(0, commonCount),
+    timestamps: timestamps.slice(0, commonCount),
+    terminalDifference: difference,
+  };
+}
+
 function thinTimestamps(timestamps, minimumGapSec) {
   const thinned = [];
   for (const timestamp of timestamps) {
@@ -329,6 +364,20 @@ export async function extractDenseTimelineFrames({
     stage: "dense_frame_extract",
   });
   await mkdir(outputDir, { recursive: true });
+  // A two-core production worker needs materially longer than the generic
+  // ten-minute command budget to decode a multi-hour livestream twice. Keep a
+  // finite fail-closed deadline, but derive it from source duration so a
+  // healthy full-timeline pass is never killed merely because the source is
+  // long.
+  const commandTimeoutMs = Math.max(
+    30 * 60 * 1000,
+    Math.ceil(durationSec * 250),
+  );
+  const commandOptions = {
+    signal,
+    timeoutMs: commandTimeoutMs,
+    maxOutputBytes: 64 * 1024 * 1024,
+  };
 
   const periodicPattern = path.join(outputDir, "periodic_%07d.jpg");
   const periodicResult = await runner("ffmpeg", [
@@ -337,33 +386,62 @@ export async function extractDenseTimelineFrames({
     "-i", sourcePath,
     "-an",
     "-vf",
-    `fps=fps=1/${intervalSec}:start_time=0,showinfo,scale=min(${maximumWidth}\\,iw):-2`,
+    `fps=fps=1/${intervalSec}:start_time=0,scale=min(${maximumWidth}\\,iw):-2,showinfo`,
     "-fps_mode", "vfr",
     "-q:v", "3",
     "-y",
     periodicPattern,
-  ], { signal });
-  const periodicTimestamps = parseShotChangeTimestamps(periodicResult.stderr, {
+  ], commandOptions);
+  const parsedPeriodicTimestamps = parseShotChangeTimestamps(periodicResult.stderr, {
     durationSec,
   });
-  const periodicPaths = await listExtractedFrames(outputDir, "periodic_");
-  invariant(
-    periodicPaths.length > 0
-    && periodicPaths.length === periodicTimestamps.length,
-    "Dense periodic frame files do not match ffmpeg timestamp evidence",
-    {
-      code: "DENSE_PERIODIC_TIMESTAMP_MISMATCH",
-      stage: "dense_frame_extract",
-      details: {
-        frameFileCount: periodicPaths.length,
-        timestampCount: periodicTimestamps.length,
-      },
-    },
+  const extractedPeriodicPaths = await listExtractedFrames(outputDir, "periodic_");
+  const periodicEvidence = reconcileSequentialFrameEvidence(
+    extractedPeriodicPaths,
+    parsedPeriodicTimestamps,
+    { label: "periodic" },
   );
+  const periodicPaths = [...periodicEvidence.paths];
+  const periodicTimestamps = [...periodicEvidence.timestamps];
+  let periodicTerminalSupplemented = false;
+  if (
+    durationSec - periodicTimestamps.at(-1)
+    > intervalSec + 0.25
+  ) {
+    const terminalOffsetSec = Math.min(0.25, durationSec / 2);
+    const terminalTimestampSec = roundMillis(durationSec - terminalOffsetSec);
+    const terminalPath = path.join(outputDir, "periodic_terminal.jpg");
+    await runner("ffmpeg", [
+      "-hide_banner",
+      "-loglevel", "error",
+      "-sseof", `-${terminalOffsetSec.toFixed(3)}`,
+      "-i", sourcePath,
+      "-an",
+      "-frames:v", "1",
+      "-vf", `scale=min(${maximumWidth}\\,iw):-2`,
+      "-q:v", "3",
+      "-y",
+      terminalPath,
+    ], {
+      signal,
+      timeoutMs: Math.min(commandTimeoutMs, 5 * 60 * 1000),
+      maxOutputBytes: 8 * 1024 * 1024,
+    });
+    await assertFrameArtifact(terminalPath);
+    periodicPaths.push(terminalPath);
+    periodicTimestamps.push(terminalTimestampSec);
+    periodicTerminalSupplemented = true;
+  }
+  const periodicTerminalGapSec = periodicTerminalSupplemented
+    ? periodicTimestamps.at(-1) - periodicTimestamps.at(-2)
+    : intervalSec;
+  const periodicCoverageToleranceSec = periodicTerminalSupplemented
+    ? Math.max(0.25, periodicTerminalGapSec - intervalSec + 0.01)
+    : 0.25;
   assertPeriodicFrameCoverage(periodicTimestamps, {
     durationSec,
     intervalSec,
-    toleranceSec: 0.25,
+    toleranceSec: periodicCoverageToleranceSec,
   });
   await onProgress?.({
     stage: "dense_frame_extract",
@@ -380,28 +458,27 @@ export async function extractDenseTimelineFrames({
     "-i", sourcePath,
     "-an",
     "-vf",
-    `select=gt(scene\\,${shotChangeThreshold}),showinfo,scale=min(${maximumWidth}\\,iw):-2`,
+    `select=gt(scene\\,${shotChangeThreshold}),scale=min(${maximumWidth}\\,iw):-2,showinfo`,
     "-fps_mode", "vfr",
     "-q:v", "3",
     "-y",
     shotPattern,
-  ], { signal });
-  const rawShotTimestamps = parseShotChangeTimestamps(shotResult.stderr, {
+  ], commandOptions);
+  const parsedShotTimestamps = parseShotChangeTimestamps(shotResult.stderr, {
     durationSec,
   });
-  const rawShotPaths = await listExtractedFrames(outputDir, "shot_");
-  invariant(
-    rawShotPaths.length === rawShotTimestamps.length,
-    "Dense shot-change frame files do not match ffmpeg timestamp evidence",
-    {
-      code: "DENSE_SHOT_TIMESTAMP_MISMATCH",
-      stage: "dense_frame_extract",
-      details: {
-        frameFileCount: rawShotPaths.length,
-        timestampCount: rawShotTimestamps.length,
-      },
-    },
-  );
+  const extractedShotPaths = await listExtractedFrames(outputDir, "shot_");
+  let rawShotPaths = extractedShotPaths;
+  let rawShotTimestamps = parsedShotTimestamps;
+  if (extractedShotPaths.length || parsedShotTimestamps.length) {
+    const shotEvidence = reconcileSequentialFrameEvidence(
+      extractedShotPaths,
+      parsedShotTimestamps,
+      { label: "shot" },
+    );
+    rawShotPaths = shotEvidence.paths;
+    rawShotTimestamps = shotEvidence.timestamps;
+  }
 
   const keptShotTimestamps = thinTimestamps(rawShotTimestamps, minimumShotGapSec);
   const keptShotTimestampSet = new Set(keptShotTimestamps);
@@ -471,11 +548,15 @@ export async function extractDenseTimelineFrames({
       shotChangeFrameCount: shotEntries.length,
       rawShotChangeFrameCount: rawShotPaths.length,
       shotChangeMinimumGapSec: minimumShotGapSec,
-      extractionPassCount: 2,
+      extractionPassCount: periodicTerminalSupplemented ? 3 : 2,
+      periodicTerminalSupplemented,
+      periodicCoverageToleranceSec,
       fullTimelineScreeningExtracted: true,
       continuousVideoReviewed: false,
       limitation:
-        "Two ffmpeg decoding passes extracted fixed-interval and scene-change still frames. This proves still-frame coverage only, not continuous video review.",
+        periodicTerminalSupplemented
+          ? "Two full decoding passes plus one EOF still extracted fixed-interval, terminal, and scene-change evidence. This proves still-frame coverage only, not continuous video review."
+          : "Two ffmpeg decoding passes extracted fixed-interval and scene-change still frames. This proves still-frame coverage only, not continuous video review.",
     },
     generatedAt: new Date().toISOString(),
   };

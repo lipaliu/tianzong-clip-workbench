@@ -72,7 +72,7 @@ services:
       - key: DOUBAO_ASR_POLL_INTERVAL_MS
         value: "5000"
       - key: DOUBAO_ASR_POLL_TIMEOUT_MS
-        value: "1800000"
+        value: "14400000"
       - key: DOUBAO_ARK_API_KEY
         sync: false
       - key: DOUBAO_ARK_BASE_URL
@@ -94,9 +94,9 @@ services:
       - key: TIANCLIP_CORE_SHA256
         sync: false
       - key: TIANCLIP_CORE_VERSION
-        value: 1.2.0-private.1
+        value: 1.2.3-private.1
       - key: TIANCLIP_PROMPT_VERSION
-        value: 1.2.0
+        value: 1.2.3
       - key: TIANCLIP_SCHEMA_VERSION
         value: 1.1.0
       - key: TIANCLIP_FACT_SCHEMA_VERSION
