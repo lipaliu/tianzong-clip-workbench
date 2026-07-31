@@ -3,6 +3,9 @@ const ALLOWED_PATHS = new Set([
   "/v1/models",
   "/v1/responses",
 ]);
+const OPENAI_ORIGIN = "https://api.openai.com";
+const SITES_RESPONSES_ORIGIN =
+  "https://cutline-tianzong.lipaliu514.chatgpt.site/api/openai/v1/responses";
 
 function constantTimeEqual(left, right) {
   if (left.length !== right.length) return false;
@@ -40,7 +43,10 @@ export async function onRequest(context) {
     return json(405, { error: "relay_method_not_allowed" });
   }
 
-  const upstreamUrl = new URL(url.pathname + url.search, "https://api.openai.com");
+  const upstreamUrl =
+    url.pathname === "/v1/responses"
+      ? new URL(SITES_RESPONSES_ORIGIN + url.search)
+      : new URL(url.pathname + url.search, OPENAI_ORIGIN);
   const headers = new Headers(request.headers);
   headers.delete("OAI-Sites-Authorization");
   headers.delete("host");

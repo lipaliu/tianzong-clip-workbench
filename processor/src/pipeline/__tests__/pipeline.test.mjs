@@ -2364,6 +2364,60 @@ test("OpenAI Responses client sends the official image and strict text.format co
   assert.equal(requestBody.input[0].content[1].type, "input_image");
 });
 
+test("OpenAI client routes through an authenticated Cloudflare AI Gateway without replacing the provider key", async () => {
+  let request;
+  const client = createOpenAIClient({
+    apiKey: "openai-provider-key",
+    baseUrl:
+      "https://gateway.ai.cloudflare.com/v1/account/gateway/openai",
+    gatewayToken: "cloudflare-gateway-token",
+    fetchImpl: async (url, init) => {
+      request = { url, init };
+      return jsonResponse({
+        id: "resp_gateway_1",
+        status: "completed",
+        model: "gpt-5.6-sol",
+        output: [{
+          type: "message",
+          content: [{
+            type: "output_text",
+            text: JSON.stringify({ answer: "gateway-ok" }),
+          }],
+        }],
+      });
+    },
+  });
+
+  const result = await client.createStructuredResponse({
+    instructions: "Use the Tianzong Skill.",
+    input: [{
+      role: "user",
+      content: [{ type: "input_text", text: "测试" }],
+    }],
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { answer: { type: "string" } },
+      required: ["answer"],
+    },
+    schemaName: "gateway_answer",
+  });
+
+  assert.deepEqual(result.parsed, { answer: "gateway-ok" });
+  assert.equal(
+    request.url,
+    "https://gateway.ai.cloudflare.com/v1/account/gateway/openai/responses",
+  );
+  assert.equal(
+    request.init.headers.Authorization,
+    "Bearer openai-provider-key",
+  );
+  assert.equal(
+    request.init.headers["cf-aig-authorization"],
+    "Bearer cloudflare-gateway-token",
+  );
+});
+
 test("Doubao editor executes the same structured Skill contract through Ark Responses", async () => {
   let requestBody;
   const client = createDoubaoEditorClient({

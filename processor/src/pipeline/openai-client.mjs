@@ -156,6 +156,7 @@ export function createOpenAIClient({
   timeoutMs = 10 * 60 * 1000,
   organization = process.env.OPENAI_ORG_ID,
   project = process.env.OPENAI_PROJECT_ID,
+  gatewayToken = process.env.OPENAI_GATEWAY_TOKEN,
   sitesBypassToken = process.env.OPENAI_SITES_BYPASS_TOKEN,
 } = {}) {
   invariant(typeof apiKey === "string" && apiKey.trim().length > 0, "OPENAI_API_KEY is required", {
@@ -170,6 +171,7 @@ export function createOpenAIClient({
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
   const headers = {
     Authorization: `Bearer ${apiKey}`,
+    ...(gatewayToken ? { "cf-aig-authorization": `Bearer ${gatewayToken}` } : {}),
     ...(sitesBypassToken ? { "OAI-Sites-Authorization": `Bearer ${sitesBypassToken}` } : {}),
     ...(organization ? { "OpenAI-Organization": organization } : {}),
     ...(project ? { "OpenAI-Project": project } : {}),

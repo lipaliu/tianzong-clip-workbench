@@ -34,6 +34,21 @@ test("provider routing defaults preserve the existing OpenAI and sampled-still p
   assert.equal(config.doubao.ark.avModel, "doubao-seed-2-0-lite-260428");
 });
 
+test("OpenAI gateway routing keeps the provider key and parses the private gateway token", () => {
+  const config = loadConfig({
+    ...baseEnv,
+    OPENAI_BASE_URL:
+      "https://gateway.ai.cloudflare.com/v1/account/gateway/openai/",
+    OPENAI_GATEWAY_TOKEN: "cloudflare-gateway-token",
+  });
+
+  assert.equal(
+    config.openai.baseUrl,
+    "https://gateway.ai.cloudflare.com/v1/account/gateway/openai",
+  );
+  assert.equal(config.openai.gatewayToken, "cloudflare-gateway-token");
+});
+
 test("Doubao routes fail closed when their server-side credentials are absent", () => {
   assert.throws(
     () => loadConfig({

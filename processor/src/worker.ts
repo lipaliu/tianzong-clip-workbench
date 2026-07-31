@@ -92,6 +92,7 @@ const storage = new PrivateObjectStorage(config);
 const openai = createOpenAIClient({
   apiKey: config.openai.apiKey,
   baseUrl: config.openai.baseUrl,
+  gatewayToken: config.openai.gatewayToken,
   sitesBypassToken: config.openai.sitesBypassToken,
 });
 const doubaoEditor = config.doubao.ark.apiKey
