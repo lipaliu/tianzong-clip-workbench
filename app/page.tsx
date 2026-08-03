@@ -84,6 +84,11 @@ type ClipIdea = {
   sourceMedia?: ProcessorCandidate["sourceMedia"];
 };
 
+type SmartBgmProfile = Pick<PackagingSettings["bgm"], "mood" | "tempoBpm" | "prompt"> & {
+  reason: string;
+  searchTerms: string;
+};
+
 type ProjectStatus = "analyzing" | "ready" | "failed";
 
 type ProjectRecord = {
@@ -114,6 +119,72 @@ const corpusBaseline = {
 
 const MAX_UPLOAD_BYTES = 9_000_000_000;
 const MAX_SRT_BYTES = 5_000_000;
+
+const freeMusicSources = [
+  {
+    name: "Mixkit",
+    href: "https://mixkit.co/free-stock-music/",
+    note: "可试听下载；逐首保留来源和许可页面",
+  },
+  {
+    name: "Pixabay Music",
+    href: "https://pixabay.com/music/",
+    note: "可商用素材较多；优先避开 Content ID 标记曲目",
+  },
+  {
+    name: "YouTube Audio Library",
+    href: "https://www.youtube.com/audiolibrary",
+    note: "适合 YouTube；跨平台使用前仍检查单曲许可",
+  },
+] as const;
+
+function smartBgmProfile(clip: ClipIdea): SmartBgmProfile {
+  const searchable = `${clip.kind} ${clip.contentType} ${clip.title} ${clip.summary}`;
+  const spokenCharacters = clip.transcript
+    .filter((line) => line.defaultDecision === "keep")
+    .reduce((sum, line) => sum + line.text.replace(/\s/g, "").length, 0);
+  const seconds = Math.max(20, (clip.sourceEnd ?? clip.sourceStart + 50) - clip.sourceStart);
+  const speechDensity = spokenCharacters / seconds;
+  const tempoOffset = speechDensity >= 5 ? 4 : speechDensity <= 2.6 ? -4 : 0;
+
+  if (clip.personaModes.includes("脆弱真实") || /情感|原生家庭|失去|自愈|疲惫/.test(searchable)) {
+    return {
+      mood: "柔和氛围",
+      tempoBpm: 80 + tempoOffset,
+      prompt: "无歌词、克制钢琴与轻氛围铺底、留出呼吸感、不要煽情过度、不要抢人声",
+      reason: "这条依赖真实和停顿，不用强鼓点；音乐只承接情绪，不替她煽情。",
+      searchTerms: "soft ambient reflective minimal piano no vocals",
+    };
+  }
+
+  if (clip.kind === "带货" || /穿搭|服装|商品|成交|购买/.test(searchable)) {
+    return {
+      mood: "时装律动",
+      tempoBpm: 112 + tempoOffset,
+      prompt: "无歌词、轻奢时装律动、干净鼓点、稳定循环、适合商品讲解与展示、不要抢人声",
+      reason: "带货需要让展示更利落，但鼓点不能盖住购买理由和产品证据。",
+      searchTerms: "fashion electronic clean beat product showcase no vocals",
+    };
+  }
+
+  if (clip.personaModes.includes("搞笑女") || /搞笑|翻车|发疯|反差/.test(searchable)) {
+    return {
+      mood: "轻电子",
+      tempoBpm: 118 + tempoOffset,
+      prompt: "无歌词、俏皮轻电子、短促节奏点、适合反应与翻车、克制不做廉价综艺音效",
+      reason: "反差内容需要节奏点托住反应，但不能把她剪成纯搞笑素材。",
+      searchTerms: "playful electronic quirky reaction light no vocals",
+    };
+  }
+
+  return {
+    mood: "轻电子",
+    tempoBpm: 96 + tempoOffset,
+    prompt: "无歌词、克制轻电子、稳定脉冲、适合商业判断与观点口播、清醒有力量、不要抢人声",
+    reason: "观点口播优先保证听清判断；稳定低频只负责推进，不制造虚假高潮。",
+    searchTerms: "minimal electronic confident business talk no vocals",
+  };
+}
 
 const modelGalleryPhotos = [
   { src: "/photos/tz_street_tall.jpg", alt: "天总街头蓝色穿搭" },
@@ -1089,6 +1160,7 @@ export default function Home() {
   const packagingCaptionText = activeClip.transcript.find(
     (line) => (decisions[line.id] ?? line.defaultDecision) === "keep",
   )?.text ?? activeClip.title;
+  const recommendedBgm = useMemo(() => smartBgmProfile(activeClip), [activeClip]);
 
   useEffect(() => {
     if (step !== 4 || !activeProjectId || !activeClip?.id) return;
@@ -1642,6 +1714,20 @@ export default function Home() {
   function applyPackagingPreset(preset: "tianzong_magazine" | "light" | "clean" | "none") {
     setPackagingSettings(packagingPreset(activeClip.kind, preset));
     setPackagingSaveState("dirty");
+  }
+
+  function applySmartBgm() {
+    patchPackaging("bgm", {
+      enabled: true,
+      selectionMode: "智能推荐",
+      source: "AI原创",
+      mood: recommendedBgm.mood,
+      tempoBpm: recommendedBgm.tempoBpm,
+      prompt: recommendedBgm.prompt,
+      volume: 9,
+      autoDucking: true,
+    });
+    showToast("已按本条内容、人物线和说话密度生成配乐建议；试听后仍可换曲或关闭。");
   }
 
   async function savePackagingPlan() {
@@ -2826,9 +2912,32 @@ export default function Home() {
                   </details>
 
                   <details className="packaging-module bgm-module" open>
-                    <summary><label><input type="checkbox" checked={packagingSettings.bgm.enabled} onChange={(event) => patchPackaging("bgm", { enabled: event.target.checked })} />背景音乐</label><small>{packagingSettings.bgm.enabled ? `${packagingSettings.bgm.mood} · ${packagingSettings.bgm.volume}%` : "不配乐"}</small></summary>
-                    <div>
-                      <label>音乐气质<select value={packagingSettings.bgm.mood} onChange={(event) => patchPackaging("bgm", { mood: event.target.value as PackagingSettings["bgm"]["mood"] })}><option>轻电子</option><option>时装律动</option><option>柔和氛围</option></select></label>
+                    <summary><label><input type="checkbox" checked={packagingSettings.bgm.enabled} onChange={(event) => patchPackaging("bgm", { enabled: event.target.checked })} />背景音乐</label><small>{packagingSettings.bgm.enabled ? `${packagingSettings.bgm.source} · ${packagingSettings.bgm.mood} · ${packagingSettings.bgm.tempoBpm} BPM` : "不配乐"}</small></summary>
+                    <div className="bgm-editor">
+                      <div className="bgm-smart-card">
+                        <span>本条智能建议</span>
+                        <strong>{recommendedBgm.mood} · {recommendedBgm.tempoBpm} BPM</strong>
+                        <p>{recommendedBgm.reason}</p>
+                        <button type="button" onClick={applySmartBgm}>采用智能建议</button>
+                      </div>
+                      <label>选择方式<select value={packagingSettings.bgm.selectionMode} onChange={(event) => patchPackaging("bgm", { selectionMode: event.target.value as PackagingSettings["bgm"]["selectionMode"] })}><option>智能推荐</option><option>人工选择</option></select></label>
+                      <label>音源路径<select value={packagingSettings.bgm.source} onChange={(event) => patchPackaging("bgm", { source: event.target.value as PackagingSettings["bgm"]["source"], selectionMode: event.target.value === "AI原创" ? "智能推荐" : "人工选择" })}><option>AI原创</option><option>免费曲库</option><option>抖音端内补歌</option><option>上传授权音源</option></select></label>
+                      <label>音乐气质<select value={packagingSettings.bgm.mood} onChange={(event) => patchPackaging("bgm", { mood: event.target.value as PackagingSettings["bgm"]["mood"], selectionMode: "人工选择" })}><option>轻电子</option><option>时装律动</option><option>柔和氛围</option></select></label>
+                      <label>目标节奏<input type="range" min="60" max="150" value={packagingSettings.bgm.tempoBpm} onChange={(event) => patchPackaging("bgm", { tempoBpm: Number(event.target.value), selectionMode: "人工选择" })} /><output>{packagingSettings.bgm.tempoBpm} BPM</output></label>
+                      <label className="bgm-prompt">生成 / 搜索关键词<textarea value={packagingSettings.bgm.prompt} onChange={(event) => patchPackaging("bgm", { prompt: event.target.value, selectionMode: "人工选择" })} /><small>免费曲库可搜索：{recommendedBgm.searchTerms}</small></label>
+                      {packagingSettings.bgm.source === "免费曲库" && (
+                        <div className="free-music-links">
+                          {freeMusicSources.map((source) => (
+                            <a key={source.name} href={source.href} target="_blank" rel="noreferrer noopener"><strong>{source.name}</strong><small>{source.note}</small></a>
+                          ))}
+                        </div>
+                      )}
+                      {packagingSettings.bgm.source === "抖音端内补歌" && (
+                        <div className="douyin-music-note"><strong>热歌不下载进工程</strong><p>先导出无 BGM 包装片，再在抖音发布页试听并选择当日热歌。这样更接近平台趋势，也不把抖音授权音乐搬到站外。</p></div>
+                      )}
+                      {packagingSettings.bgm.source === "AI原创" && (
+                        <div className="douyin-music-note"><strong>AI 生成三首原创候选</strong><p>正式执行时按当前提示词、目标 BPM 和本条时长生成三首，先试听再确定；生成后再做裁切、循环、淡入淡出和人声避让。</p></div>
+                      )}
                       <label>音乐音量<input type="range" min="0" max="30" value={packagingSettings.bgm.volume} onChange={(event) => patchPackaging("bgm", { volume: Number(event.target.value) })} /><output>{packagingSettings.bgm.volume}%</output></label>
                       <label className="inline-check"><input type="checkbox" checked={packagingSettings.bgm.autoDucking} onChange={(event) => patchPackaging("bgm", { autoDucking: event.target.checked })} />说话时自动压低音乐</label>
                     </div>

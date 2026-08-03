@@ -408,6 +408,15 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /字幕、花字、放大、跟踪、动画、转场、特效、音效和配乐/);
   assert.match(page, /背景音乐/);
   assert.match(page, /说话时自动压低音乐/);
+  assert.match(page, /本条智能建议/);
+  assert.match(page, /采用智能建议/);
+  assert.match(page, /智能推荐/);
+  assert.match(page, /AI原创/);
+  assert.match(page, /免费曲库/);
+  assert.match(page, /抖音端内补歌/);
+  assert.match(page, /Mixkit/);
+  assert.match(page, /Pixabay Music/);
+  assert.match(page, /YouTube Audio Library/);
   assert.match(page, /不包装/);
   assert.match(page, /downloadPackagingPlan/);
   assert.match(page, /savePackagingPlan/);
@@ -565,6 +574,10 @@ test("persists dated projects and editable packaging plans in D1", async () => {
   assert.match(packagingRoute, /onConflictDoUpdate/);
   assert.match(packagingModel, /enabled: boolean/);
   assert.match(packagingModel, /bgm:/);
+  assert.match(packagingModel, /selectionMode/);
+  assert.match(packagingModel, /source:/);
+  assert.match(packagingModel, /tempoBpm/);
+  assert.match(packagingModel, /prompt:/);
   assert.match(packagingModel, /autoDucking/);
   assert.match(packagingModel, /preset === "none"/);
 });

@@ -48,7 +48,11 @@ export type PackagingSettings = {
   };
   bgm: {
     enabled: boolean;
+    selectionMode: "智能推荐" | "人工选择";
+    source: "AI原创" | "免费曲库" | "抖音端内补歌" | "上传授权音源";
     mood: "轻电子" | "时装律动" | "柔和氛围";
+    tempoBpm: number;
+    prompt: string;
     volume: number;
     autoDucking: boolean;
   };
@@ -113,7 +117,13 @@ export function packagingPreset(
     },
     bgm: {
       enabled: true,
+      selectionMode: "智能推荐",
+      source: "AI原创",
       mood: mode === "带货" ? "时装律动" : "轻电子",
+      tempoBpm: mode === "带货" ? 112 : 96,
+      prompt: mode === "带货"
+        ? "无歌词、轻奢时装律动、干净鼓点、适合商品讲解、不要抢人声"
+        : "无歌词、克制轻电子、稳定脉冲、适合观点口播、不要抢人声",
       volume: 9,
       autoDucking: true,
     },
@@ -245,7 +255,11 @@ export function normalizePackagingSettings(
     },
     bgm: {
       enabled: bool(bgm.enabled, fallback.bgm.enabled),
+      selectionMode: pick(bgm.selectionMode, ["智能推荐", "人工选择"] as const, fallback.bgm.selectionMode),
+      source: pick(bgm.source, ["AI原创", "免费曲库", "抖音端内补歌", "上传授权音源"] as const, fallback.bgm.source),
       mood: pick(bgm.mood, ["轻电子", "时装律动", "柔和氛围"] as const, fallback.bgm.mood),
+      tempoBpm: clamp(bgm.tempoBpm, fallback.bgm.tempoBpm, 60, 150),
+      prompt: typeof bgm.prompt === "string" ? bgm.prompt.trim().slice(0, 280) : fallback.bgm.prompt,
       volume: clamp(bgm.volume, fallback.bgm.volume, 0, 30),
       autoDucking: bool(bgm.autoDucking, fallback.bgm.autoDucking),
     },
