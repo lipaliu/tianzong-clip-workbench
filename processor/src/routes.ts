@@ -25,7 +25,13 @@ const projectBody = z.object({
   projectDate: z.iso.date(),
   sourceName: z.string().trim().min(1).max(500),
   mode: z.enum(["聊播", "带货"]),
-  editorMode: z.enum(["openai", "doubao", "compare"]).default("compare"),
+  editorMode: z.enum([
+    "openai",
+    "doubao",
+    "kimi",
+    "compare",
+    "compare_all",
+  ]).default("compare"),
 }).strict();
 
 const uploadBody = z.object({

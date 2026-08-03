@@ -76,6 +76,11 @@ const envSchema = z.object({
     .max(12)
     .default(8),
   DOUBAO_AV_TIMEOUT_MS: positiveInteger(900_000),
+  KIMI_API_KEY: z.string().min(1).optional(),
+  KIMI_BASE_URL: z.string().url().default("https://api.moonshot.ai/v1"),
+  KIMI_EDITOR_MODEL: z.literal("kimi-k3").default("kimi-k3"),
+  KIMI_REASONING_EFFORT: z.enum(["low", "high", "max"]).default("max"),
+  KIMI_TIMEOUT_MS: positiveInteger(900_000),
   TIANCLIP_CORE_S3_KEY: z.string().min(1),
   TIANCLIP_CORE_SHA256: z.string().regex(/^[a-f0-9]{64}$/),
   TIANCLIP_CORE_VERSION: z.literal("1.2.3-private.1"),
@@ -176,6 +181,13 @@ export type ProcessorConfig = {
       maxBoundaryExtensionSec: number;
       timeoutMs: number;
     };
+  };
+  kimi: {
+    apiKey: string | null;
+    baseUrl: string;
+    editorModel: "kimi-k3";
+    reasoningEffort: "low" | "high" | "max";
+    timeoutMs: number;
   };
   core: {
     objectKey: string;
@@ -279,6 +291,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
         maxBoundaryExtensionSec: value.DOUBAO_AV_MAX_BOUNDARY_EXTENSION_SEC,
         timeoutMs: value.DOUBAO_AV_TIMEOUT_MS,
       },
+    },
+    kimi: {
+      apiKey: value.KIMI_API_KEY ?? null,
+      baseUrl: value.KIMI_BASE_URL.replace(/\/+$/, ""),
+      editorModel: value.KIMI_EDITOR_MODEL,
+      reasoningEffort: value.KIMI_REASONING_EFFORT,
+      timeoutMs: value.KIMI_TIMEOUT_MS,
     },
     core: {
       objectKey: value.TIANCLIP_CORE_S3_KEY,

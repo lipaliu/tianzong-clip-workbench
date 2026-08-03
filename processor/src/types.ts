@@ -1,5 +1,10 @@
 export type TianClipMode = "聊播" | "带货";
-export type EditorialModelMode = "openai" | "doubao" | "compare";
+export type EditorialModelMode =
+  | "openai"
+  | "doubao"
+  | "kimi"
+  | "compare"
+  | "compare_all";
 export type JobStatus =
   | "queued"
   | "running"
@@ -119,7 +124,7 @@ export type CandidatePayload = {
   previewVersion: string;
   isFinal: boolean;
   sourceMedia: CandidateSourceMedia;
-  editorProvider?: "openai" | "doubao";
+  editorProvider?: "openai" | "doubao" | "kimi";
 };
 
 export type CandidateReviewStatus =

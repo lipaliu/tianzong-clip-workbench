@@ -88,7 +88,7 @@ type VisualMap = {
 
 type CandidateResultItem = {
   candidateId: string;
-  editorProvider?: "openai" | "doubao";
+  editorProvider?: "openai" | "doubao" | "kimi";
   title: string;
   douyinTitle: string;
   xiaohongshuTitle: string;

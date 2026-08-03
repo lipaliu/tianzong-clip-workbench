@@ -21,7 +21,7 @@ import {
 } from "./processor-client";
 
 type Mode = "聊播" | "带货";
-type EditorMode = "openai" | "doubao" | "compare";
+type EditorMode = "openai" | "doubao" | "kimi" | "compare" | "compare_all";
 type IntakeStep = 1 | 2;
 type WorkflowStep = 1 | 2 | 3;
 type Decision = "keep" | "remove";
@@ -48,7 +48,7 @@ type ScorePart = {
 type ClipIdea = {
   id: string;
   kind: Mode;
-  editorProvider?: "openai" | "doubao";
+  editorProvider?: "openai" | "doubao" | "kimi";
   index: string;
   title: string;
   duration: string;
@@ -148,9 +148,15 @@ const editorChoices: Array<{
 }> = [
   {
     id: "compare",
-    name: "双模型对比",
+    name: "OpenAI / 火山对比",
     eyebrow: "推荐",
     description: "OpenAI 与火山读取同一份天总 Skill，分别给出切片方案。",
+  },
+  {
+    id: "compare_all",
+    name: "三模型对比",
+    eyebrow: "完整盲测",
+    description: "OpenAI、火山与 Kimi K3 使用同一证据和 Skill，各自独立出稿。",
   },
   {
     id: "openai",
@@ -163,6 +169,12 @@ const editorChoices: Array<{
     name: "火山主编",
     eyebrow: "中文音画",
     description: "侧重中文直播语境、现场感、动作表情与本土表达。",
+  },
+  {
+    id: "kimi",
+    name: "Kimi K3 主编",
+    eyebrow: "第三意见",
+    description: "独立执行完整天总 Skill，用长上下文推理检验主题、金句与完整闭环。",
   },
 ];
 
@@ -1027,6 +1039,7 @@ export default function Home() {
     () => ({
       openai: modeIdeas.filter((idea) => idea.editorProvider === "openai").length,
       doubao: modeIdeas.filter((idea) => idea.editorProvider === "doubao").length,
+      kimi: modeIdeas.filter((idea) => idea.editorProvider === "kimi").length,
     }),
     [modeIdeas],
   );
@@ -2113,9 +2126,9 @@ export default function Home() {
                           </button>
                         ))}
                       </div>
-                      {editorMode === "compare" && (
+                      {(editorMode === "compare" || editorMode === "compare_all") && (
                         <p className="editor-compare-note">
-                          两套结果独立生成，不互相抄答案；候选页会并排显示差异。
+                          各套结果独立生成，不互相抄答案；候选页会并排显示差异。
                         </p>
                       )}
                     </section>
@@ -2244,10 +2257,11 @@ export default function Home() {
               <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看 S 级"}</button>
             </div>
             <p className="panel-intro">按完整语义、同题去重与风险门禁召回；自然返回多少就是多少，不设目标、不设保底，也不补齐。</p>
-            {editorMode === "compare" && (
-              <div className="model-comparison-status" aria-label="双模型候选数量">
+            {(editorMode === "compare" || editorMode === "compare_all") && (
+              <div className="model-comparison-status" aria-label="模型候选数量">
                 <span>OpenAI <b>{editorCandidateCounts.openai}</b></span>
                 <span>火山 Seed Pro <b>{editorCandidateCounts.doubao}</b></span>
+                {editorMode === "compare_all" && <span>Kimi K3 <b>{editorCandidateCounts.kimi}</b></span>}
               </div>
             )}
             <div className="version-context"><span>{corpusBaseline.version}</span><p>{mode}规则 · 近期直播最高权重</p></div>
@@ -2266,6 +2280,8 @@ export default function Home() {
                         ? "OpenAI"
                         : idea.editorProvider === "doubao"
                           ? "火山"
+                          : idea.editorProvider === "kimi"
+                            ? "Kimi"
                           : "主编"} · {idea.priority} · {idea.index}
                     </span>
                     <strong>{idea.title}</strong>
@@ -2284,6 +2300,8 @@ export default function Home() {
                   ? "OpenAI 主编"
                   : activeClip.editorProvider === "doubao"
                     ? "火山 Seed Pro 主编"
+                    : activeClip.editorProvider === "kimi"
+                      ? "Kimi K3 主编"
                     : "天总候选"} · {activeClip.index}
               </span>
               <b>编辑适配分 {activeClip.score} / 100</b>
@@ -2399,10 +2417,11 @@ export default function Home() {
               <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看 S 级"}</button>
             </div>
             <p className="panel-intro">数量由天总专属判断自然得出，不设上限，也不补齐。</p>
-            {editorMode === "compare" && (
-              <div className="model-comparison-status" aria-label="双模型候选数量">
+            {(editorMode === "compare" || editorMode === "compare_all") && (
+              <div className="model-comparison-status" aria-label="模型候选数量">
                 <span>OpenAI <b>{editorCandidateCounts.openai}</b></span>
                 <span>火山 Seed Pro <b>{editorCandidateCounts.doubao}</b></span>
+                {editorMode === "compare_all" && <span>Kimi K3 <b>{editorCandidateCounts.kimi}</b></span>}
               </div>
             )}
             <div className="version-context"><span>{corpusBaseline.version}</span><p>当前候选沿用已发布判断 · 人工差异进入回标</p></div>
@@ -2418,6 +2437,8 @@ export default function Home() {
                       ? "OpenAI"
                       : idea.editorProvider === "doubao"
                         ? "火山"
+                        : idea.editorProvider === "kimi"
+                          ? "Kimi"
                         : "主编"} · {idea.priority} · {idea.index}
                   </span><strong>{idea.title}</strong><small>{idea.duration}</small>
                 </button>

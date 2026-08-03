@@ -11,7 +11,7 @@ const apiBase = String(
 const keyId = process.env.PROCESSOR_KEY_ID ?? "sites-proxy";
 const actor = process.env.TIANCLIP_ACTOR ?? "production-e2e";
 const mode = process.env.TIANCLIP_MODE === "带货" ? "带货" : "聊播";
-const editorMode = ["openai", "doubao", "compare"].includes(
+const editorMode = ["openai", "doubao", "kimi", "compare", "compare_all"].includes(
   process.env.TIANCLIP_EDITOR_MODE,
 )
   ? process.env.TIANCLIP_EDITOR_MODE
