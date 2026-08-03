@@ -392,20 +392,25 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /目标输出：无字幕 · 无效果 · 保留原声/);
   assert.match(page, /Source review \/ 原片校对窗/);
   assert.match(page, /Proofing view \/ 逐字校对/);
-  assert.match(page, /直接下载成片/);
-  assert.match(page, /进入 ChatCut 精修/);
-  assert.match(page, /导出到专业剪辑软件/);
+  assert.match(page, /下载粗剪 MP4/);
+  assert.match(page, /创建可编辑 ChatCut 工程/);
+  assert.match(page, /导出专业时间线/);
   assert.match(page, /导入 SRT 字幕/);
   assert.match(page, /Premiere \/ DaVinci Resolve/);
-  assert.match(page, /候选 MP4 由服务端按当前候选计划真实渲染/);
+  assert.match(page, /不包装时直接交付干净粗剪/);
   assert.match(page, /type LocalExportOption = "mp4" \| "srt" \| "xml"/);
   assert.match(page, /const \[selectedLocalExports, setSelectedLocalExports\]/);
   assert.match(page, /function toggleLocalExport/);
   assert.match(page, /function downloadSelectedLocalOutputs/);
   assert.match(page, /下载所选到本地/);
   assert.match(page, /项本地格式已选/);
-  assert.match(page, /ChatCut 是独立交付，不参与批量下载/);
-  assert.match(page, /className="delivery-option chatcut"/);
+  assert.match(page, /ChatCut 独立创建可编辑工程/);
+  assert.match(page, /字幕、花字、放大、跟踪、动画、转场、特效、音效和配乐/);
+  assert.match(page, /背景音乐/);
+  assert.match(page, /说话时自动压低音乐/);
+  assert.match(page, /不包装/);
+  assert.match(page, /downloadPackagingPlan/);
+  assert.match(page, /savePackagingPlan/);
   assert.equal(page.match(/onChange=\{\(\) => toggleLocalExport\("/g)?.length, 3);
   assert.match(page, /function exportXmlTimeline/);
   assert.match(page, /function exportSrtSubtitle/);
@@ -419,7 +424,7 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /sourceMedia\.durationSeconds \* rate\.exactFps/);
   assert.match(page, /sourceMedia\.audioChannels/);
   assert.match(page, /sourceMedia\.originalFileName/);
-  assert.match(page, /不输出伪精准草案/);
+  assert.match(page, /不会输出伪精准草案/);
   assert.doesNotMatch(page, /const frameRate = 30/);
   assert.doesNotMatch(page, /<width>1080<\/width><height>1920<\/height>/);
   assert.doesNotMatch(page, /<channelcount>2<\/channelcount>/);
@@ -526,13 +531,16 @@ test("ships product metadata and removes the disposable starter preview", async 
   await assert.rejects(access(new URL("../app/_sites-preview", import.meta.url)));
 });
 
-test("persists dated project metadata in D1", async () => {
-  const [schema, route, hosting, migration, authMigration] = await Promise.all([
+test("persists dated projects and editable packaging plans in D1", async () => {
+  const [schema, route, packagingRoute, packagingModel, hosting, migration, authMigration, packagingMigration] = await Promise.all([
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/projects/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/projects/[projectId]/packaging/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/packaging.ts", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0000_blushing_morg.sql", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/0001_chemical_salo.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0004_reflective_scourge.sql", import.meta.url), "utf8"),
   ]);
 
   assert.match(schema, /sqliteTable\(\s*"projects"/);
@@ -550,6 +558,15 @@ test("persists dated project metadata in D1", async () => {
   assert.match(schema, /sqliteTable\(\s*"auth_login_attempts"/);
   assert.match(authMigration, /CREATE TABLE `auth_login_attempts`/);
   assert.match(authMigration, /CREATE INDEX `auth_login_attempts_updated_at_idx`/);
+  assert.match(schema, /sqliteTable\(\s*"clip_packaging_settings"/);
+  assert.match(packagingMigration, /CREATE TABLE `clip_packaging_settings`/);
+  assert.match(packagingRoute, /export async function GET/);
+  assert.match(packagingRoute, /export async function PUT/);
+  assert.match(packagingRoute, /onConflictDoUpdate/);
+  assert.match(packagingModel, /enabled: boolean/);
+  assert.match(packagingModel, /bgm:/);
+  assert.match(packagingModel, /autoDucking/);
+  assert.match(packagingModel, /preset === "none"/);
 });
 
 test("routes every static request through the authentication worker", async () => {
