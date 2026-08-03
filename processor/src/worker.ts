@@ -10,6 +10,7 @@ import {
   type LoadedTianClipCore,
 } from "./core/index.js";
 import { createDatabase } from "./db.js";
+import { reusableEditorialResults } from "./editorial-checkpoint.js";
 import {
   buildAndValidateEngineArtifacts,
   type EngineArtifacts,
@@ -816,16 +817,13 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       const checkpoint = JSON.parse(
         (await storage.getBuffer(editorialCheckpointKey)).toString("utf8"),
       ) as Record<string, unknown>;
-      if (
-        checkpoint.schemaVersion === "tianclip.editorial-recall-checkpoint.v1"
-        && JSON.stringify(checkpoint.identity)
-          === JSON.stringify(editorialCheckpointIdentity)
-        && Array.isArray(checkpoint.results)
-      ) {
-        mergedEditorialResults = checkpoint.results as Array<
-          Record<string, any>
-        >;
-      }
+      mergedEditorialResults = reusableEditorialResults({
+        checkpoint,
+        currentIdentity: editorialCheckpointIdentity,
+        requestedModels: Object.fromEntries(
+          editorialProviders.map((provider) => [provider, editorModel(provider)]),
+        ),
+      }) as Array<Record<string, any>>;
     } catch {
       mergedEditorialResults = [];
     }
