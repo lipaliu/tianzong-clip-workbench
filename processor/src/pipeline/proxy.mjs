@@ -72,6 +72,7 @@ export async function renderCandidateSafetyProxy({
   runner = runCommand,
   signal = undefined,
   verifyOutput = true,
+  timeoutMs = 30 * 60 * 1_000,
 } = {}) {
   invariant(sourcePath && outputPath, "sourcePath and outputPath are required", {
     code: "CANDIDATE_PROXY_PATH_REQUIRED",
@@ -107,6 +108,7 @@ export async function renderCandidateSafetyProxy({
     "-map", "0:a:0",
     "-vf", "scale=-2:min(1280\\,ih)",
     "-c:v", "libx264",
+    "-threads", "1",
     "-preset", "veryfast",
     "-crf", "25",
     "-c:a", "aac",
@@ -114,7 +116,7 @@ export async function renderCandidateSafetyProxy({
     "-movflags", "+faststart",
     "-y",
     outputPath,
-  ], { signal });
+  ], { signal, timeoutMs });
   if (verifyOutput) await assertProxyArtifact(outputPath);
 
   return {

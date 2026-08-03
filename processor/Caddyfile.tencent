@@ -1,6 +1,14 @@
 {$API_DOMAIN} {
   encode zstd gzip
 
+  @progress path /progress/* /progress-data/*
+  handle @progress {
+    basic_auth {
+      tianzong {$PROGRESS_PASSWORD_HASH}
+    }
+    reverse_proxy api:10000
+  }
+
   @health path /healthz /readyz
   @api path /v1/*
 

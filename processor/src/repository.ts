@@ -605,6 +605,30 @@ export class ProcessorRepository {
     return mapJob(row);
   }
 
+  async getLatestJobForProject(projectId: string): Promise<JobApi> {
+    await this.getProject(projectId);
+    const result = await this.database.query(
+      `SELECT *
+       FROM processing_jobs
+       WHERE project_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [projectId],
+    );
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    if (!row) throw new AppError(404, "job_not_found", "该项目还没有处理任务。");
+    return mapJob(row);
+  }
+
+  async countCandidatesForJob(jobId: string): Promise<number> {
+    await this.getJob(jobId);
+    const result = await this.database.query(
+      "SELECT count(*)::int AS count FROM candidates WHERE job_id = $1",
+      [jobId],
+    );
+    return numberValue((result.rows[0] as Record<string, unknown> | undefined)?.count ?? 0);
+  }
+
   async listJobEvents(jobId: string, limit = 200): Promise<JobEventApi[]> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
       throw new AppError(400, "job_event_limit_invalid", "任务进度记录数量无效。");

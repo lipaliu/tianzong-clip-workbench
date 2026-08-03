@@ -1056,6 +1056,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
               candidate,
               outputPath,
               mediaDurationSec: media.durationSec,
+              timeoutMs: 30 * 60 * 1_000,
             });
             transientObjectKeys.add(objectKey);
             await storage.uploadFile(objectKey, outputPath, "video/mp4", {
@@ -1108,6 +1109,31 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
                 route: routed.route,
               };
             }
+          } catch (error) {
+            failedCandidateCount += 1;
+            fallbackUsed = true;
+            nativeAvReviewRecordsByIndex[index] = {
+              candidateId: candidate.candidateId,
+              normalized: null,
+              route: {
+                requestedProvider: "doubao",
+                effectiveProvider: "sampled_stills",
+                fallbackUsed: true,
+                primaryFailure: internalErrorMessage(error),
+              },
+            };
+            await repository.updateJobStage(
+              job.id,
+              job.workerId,
+              "candidate_native_av_review",
+              85 + Math.floor(
+                4 * completedCandidateCount
+                  / Math.max(1, mergedCandidateResult.candidates.length),
+              ),
+              `候选 ${candidate.candidateId} 的原生音视频复核失败，`
+                + "已降级为逐字稿证据并继续处理，不中断整场任务。",
+              { error: internalErrorMessage(error) },
+            );
           } finally {
             await storage.delete(objectKey).catch(() => undefined);
             transientObjectKeys.delete(objectKey);
@@ -1128,7 +1154,13 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         }
       };
       const reviewWorkerCount = Math.min(
-        6,
+        Math.max(
+          1,
+          Math.min(
+            3,
+            Number(process.env.CANDIDATE_AV_REVIEW_CONCURRENCY ?? "2") || 2,
+          ),
+        ),
         mergedCandidateResult.candidates.length,
       );
       await Promise.all(
