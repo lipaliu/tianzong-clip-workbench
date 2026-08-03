@@ -62,6 +62,16 @@ export type ProcessorJob = {
   updatedAt: string;
 };
 
+export type ProcessorJobEvent = {
+  id: string;
+  jobId: string;
+  stage: string;
+  progress: number;
+  message: string;
+  detail: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 export type ProcessorTranscriptLine = {
   id: string;
   start: number;
@@ -479,6 +489,14 @@ export async function readProcessorJob(jobId: string) {
     cache: "no-store",
   });
   return readJson<{ job: ProcessorJob }>(response);
+}
+
+export async function readProcessorJobEvents(jobId: string) {
+  const response = await fetch(
+    `/api/runtime/jobs/${encodeURIComponent(jobId)}/events`,
+    { cache: "no-store" },
+  );
+  return readJson<{ events: ProcessorJobEvent[] }>(response);
 }
 
 export async function readProcessorCandidates(projectId: string) {

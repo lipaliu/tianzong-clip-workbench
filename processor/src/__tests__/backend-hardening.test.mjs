@@ -141,6 +141,65 @@ test("stage writes are fenced by worker identity and a live lease", async () => 
   assert.ok(!calls.some((call) => call.text.includes("UPDATE projects")));
 });
 
+test("job progress events are returned newest-first as public evidence", async () => {
+  const createdAt = new Date("2026-08-04T08:09:10.000Z");
+  const { database, calls } = fakeDatabase(async (text, values) => {
+    if (text === "SELECT * FROM processing_jobs WHERE id = $1") {
+      return {
+        rowCount: 1,
+        rows: [{
+          id: claimedJob.id,
+          project_id: claimedJob.projectId,
+          upload_id: claimedJob.uploadId,
+          status: "running",
+          stage: "private_core_reasoning",
+          progress: 59,
+          clip_count: 0,
+          error_public: null,
+          attempt: 1,
+          max_attempts: 3,
+          core_version: null,
+          core_sha256: null,
+          result: null,
+          created_at: createdAt,
+          updated_at: createdAt,
+        }],
+      };
+    }
+    if (text.includes("FROM job_events")) {
+      assert.deepEqual(values, [claimedJob.id, 200]);
+      return {
+        rowCount: 1,
+        rows: [{
+          id: 81,
+          job_id: claimedJob.id,
+          stage: "private_core_reasoning",
+          progress: 59,
+          message: "火山 Seed Pro 独立分析窗口 16/35 已完成。",
+          detail: { completed: 16, total: 35 },
+          created_at: createdAt,
+        }],
+      };
+    }
+    throw new Error(`unexpected query: ${text}`);
+  });
+  const repository = new ProcessorRepository(database, config);
+
+  const events = await repository.listJobEvents(claimedJob.id);
+  assert.deepEqual(events, [{
+    id: "81",
+    jobId: claimedJob.id,
+    stage: "private_core_reasoning",
+    progress: 59,
+    message: "火山 Seed Pro 独立分析窗口 16/35 已完成。",
+    detail: { completed: 16, total: 35 },
+    createdAt: createdAt.toISOString(),
+  }]);
+  const eventQuery = calls.find((call) => call.text.includes("FROM job_events"));
+  assert.ok(eventQuery);
+  assert.match(eventQuery.text, /ORDER BY id DESC/);
+});
+
 test("candidate publication aborts before destructive writes when lease is stale", async () => {
   const { database, calls } = fakeDatabase(async (text) => {
     if (text.includes("SELECT project_id") && text.includes("FOR UPDATE")) {

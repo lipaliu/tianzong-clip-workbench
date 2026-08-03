@@ -11,6 +11,7 @@ import type {
   CandidateReviewStatus,
   ClaimedJob,
   ClaimedRender,
+  JobEventApi,
   JobApi,
   ProjectApi,
   EditorialModelMode,
@@ -75,6 +76,20 @@ export function mapJob(row: Record<string, unknown>): JobApi {
       : null,
     createdAt: isoValue(row.created_at),
     updatedAt: isoValue(row.updated_at),
+  };
+}
+
+export function mapJobEvent(row: Record<string, unknown>): JobEventApi {
+  return {
+    id: String(row.id),
+    jobId: String(row.job_id),
+    stage: String(row.stage),
+    progress: numberValue(row.progress),
+    message: String(row.message),
+    detail: row.detail && typeof row.detail === "object"
+      ? row.detail as Record<string, unknown>
+      : null,
+    createdAt: isoValue(row.created_at),
   };
 }
 
@@ -588,6 +603,22 @@ export class ProcessorRepository {
     const row = result.rows[0] as Record<string, unknown> | undefined;
     if (!row) throw new AppError(404, "job_not_found", "处理任务不存在。");
     return mapJob(row);
+  }
+
+  async listJobEvents(jobId: string, limit = 200): Promise<JobEventApi[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+      throw new AppError(400, "job_event_limit_invalid", "任务进度记录数量无效。");
+    }
+    await this.getJob(jobId);
+    const result = await this.database.query(
+      `SELECT id, job_id, stage, progress, message, detail, created_at
+       FROM job_events
+       WHERE job_id = $1
+       ORDER BY id DESC
+       LIMIT $2`,
+      [jobId, limit],
+    );
+    return result.rows.map((row) => mapJobEvent(row as Record<string, unknown>));
   }
 
   async listCandidates(projectId: string): Promise<Array<{

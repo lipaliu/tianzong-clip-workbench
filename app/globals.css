@@ -4470,32 +4470,261 @@ button:not(:disabled):active {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.composer-progress {
-  position: absolute;
-  right: 27px;
-  bottom: 6px;
-  left: 27px;
-  height: 19px;
-  border-top: 2px solid var(--line-soft);
+.analysis-progress-panel {
+  margin-top: 26px;
+  padding: 23px;
+  border: 1px solid rgba(184, 132, 154, 0.28);
+  border-radius: 19px;
+  background: linear-gradient(150deg, rgba(245, 232, 238, 0.68), rgba(255, 255, 255, 0.92));
 }
 
-.composer-progress span {
-  position: absolute;
-  top: -2px;
-  left: 0;
-  height: 2px;
+.analysis-progress-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.analysis-progress-heading > div {
+  min-width: 0;
+}
+
+.analysis-progress-heading span {
   display: block;
-  border-radius: 2px;
+  margin-bottom: 7px;
+  color: var(--pink-deep);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.analysis-progress-heading h3 {
+  margin: 0;
+  font-family: var(--font-display), "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 21px;
+  font-weight: 420;
+  line-height: 1.28;
+}
+
+.analysis-progress-heading > strong {
+  flex: 0 0 auto;
+  color: #6f5260;
+  font-family: var(--serif);
+  font-size: 34px;
+  font-style: italic;
+  font-weight: 430;
+  line-height: 1;
+}
+
+.analysis-progress-track {
+  height: 4px;
+  margin-top: 17px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(184, 132, 154, 0.16);
+}
+
+.analysis-progress-track span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
   background: var(--pink-deep);
   transition: width 260ms linear;
 }
 
-.composer-progress small {
+.analysis-progress-now {
+  min-height: 22px;
+  margin: 13px 0 0;
+  color: #594f53;
+  font-size: 13px;
+  font-weight: 390;
+  line-height: 1.65;
+}
+
+.analysis-workflow-list {
+  margin: 21px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  list-style: none;
+}
+
+.analysis-workflow-list li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 29px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid rgba(46, 44, 43, 0.09);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--faint);
+}
+
+.analysis-workflow-list li[data-state="active"] {
+  border-color: rgba(184, 132, 154, 0.52);
+  background: rgba(232, 196, 208, 0.42);
+  color: var(--ink);
+}
+
+.analysis-workflow-list li[data-state="done"] {
+  color: #594f53;
+}
+
+.analysis-workflow-list li[data-state="failed"] {
+  border-color: rgba(176, 74, 90, 0.4);
+  color: #7f2d41;
+}
+
+.analysis-step-number {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.analysis-workflow-list li > div {
+  min-width: 0;
+}
+
+.analysis-workflow-list b,
+.analysis-workflow-list small {
   display: block;
-  padding-top: 5px;
+}
+
+.analysis-workflow-list b {
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.analysis-workflow-list small {
+  margin-top: 3px;
+  overflow: hidden;
+  color: inherit;
+  font-size: 10px;
+  font-weight: 350;
+  line-height: 1.45;
+  opacity: 0.72;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-workflow-list em {
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 520;
+  white-space: nowrap;
+}
+
+.provider-progress-section {
+  margin-top: 22px;
+  padding-top: 17px;
+  border-top: 1px solid rgba(46, 44, 43, 0.12);
+}
+
+.provider-progress-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.provider-progress-title b {
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.provider-progress-title small {
   color: var(--muted);
-  font-size: 8px;
-  font-weight: 380;
+  font-size: 10px;
+}
+
+.provider-progress-grid {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.provider-progress-grid article {
+  min-width: 0;
+  padding: 12px;
+  border-left: 3px solid rgba(46, 44, 43, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.provider-progress-grid article[data-state="active"] {
+  border-color: var(--pink-deep);
+}
+
+.provider-progress-grid article[data-state="done"] {
+  border-color: var(--positive);
+}
+
+.provider-progress-grid article[data-state="failed"] {
+  border-color: var(--danger);
+}
+
+.provider-progress-grid span,
+.provider-progress-grid b {
+  display: block;
+}
+
+.provider-progress-grid span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.provider-progress-grid b {
+  margin-top: 7px;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 520;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-event-details {
+  margin-top: 18px;
+  border-top: 1px solid rgba(46, 44, 43, 0.1);
+}
+
+.analysis-event-details summary {
+  padding-top: 14px;
+  color: #665b60;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.analysis-event-details ol {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.analysis-event-details li {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) 36px;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(46, 44, 43, 0.07);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.analysis-event-details time,
+.analysis-event-details li b {
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+  font-weight: 520;
+}
+
+.analysis-event-details li b {
+  color: var(--pink-deep);
+  text-align: right;
 }
 
 .composer-error {
@@ -4868,9 +5097,27 @@ button:not(:disabled):active {
     min-height: 86px;
   }
 
-  .composer-progress {
-    right: 17px;
-    left: 17px;
+  .analysis-progress-panel {
+    margin-top: 20px;
+    padding: 17px;
+  }
+
+  .analysis-progress-heading h3 {
+    font-size: 18px;
+  }
+
+  .analysis-progress-heading > strong {
+    font-size: 28px;
+  }
+
+  .analysis-workflow-list,
+  .provider-progress-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-event-details li {
+    grid-template-columns: 56px minmax(0, 1fr) 31px;
+    gap: 7px;
   }
 
   .project-row {

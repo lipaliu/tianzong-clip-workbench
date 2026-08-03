@@ -47,6 +47,16 @@ export type JobApi = {
   updatedAt: string;
 };
 
+export type JobEventApi = {
+  id: string;
+  jobId: string;
+  stage: string;
+  progress: number;
+  message: string;
+  detail: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 export type CandidateTranscriptLine = {
   id: string;
   start: number;

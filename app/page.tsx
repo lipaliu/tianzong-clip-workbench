@@ -13,11 +13,13 @@ import {
   prepareProcessorUpload,
   readProcessorCandidates,
   readProcessorJob,
+  readProcessorJobEvents,
   startProcessorJob,
   submitProcessorFeedback,
   uploadToPresignedUrl,
   type ProcessorCandidate,
   type ProcessorJob,
+  type ProcessorJobEvent,
 } from "./processor-client";
 import {
   normalizePackagingSettings,
@@ -756,6 +758,8 @@ function processorCandidateToIdea(candidate: ProcessorCandidate, position: numbe
 const processorStageLabels: Record<string, string> = {
   queued: "等待处理",
   starting: "启动真实分析任务",
+  downloading: "从私有存储读取整场直播",
+  binding_private_core: "绑定并校验天总私有切片核心",
   probe: "读取原片与音画轨",
   probing: "读取原片与音画轨",
   audio_extract: "提取原片音轨",
@@ -765,13 +769,17 @@ const processorStageLabels: Record<string, string> = {
   visual_mapping: "扫描全场画面与动作",
   sparse_visual_screening: "建立全场视觉事件地图",
   dense_visual_reverse_recall: "密集画面反向寻找漏网切片",
+  full_timeline_evidence_preparation: "建立整场逐字稿证据轴",
   private_core_reasoning: "运行天总私有切片内核",
+  private_core_reasoning_partial: "保留已完成的主编结果",
   candidate_generation: "运行天总专属切片内核",
+  candidate_native_av_review: "逐条复核原生音画证据",
   candidate_dense_refinement: "逐条校正画面、逐字稿与切口",
   candidate_validation: "逐条校验候选音画证据",
   candidate_verification: "逐条校验候选音画证据",
   validating_private_contract: "校验事实层、编辑计划与决策台账",
   rendering_previews: "生成候选粗剪预览",
+  rendering_rough_proxies: "生成候选粗剪 MP4",
   retry_wait: "本次处理失败，等待自动重试",
   review_ready: "候选已生成",
   ready: "候选已生成",
@@ -802,6 +810,243 @@ function processorProgress(job: ProcessorJob) {
       99,
       Math.round(29 + Math.max(0, Math.min(100, job.progress)) * 0.7),
     ),
+  );
+}
+
+async function readProcessorProgress(jobId: string) {
+  const [{ job }, eventsResult] = await Promise.all([
+    readProcessorJob(jobId),
+    readProcessorJobEvents(jobId).catch(() => ({ events: [] as ProcessorJobEvent[] })),
+  ]);
+  return { job, events: eventsResult.events };
+}
+
+type ProgressState = "done" | "active" | "waiting" | "failed";
+
+const analysisWorkflow = [
+  {
+    id: "source",
+    label: "原片入库",
+    description: "上传、完整性校验、读取音画轨",
+    stages: ["queued", "starting", "downloading", "binding_private_core", "probe", "probing"],
+  },
+  {
+    id: "transcript",
+    label: "听清直播",
+    description: "中文逐字稿、说话人、绝对时间码",
+    stages: ["audio_extract", "transcription", "transcribing"],
+  },
+  {
+    id: "recall",
+    label: "整场召回",
+    description: "完整时间轴找主题、金句与自然候选",
+    stages: [
+      "visual_map",
+      "visual_mapping",
+      "sparse_visual_screening",
+      "dense_visual_reverse_recall",
+      "full_timeline_evidence_preparation",
+      "private_core_reasoning",
+      "private_core_reasoning_partial",
+      "candidate_generation",
+    ],
+  },
+  {
+    id: "av",
+    label: "看懂现场",
+    description: "动作、表情、语气、插话与商品展示",
+    stages: ["candidate_native_av_review"],
+  },
+  {
+    id: "editorial",
+    label: "三模终审",
+    description: "OpenAI、火山、Kimi 各自执行同版 Skill",
+    stages: ["candidate_dense_refinement", "candidate_validation", "candidate_verification"],
+  },
+  {
+    id: "contract",
+    label: "硬校验",
+    description: "主题、金句、开头、结尾、时长与证据闭环",
+    stages: ["validating_private_contract"],
+  },
+  {
+    id: "delivery",
+    label: "粗剪交付",
+    description: "生成可播放 MP4、候选清单与下载文件",
+    stages: ["rendering_previews", "rendering_rough_proxies", "review_ready", "ready"],
+  },
+] as const;
+
+function workflowProgressState(
+  phaseIndex: number,
+  job: ProcessorJob | null,
+  progress: number,
+): ProgressState {
+  if (!job) {
+    if (phaseIndex === 0 && progress > 0) return "active";
+    return "waiting";
+  }
+  if (job.status === "failed" || job.status === "cancelled") {
+    const currentIndex = Math.max(
+      0,
+      analysisWorkflow.findIndex((phase) =>
+        (phase.stages as readonly string[]).includes(job.stage)
+      ),
+    );
+    if (phaseIndex < currentIndex) return "done";
+    return phaseIndex === currentIndex ? "failed" : "waiting";
+  }
+  if (job.status === "succeeded") return "done";
+  const currentIndex = analysisWorkflow.findIndex((phase) =>
+    (phase.stages as readonly string[]).includes(job.stage)
+  );
+  if (currentIndex === -1) return phaseIndex === 0 ? "active" : "waiting";
+  if (phaseIndex < currentIndex) return "done";
+  if (phaseIndex === currentIndex) return "active";
+  return "waiting";
+}
+
+const providerUi = [
+  { id: "openai", label: "OpenAI" },
+  { id: "doubao", label: "火山 Seed Pro" },
+  { id: "kimi", label: "Kimi K3" },
+] as const;
+
+function selectedProviders(editorMode: EditorMode) {
+  if (editorMode === "compare_all") return providerUi;
+  if (editorMode === "compare") return providerUi.filter(({ id }) => id !== "kimi");
+  return providerUi.filter(({ id }) => id === editorMode);
+}
+
+function providerProgressCopy(
+  provider: (typeof providerUi)[number],
+  events: ProcessorJobEvent[],
+  job: ProcessorJob | null,
+) {
+  const aliases = provider.id === "openai"
+    ? ["OpenAI"]
+    : provider.id === "doubao"
+      ? ["火山 Seed Pro", "豆包"]
+      : ["Kimi K3", "Kimi"];
+  const event = events.find((item) => aliases.some((alias) => item.message.includes(alias)));
+  if (!event) {
+    if (job?.status === "succeeded") return { state: "done" as ProgressState, copy: "本场结果已交付" };
+    if (job?.stage.startsWith("private_core_reasoning")) {
+      return { state: "active" as ProgressState, copy: "并行执行中，等待首个窗口回报" };
+    }
+    return { state: "waiting" as ProgressState, copy: "等待进入主编阶段" };
+  }
+  const match = event.message.match(/(\d+)\/(\d+)/);
+  const failed = /不可用|失败/.test(event.message);
+  const completed = Boolean(match && match[1] === match[2]) || /已校验并复用|已完成结果/.test(event.message);
+  return {
+    state: failed ? "failed" as ProgressState : completed ? "done" as ProgressState : "active" as ProgressState,
+    copy: match ? `${match[1]}/${match[2]} 个窗口` : event.message,
+  };
+}
+
+function eventTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function AnalysisProgressPanel({
+  progress,
+  stage,
+  job,
+  events,
+  editorMode,
+}: {
+  progress: number;
+  stage: string;
+  job: ProcessorJob | null;
+  events: ProcessorJobEvent[];
+  editorMode: EditorMode;
+}) {
+  const currentPhaseIndex = job
+    ? analysisWorkflow.findIndex((phase) =>
+        (phase.stages as readonly string[]).includes(job.stage)
+      )
+    : 0;
+  const safePhaseIndex = Math.max(0, currentPhaseIndex);
+  const latestEvent = events[0];
+  const displayedProgress = Math.round(job?.progress ?? progress);
+
+  return (
+    <section className="analysis-progress-panel" aria-labelledby="analysis-progress-title">
+      <div className="analysis-progress-heading">
+        <div>
+          <span>真实任务进度</span>
+          <h3 id="analysis-progress-title">
+            第 {safePhaseIndex + 1}/{analysisWorkflow.length} 步 · {stage || analysisWorkflow[safePhaseIndex]!.label}
+          </h3>
+        </div>
+        <strong>{Math.max(0, Math.min(100, displayedProgress))}%</strong>
+      </div>
+
+      <div className="analysis-progress-track" aria-hidden="true">
+        <span style={{ width: `${Math.max(0, Math.min(100, displayedProgress))}%` }} />
+      </div>
+
+      <p className="analysis-progress-now" aria-live="polite">
+        {latestEvent?.message ?? stage}
+      </p>
+
+      <ol className="analysis-workflow-list">
+        {analysisWorkflow.map((phase, index) => {
+          const state = workflowProgressState(index, job, progress);
+          return (
+            <li key={phase.id} data-state={state}>
+              <span className="analysis-step-number">{String(index + 1).padStart(2, "0")}</span>
+              <div>
+                <b>{phase.label}</b>
+                <small>{phase.description}</small>
+              </div>
+              <em>{state === "done" ? "已完成" : state === "active" ? "进行中" : state === "failed" ? "需处理" : "等待"}</em>
+            </li>
+          );
+        })}
+      </ol>
+
+      <div className="provider-progress-section">
+        <div className="provider-progress-title">
+          <b>主编模型</b>
+          <small>各自独立执行同一版天总 Skill</small>
+        </div>
+        <div className="provider-progress-grid">
+          {selectedProviders(editorMode).map((provider) => {
+            const providerProgress = providerProgressCopy(provider, events, job);
+            return (
+              <article key={provider.id} data-state={providerProgress.state}>
+                <span>{provider.label}</span>
+                <b>{providerProgress.copy}</b>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+
+      {events.length > 0 && (
+        <details className="analysis-event-details">
+          <summary>查看后台真实记录 · 最近 {Math.min(events.length, 12)} 条</summary>
+          <ol>
+            {events.slice(0, 12).map((event) => (
+              <li key={event.id}>
+                <time>{eventTime(event.createdAt)}</time>
+                <span>{event.message}</span>
+                <b>{event.progress}%</b>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+    </section>
   );
 }
 
@@ -985,6 +1230,8 @@ export default function Home() {
   const [analysisStage, setAnalysisStage] = useState("");
   const [analysisError, setAnalysisError] = useState("");
   const [analysisReady, setAnalysisReady] = useState(false);
+  const [activeProcessorJob, setActiveProcessorJob] = useState<ProcessorJob | null>(null);
+  const [analysisEvents, setAnalysisEvents] = useState<ProcessorJobEvent[]>([]);
   const [runtimeIdeas, setRuntimeIdeas] = useState<ClipIdea[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
   const [activeClipId, setActiveClipId] = useState(ideas[0].id);
@@ -1297,6 +1544,8 @@ export default function Home() {
     setStep(1);
     setAnalysisReady(false);
     setAnalysisError("");
+    setActiveProcessorJob(null);
+    setAnalysisEvents([]);
     setRuntimeIdeas([]);
     setCurrentTime(0);
     setReviewSourceMode("candidate");
@@ -1322,13 +1571,17 @@ export default function Home() {
       let currentProject = project;
       let job: ProcessorJob | null = null;
       if (project.processorJobId) {
-        ({ job } = await readProcessorJob(project.processorJobId));
+        const progressSnapshot = await readProcessorProgress(project.processorJobId);
+        job = progressSnapshot.job;
+        setActiveProcessorJob(job);
+        setAnalysisEvents(progressSnapshot.events);
         let provisionalCandidatesShown = false;
         while (
           runId === projectResumeRunRef.current &&
           processorJobIsPending(job)
         ) {
           currentProject = projectMirrorFromJob(currentProject, job);
+          setActiveProcessorJob(job);
           setProjects((current) => current.map((item) =>
             item.id === currentProject.id ? currentProject : item
           ));
@@ -1355,7 +1608,10 @@ export default function Home() {
           }
           await wait(2_500);
           if (runId !== projectResumeRunRef.current) return;
-          ({ job } = await readProcessorJob(project.processorJobId!));
+          const progressSnapshot = await readProcessorProgress(project.processorJobId!);
+          job = progressSnapshot.job;
+          setActiveProcessorJob(job);
+          setAnalysisEvents(progressSnapshot.events);
         }
         if (runId !== projectResumeRunRef.current) return;
         currentProject = projectMirrorFromJob(currentProject, job);
@@ -1444,6 +1700,8 @@ export default function Home() {
     setSelectedIds([first.id]);
     setRuntimeIdeas([]);
     setAnalysisReady(false);
+    setActiveProcessorJob(null);
+    setAnalysisEvents([]);
     setAnalysisProgress(0);
     setAnalysisStage("");
     setAnalysisError("");
@@ -1481,6 +1739,8 @@ export default function Home() {
     setAnalysisProgress(0);
     setAnalysisStage("");
     setAnalysisError("");
+    setActiveProcessorJob(null);
+    setAnalysisEvents([]);
     setRuntimeIdeas([]);
     setActiveProjectId("");
     setStep(1);
@@ -1515,6 +1775,8 @@ export default function Home() {
     setRuntimeIdeas([]);
     setAnalysisReady(false);
     setAnalysisError("");
+    setActiveProcessorJob(null);
+    setAnalysisEvents([]);
     setAnalysisProgress(1);
     setAnalysisStage("创建本场切片项目");
     let projectId = "";
@@ -1563,6 +1825,7 @@ export default function Home() {
       setAnalysisStage("原片校验完成，进入异步分析");
       const { job: startedJob } = await startProcessorJob(projectId, upload.id);
       processorJobId = startedJob.id;
+      setActiveProcessorJob(startedJob);
       const persistedStartedProject = await persistProjectMirror({
         ...payload.project,
         status: "analyzing",
@@ -1580,6 +1843,7 @@ export default function Home() {
       while (processorJobIsPending(job)) {
         const normalizedProgress = processorProgress(job);
         const stageLabel = processorStageLabel(job.stage);
+        setActiveProcessorJob(job);
         setAnalysisProgress(normalizedProgress);
         setAnalysisStage(stageLabel);
         setProjects((current) => current.map((project) => project.id === projectId ? {
@@ -1606,8 +1870,13 @@ export default function Home() {
           }
         }
         await wait(2_500);
-        ({ job } = await readProcessorJob(startedJob.id));
+        const progressSnapshot = await readProcessorProgress(startedJob.id);
+        job = progressSnapshot.job;
+        setActiveProcessorJob(job);
+        setAnalysisEvents(progressSnapshot.events);
       }
+
+      setActiveProcessorJob(job);
 
       if (job.status !== "succeeded") {
         throw new Error(
@@ -2354,10 +2623,13 @@ export default function Home() {
                 )}
 
                 {analysisProgress > 0 && analysisProgress < 100 && (
-                  <div className="composer-progress" aria-live="polite">
-                    <span style={{ width: `${analysisProgress}%` }} />
-                    <small>{analysisStage} · {analysisProgress}%</small>
-                  </div>
+                  <AnalysisProgressPanel
+                    progress={analysisProgress}
+                    stage={analysisStage}
+                    job={activeProcessorJob}
+                    events={analysisEvents}
+                    editorMode={editorMode}
+                  />
                 )}
                 {analysisError && (
                   <p className="composer-error" role="alert">

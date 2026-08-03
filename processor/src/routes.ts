@@ -737,6 +737,11 @@ export async function registerRoutes(
     return { job: await repository.getJob(jobId) };
   });
 
+  app.get("/v1/jobs/:jobId/events", async (request) => {
+    const jobId = parseId(request.params, "jobId");
+    return { events: await repository.listJobEvents(jobId) };
+  });
+
   app.get("/v1/projects/:id/candidates", async (request) => {
     const projectId = parseId(request.params, "id");
     const rows = await repository.listCandidates(projectId);
