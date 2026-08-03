@@ -163,6 +163,20 @@ test("business rough cut cannot be compressed back to 20 seconds", () => {
   );
 });
 
+test("a 7-second fragment can never pass as a complete Tianzong rough cut", () => {
+  assert.throws(
+    () => validateCandidateDenseRefinement(
+      refinement({
+        refinedRecallWindow: { startSec: 8, endSec: 15 },
+        roughCutCategory: "micro_complete",
+        roughCutDurationRationale: "只有7秒，不是完整包袱。",
+      }),
+      validationEvidence,
+    ),
+    (error) => error?.code === "CANDIDATE_REFINEMENT_ROUGH_DURATION_INVALID",
+  );
+});
+
 test("transcript evidence outside the refined safety window is rejected per candidate", () => {
   const outsideSegment = {
     id: "s4",

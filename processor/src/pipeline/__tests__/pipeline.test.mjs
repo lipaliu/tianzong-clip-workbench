@@ -2203,6 +2203,24 @@ test("candidate validation fails closed on invented evidence or premature AV cla
     }),
     (error) => error.code === "PREMATURE_AV_VERIFICATION",
   );
+  assert.throws(
+    () => validateCandidateResult({
+      ...baseResult,
+      candidates: [{
+        ...fixtures.candidate,
+        title: "Exaggerated emphatic facial reaction",
+        douyinTitle: "Pointing gesture during strong opinion delivery",
+        xiaohongshuTitle: "Creator growth advice segment",
+        topic: "Visual-only facial reaction",
+        hook: "Hand movement",
+      }],
+    }, {
+      transcript: fixtures.transcript,
+      visualMap: fixtures.visualMap,
+      durationSec: 30,
+    }),
+    (error) => error.code === "CANDIDATE_CHINESE_THEME_REQUIRED",
+  );
 });
 
 test("safety-window proxy renders a continuous audio-video review artifact, not a final cut", async () => {

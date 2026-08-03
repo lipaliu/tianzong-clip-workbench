@@ -1,9 +1,10 @@
 import { hostname } from "node:os";
-import { mkdir, rm } from "node:fs/promises";
+import { link, mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { analyzeCandidateWindows } from "./candidate-analysis.js";
 import { loadConfig } from "./config.js";
+import { editorialWindowProgressMessage } from "./progress.js";
 import {
   loadTianClipCore,
   TianClipCoreError,
@@ -28,9 +29,6 @@ import { createDoubaoAvReviewProvider } from "./pipeline/doubao-av-review.mjs";
 import { createDoubaoEditorClient } from "./pipeline/doubao-editor-client.mjs";
 import { createKimiEditorClient } from "./pipeline/kimi-editor-client.mjs";
 import { createOpenAIClient } from "./pipeline/openai-client.mjs";
-import {
-  extractDenseTimelineFrames,
-} from "./pipeline/frames.mjs";
 import {
   mergeTextAndVisualCandidateResults,
 } from "./pipeline/dense-visual-recall.mjs";
@@ -74,7 +72,6 @@ const doubaoAvFactory = createDoubaoAvReviewProvider as AnyFunction;
 const doubaoEditorFactory = createDoubaoEditorClient as AnyFunction;
 const kimiEditorFactory = createKimiEditorClient as AnyFunction;
 const mediaProbe = probeMedia as AnyFunction;
-const denseFrameExtract = extractDenseTimelineFrames as AnyFunction;
 const transcribe = transcribeAudioChunks as AnyFunction;
 const candidateSourceMerge = mergeTextAndVisualCandidateResults as AnyFunction;
 const candidateDenseRefine = refineCandidatesWithDenseEvidence as AnyFunction;
@@ -295,48 +292,49 @@ function combineEditorialResults(
   return combined;
 }
 
-function prepareTranscriptFirstVisualEvidence(
-  denseFrameManifest: Record<string, any>,
-): {
+function prepareTranscriptFirstVisualEvidence({
+  durationSec,
+}: {
+  durationSec: number;
+}): {
   visualMap: Record<string, any>;
   denseRecallResult: Record<string, any>;
 } {
   const generatedAt = new Date().toISOString();
-  const frameIds = denseFrameManifest.frames.map(
-    (frame: Record<string, any>) => frame.id,
-  );
   const coverage = {
     fullTimelineScreeningComplete: true,
-    periodicIntervalSec: denseFrameManifest.periodicIntervalSec,
-    frameCount: denseFrameManifest.frames.length,
+    fullTranscriptRecallPrepared: true,
+    periodicIntervalSec: null,
+    frameCount: 0,
     batchCount: 0,
     continuousAudioVideoReviewed: false,
-    denseVisualReverseRecallComplete: true,
-    densePeriodicIntervalSec: denseFrameManifest.periodicIntervalSec,
-    denseFrameCount: denseFrameManifest.frames.length,
+    denseVisualReverseRecallComplete: false,
+    densePeriodicIntervalSec: null,
+    denseFrameCount: 0,
     semanticVisualReviewScope: "candidate_windows_only",
     limitation:
-      "整场已完成中文逐字稿召回与密集帧证据准备；纯画面事件不得独立成为切片。"
-      + " 只有逐字稿召回出的候选安全窗才进入豆包原生音视频复核，"
+      "整场先由完整中文逐字稿召回所有可独立传播的内容单元；"
+      + "不生成不会被模型读取的全片静帧。只有逐字稿召回出的候选安全窗"
+      + "才进入豆包原生音视频复核，"
       + "用于判断表情、动作、语气、场外插话、商品展示和真实边界；"
       + "这不等于人工逐帧观看整场。",
   };
   const method =
-    "full_transcript_recall_plus_dense_frame_evidence_then_candidate_native_av";
+    "full_transcript_recall_then_candidate_native_av";
   const visualMap = {
     model: null,
     method,
-    durationSec: denseFrameManifest.durationSec,
+    durationSec,
     events: [],
     batchSummaries: [],
-    frameIds,
+    frameIds: [],
     modelResponses: [],
     denseVisualRecall: {
       eventCount: 0,
       candidateCount: 0,
       unboundProposalCount: 0,
-      frameCount: denseFrameManifest.frames.length,
-      periodicIntervalSec: denseFrameManifest.periodicIntervalSec,
+      frameCount: 0,
+      periodicIntervalSec: null,
       batchCount: 0,
     },
     coverage,
@@ -347,7 +345,7 @@ function prepareTranscriptFirstVisualEvidence(
   const denseRecallResult = {
     model: "not_used_for_full_timeline_visual_candidates",
     method,
-    frameManifestCoverage: denseFrameManifest.coverage,
+    frameManifestCoverage: coverage,
     events: [],
     candidates: [],
     selectionSummary: {
@@ -448,7 +446,27 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       "正在从私有存储读取整场直播。",
     );
     const sourcePath = join(workDir, safeWorkName(job.sourceName));
-    await storage.download(job.objectKey, sourcePath);
+    const sourceCacheDir = join(config.worker.workDirectory, "source-cache");
+    const sourceCachePath = join(
+      sourceCacheDir,
+      `${job.uploadId}-${safeWorkName(job.sourceName)}`,
+    );
+    await mkdir(sourceCacheDir, { recursive: true });
+    let reusedCachedSource = false;
+    try {
+      const cachedSource = await stat(sourceCachePath);
+      if (cachedSource.size === job.expectedSizeBytes) {
+        await link(sourceCachePath, sourcePath);
+        reusedCachedSource = true;
+      } else {
+        await rm(sourceCachePath, { force: true });
+      }
+    } catch {
+      reusedCachedSource = false;
+    }
+    if (!reusedCachedSource) {
+      await storage.download(job.objectKey, sourcePath);
+    }
     const sourceIntegrity = await hashAndSize(sourcePath);
     if (
       sourceIntegrity.sizeBytes !== job.expectedSizeBytes
@@ -459,6 +477,10 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         "source_size_mismatch",
         "原片下载后的大小与上传记录不一致。",
       );
+    }
+    if (!reusedCachedSource) {
+      await rename(sourcePath, sourceCachePath);
+      await link(sourceCachePath, sourcePath);
     }
     if (
       job.expectedSha256 !== null
@@ -742,36 +764,26 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       job.id,
       job.workerId,
       "full_timeline_evidence_preparation",
-      44,
-      `正在为整场逐字稿准备每 ${config.worker.candidateFrameSeconds} 秒与镜头变化帧；`
-        + "画面不单独冒充切片，后续只在候选安全窗内做原生音视频复核。",
+      54,
+      "完整中文逐字稿已就绪；不再重复生成不会被模型读取的全片静帧，候选召回后直接进入原生音视频复核。",
     );
-    const denseFrameManifest = await denseFrameExtract({
-      sourcePath,
-      outputDir: join(workDir, "dense-frames"),
+    const denseFrameManifest = {
       durationSec: media.durationSec,
-      intervalSec: config.worker.candidateFrameSeconds,
-      onProgress: async (event: {
-        phase: string;
-        completed: number;
-        total: number;
-        frameCount: number;
-      }) => {
-        await repository.updateJobStage(
-          job.id,
-          job.workerId,
-          "full_timeline_evidence_preparation",
-          44 + Math.floor(10 * event.completed / event.total),
-          event.phase === "periodic"
-            ? `全片每 ${config.worker.candidateFrameSeconds} 秒密集帧已抽取 ${event.frameCount} 张。`
-            : `镜头变化帧已合并，共 ${event.frameCount} 张视觉证据。`,
-        );
+      periodicIntervalSec: null,
+      frames: [],
+      coverage: {
+        fullTimelineScreeningExtracted: false,
+        fullTranscriptRecallPrepared: true,
+        extractedFrameCount: 0,
+        continuousVideoReviewed: false,
       },
-    });
+    };
     const {
       visualMap: augmentedVisualMap,
       denseRecallResult,
-    } = prepareTranscriptFirstVisualEvidence(denseFrameManifest);
+    } = prepareTranscriptFirstVisualEvidence({
+      durationSec: media.durationSec,
+    });
 
     await repository.updateJobStage(
       job.id,
@@ -835,7 +847,8 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         : 0
     );
     let checkpointWrite = Promise.resolve<unknown>(undefined);
-    await Promise.all(editorialProviders.map(async (provider, providerIndex) => {
+    const editorialSettlements = await Promise.allSettled(
+      editorialProviders.map(async (provider, providerIndex) => {
       const providerClient = editorClient(provider);
       const providerModel = editorModel(provider);
       const providerName = editorName(provider);
@@ -884,7 +897,11 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             job.workerId,
             "private_core_reasoning",
             progress,
-            `${providerName} 独立分析窗口 ${event.completed}/${event.total} 已完成。`,
+            editorialWindowProgressMessage(
+              providerName,
+              event.completed,
+              event.total,
+            ),
           );
         },
       });
@@ -922,7 +939,45 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         )
       );
       await checkpointWrite;
-    }));
+      }),
+    );
+    const failedEditorialProviders = editorialSettlements.flatMap(
+      (settlement, providerIndex) =>
+        settlement.status === "rejected"
+          ? [{
+              provider: editorialProviders[providerIndex]!,
+              error: internalErrorMessage(settlement.reason),
+            }]
+          : [],
+    );
+    if (mergedEditorialResults.length === 0) {
+      const firstFailure = editorialSettlements.find(
+        (settlement) => settlement.status === "rejected",
+      );
+      throw firstFailure?.status === "rejected"
+        ? firstFailure.reason
+        : new AppError(
+            502,
+            "all_editorial_providers_failed",
+            "全部主编模型均未返回可用结果。",
+            { expose: false },
+          );
+    }
+    const activeEditorialProviders = editorialProviders.filter((provider) =>
+      mergedEditorialResults.some(
+        (result) => result.editorProvider === provider,
+      )
+    );
+    if (failedEditorialProviders.length > 0) {
+      await repository.updateJobStage(
+        job.id,
+        job.workerId,
+        "private_core_reasoning_partial",
+        80,
+        `${failedEditorialProviders.map(({ provider }) => editorName(provider)).join("、")}线路暂时不可用；`
+          + `${activeEditorialProviders.map(editorName).join("、")}的已完成结果继续生成，不重复消耗。`,
+      );
+    }
     const mergedCandidateResultRaw =
       combineEditorialResults(mergedEditorialResults);
     const mergedCandidateResult = {
@@ -1124,17 +1179,17 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       job.workerId,
       "candidate_dense_refinement",
       90,
-      `${editorialProviders.map(editorName).join("、")}正在各自终审自己的候选；全部强制读取同一版天总 Skill、逐字稿、密集画面`
+      `${activeEditorialProviders.map(editorName).join("、")}正在各自终审自己的候选；全部强制读取同一版天总 Skill、逐字稿`
         + `${nativeAvEvidenceCount > 0 ? "与原生音视频证据" : ""}作最终编导判断。`,
     );
     const refinedEditorialResults: Array<Record<string, any>> = [];
     let rollingVisualMap = candidateEvidenceVisualMap;
     for (
       let providerIndex = 0;
-      providerIndex < editorialProviders.length;
+      providerIndex < activeEditorialProviders.length;
       providerIndex += 1
     ) {
-      const provider = editorialProviders[providerIndex]!;
+      const provider = activeEditorialProviders[providerIndex]!;
       const providerName = editorName(provider);
       const originalProviderResult = mergedEditorialResults.find(
         (result) => result.editorProvider === provider,
@@ -1163,7 +1218,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         model: editorModel(provider),
         safetyIdentifier: `${job.projectId}:${provider}:refinement`,
         onProgress: async (event: { completed: number; total: number }) => {
-          const providerShare = 3 / editorialProviders.length;
+          const providerShare = 3 / activeEditorialProviders.length;
           const progress = 90
             + Math.floor(providerShare * providerIndex)
             + Math.floor(
@@ -1254,10 +1309,11 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             candidateAvReview: nativeAvReviewSummary,
             finalEditorial: {
               mode: job.editorMode,
-              editors: editorialProviders.map((provider) => ({
+              editors: activeEditorialProviders.map((provider) => ({
                 provider,
                 model: editorModel(provider),
               })),
+              failedEditors: failedEditorialProviders,
               privateCoreBound: true,
               coreVersion: core.provenance.coreVersion,
               coreSha256: core.provenance.coreSha256,
@@ -1403,7 +1459,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       {
         models: {
           transcription: transcript.model,
-          reasoning: editorialProviders.map(editorModel),
+          reasoning: activeEditorialProviders.map(editorModel),
           vision: null,
           nativeAudioVideoReview:
             nativeAvEvidenceCount > 0
@@ -1415,10 +1471,11 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           candidateAvReview: nativeAvReviewSummary,
           finalEditorial: {
             mode: job.editorMode,
-            editors: editorialProviders.map((provider) => ({
+            editors: activeEditorialProviders.map((provider) => ({
               provider,
               model: editorModel(provider),
             })),
+            failedEditors: failedEditorialProviders,
             privateCoreBound: true,
           },
         },
@@ -1433,8 +1490,9 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           sparseFrameCount: 0,
           denseFrameCount: denseFrameManifest.coverage.extractedFrameCount,
           densePeriodicIntervalSec: denseFrameManifest.periodicIntervalSec,
-          denseVisualReverseRecallComplete: true,
-          candidateDenseStillTranscriptRefinementComplete: true,
+          denseVisualReverseRecallComplete: false,
+          candidateDenseStillTranscriptRefinementComplete: false,
+          candidateNativeAvTranscriptRefinementComplete: true,
           candidateNativeAudioVideoModelReviewAttempted:
             evidenceVisualMap.coverage
               .candidateNativeAudioVideoModelReviewAttempted ?? false,
@@ -1573,6 +1631,11 @@ async function processRevisionRender(render: ClaimedRender): Promise<void> {
 }
 
 function publicJobError(error: unknown): string {
+  if (/country, region, or territory not supported/i.test(
+    internalErrorMessage(error),
+  )) {
+    return "OpenAI 当前部署线路受地区限制；火山与 Kimi 的已完成结果会保留，任务不会自动重复消耗。";
+  }
   if (error instanceof AppError && error.expose) return error.message;
   if (error instanceof TianClipCoreError) {
     return "私有天总切片核心校验失败，任务已停止。";
@@ -1581,6 +1644,9 @@ function publicJobError(error: unknown): string {
 }
 
 function retryableJobError(error: unknown): boolean {
+  if (/country, region, or territory not supported/i.test(
+    internalErrorMessage(error),
+  )) return false;
   if (error instanceof TianClipCoreError) return false;
   if (error instanceof AppError && error.statusCode >= 400 && error.statusCode < 500) {
     return false;

@@ -78,6 +78,7 @@ type VisualMap = {
     densePeriodicIntervalSec?: number;
     denseFrameCount?: number;
     candidateDenseStillTranscriptRefinementComplete?: boolean;
+    candidateNativeAvTranscriptRefinementComplete?: boolean;
     candidateSafetyWindowsReviewed?: number;
     candidateNativeAudioVideoModelReviewAttempted?: boolean;
     candidateNativeAudioVideoModelReviewComplete?: boolean;
@@ -306,6 +307,19 @@ function calculateAsrGaps(
 }
 
 function visualScanMethod(visualMap: VisualMap): string {
+  if (
+    visualMap.method === "full_transcript_recall_then_candidate_native_av"
+  ) {
+    const nativeReviewCount =
+      visualMap.coverage?.candidateNativeAudioVideoModelReviewCount ?? 0;
+    return (
+      "full-transcript natural-unit recall"
+      + ` + ${nativeReviewCount} candidate native audio-video model reviews`
+      + " + transcript/native-AV final editorial refinement;"
+      + " no redundant full-timeline still extraction;"
+      + " not continuous human playback"
+    );
+  }
   if (
     visualMap.method
       === "full_transcript_recall_plus_dense_frame_evidence_then_candidate_native_av"
@@ -698,12 +712,14 @@ export function buildAndValidateEngineArtifacts(
   );
   if (candidateResult.sourceFunnel) {
     assert(
-      visualMap.coverage?.denseVisualReverseRecallComplete === true,
-      "dense full-timeline visual reverse recall is incomplete",
-    );
-    assert(
-      visualMap.coverage?.candidateDenseStillTranscriptRefinementComplete === true,
-      "candidate dense still-frame plus transcript refinement is incomplete",
+      (
+        visualMap.coverage?.denseVisualReverseRecallComplete === true
+        && visualMap.coverage
+          ?.candidateDenseStillTranscriptRefinementComplete === true
+      )
+      || visualMap.coverage
+        ?.candidateNativeAvTranscriptRefinementComplete === true,
+      "candidate visual/transcript refinement is incomplete",
     );
     assert(
       candidateResult.refinementSummary?.humanNormalPlaybackRequired === true

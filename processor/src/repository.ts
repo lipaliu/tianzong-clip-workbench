@@ -463,12 +463,81 @@ export class ProcessorRepository {
         { expose: true },
       );
     }
+    const project = await this.getProject(input.projectId);
+    const expectedSha256 = typeof upload.expected_sha256 === "string"
+      && /^[a-f0-9]{64}$/.test(upload.expected_sha256)
+      ? upload.expected_sha256
+      : null;
+    const sourceIdentity = expectedSha256 === null
+      ? [
+          String(upload.source_name).trim().toLocaleLowerCase("zh-CN"),
+          numberValue(upload.actual_size_bytes ?? upload.expected_size_bytes),
+        ].join(":" )
+      : `sha256:${expectedSha256}`;
+    const sourceFingerprint = sha256Hex([
+      project.mode,
+      project.editorMode,
+      sourceIdentity,
+    ].join("\u001f"));
+
+    const duplicate = await this.database.query(
+      `SELECT j.*
+       FROM processing_jobs j
+       JOIN media_uploads u ON u.id = j.upload_id
+       JOIN projects p ON p.id = j.project_id
+       WHERE j.status IN ('queued', 'running', 'retrying')
+         AND p.mode = $3
+         AND p.editor_mode = $4
+         AND (
+           ($5::text IS NOT NULL AND u.expected_sha256 = $5)
+           OR (
+             lower(trim(u.source_name)) = $6
+             AND COALESCE(u.actual_size_bytes, u.expected_size_bytes) = $7
+           )
+         )
+       ORDER BY j.created_at DESC
+       LIMIT 1`,
+      [
+        input.projectId,
+        input.uploadId,
+        project.mode,
+        project.editorMode,
+        expectedSha256,
+        String(upload.source_name).trim().toLocaleLowerCase("zh-CN"),
+        numberValue(upload.actual_size_bytes ?? upload.expected_size_bytes),
+      ],
+    );
+    const duplicateRow = duplicate.rows[0] as Record<string, unknown> | undefined;
+    if (duplicateRow) {
+      if (String(duplicateRow.project_id) === input.projectId) {
+        return mapJob(duplicateRow);
+      }
+      throw new AppError(
+        409,
+        "duplicate_active_source_job",
+        "同一原片、直播类型和主编模式已有处理中的任务，请直接打开现有项目，避免重复计费。",
+        {
+          expose: true,
+          details: {
+            existingProjectId: String(duplicateRow.project_id),
+            existingJobId: String(duplicateRow.id),
+          },
+        },
+      );
+    }
     try {
       const result = await this.database.query(
-        `INSERT INTO processing_jobs(project_id, upload_id, max_attempts)
-         VALUES($1, $2, $3)
+        `INSERT INTO processing_jobs(
+           project_id, upload_id, max_attempts, source_fingerprint
+         )
+         VALUES($1, $2, $3, $4)
          RETURNING *`,
-        [input.projectId, input.uploadId, this.config.worker.maxAttempts],
+        [
+          input.projectId,
+          input.uploadId,
+          this.config.worker.maxAttempts,
+          sourceFingerprint,
+        ],
       );
       await this.database.query(
         `UPDATE projects
@@ -488,6 +557,24 @@ export class ProcessorRepository {
         );
         const row = existing.rows[0] as Record<string, unknown> | undefined;
         if (row) return mapJob(row);
+        const crossProject = await this.database.query(
+          `SELECT * FROM processing_jobs
+           WHERE source_fingerprint = $1
+             AND status IN ('queued', 'running', 'retrying')
+           ORDER BY created_at DESC LIMIT 1`,
+          [sourceFingerprint],
+        );
+        const crossProjectRow = crossProject.rows[0] as
+          | Record<string, unknown>
+          | undefined;
+        if (crossProjectRow) {
+          throw new AppError(
+            409,
+            "duplicate_active_source_job",
+            "同一原片、直播类型和主编模式已有处理中的任务，请直接打开现有项目，避免重复计费。",
+            { expose: true },
+          );
+        }
       }
       throw error;
     }

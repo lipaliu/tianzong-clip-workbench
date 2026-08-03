@@ -117,6 +117,77 @@ test("job creation fails closed before queue insertion when no worker is recent"
   assert.ok(!calls.some((call) => call.text.includes("INSERT INTO processing_jobs")));
 });
 
+test("job creation blocks a second active job for the same source and editor mode", async () => {
+  const { database, calls } = fakeDatabase(async (text) => {
+    if (text.includes("SELECT * FROM media_uploads")) {
+      return {
+        rowCount: 1,
+        rows: [{
+          status: "uploaded",
+          source_name: "7月3日带货直播.mp4",
+          expected_size_bytes: 8_242_271_965,
+          actual_size_bytes: 8_242_271_965,
+          expected_sha256: "a".repeat(64),
+        }],
+      };
+    }
+    if (text.includes("FROM worker_heartbeats")) {
+      return { rowCount: 1, rows: [{ active: true }] };
+    }
+    if (text === "SELECT * FROM projects WHERE id = $1") {
+      return {
+        rowCount: 1,
+        rows: [{
+          id: "project-2",
+          title: "7月3日带货直播",
+          project_date: "2026-07-03",
+          source_name: "7月3日带货直播.mp4",
+          mode: "带货",
+          editor_mode: "compare_all",
+          status: "created",
+          stage: "uploaded",
+          progress: 0,
+          clip_count: 0,
+          error_public: null,
+          created_at: new Date("2026-08-04T00:00:00Z"),
+          updated_at: new Date("2026-08-04T00:00:00Z"),
+        }],
+      };
+    }
+    if (text.includes("JOIN media_uploads u ON u.id = j.upload_id")) {
+      return {
+        rowCount: 1,
+        rows: [{
+          id: "existing-job",
+          project_id: "existing-project",
+          upload_id: "existing-upload",
+          status: "running",
+          stage: "private_core_reasoning",
+          progress: 57,
+          clip_count: 0,
+          error_public: null,
+          attempt: 1,
+          max_attempts: 3,
+          core_version: "1.2.2-private.1",
+          core_sha256: "b".repeat(64),
+          result: null,
+          created_at: new Date("2026-08-03T00:00:00Z"),
+          updated_at: new Date("2026-08-04T00:00:00Z"),
+        }],
+      };
+    }
+    throw new Error(`unexpected query: ${text}`);
+  });
+  const repository = new ProcessorRepository(database, config);
+
+  await assert.rejects(
+    repository.createJob({ projectId: "project-2", uploadId: "upload-2" }),
+    (error) => error?.code === "duplicate_active_source_job"
+      && error?.statusCode === 409,
+  );
+  assert.ok(!calls.some((call) => call.text.includes("INSERT INTO processing_jobs")));
+});
+
 async function readinessApp(workerActive) {
   const { database } = fakeDatabase(async (text) => {
     if (text === "SELECT 1") return { rowCount: 1, rows: [{ "?column?": 1 }] };
