@@ -984,16 +984,45 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     }
     const mergedCandidateResultRaw =
       combineEditorialResults(mergedEditorialResults);
+    const expandedCandidates = mergedCandidateResultRaw.candidates.map(
+      (candidate: Record<string, any>) =>
+        expandCandidateWindow(candidate, {
+          mediaDurationSec: media.durationSec,
+          mode,
+        }),
+    );
+    const firstDeliveryLimit = config.worker.firstDeliveryCandidateLimit;
+    const deliveryCandidates = firstDeliveryLimit > 0
+      ? expandedCandidates.slice(0, firstDeliveryLimit)
+      : expandedCandidates;
     const mergedCandidateResult = {
       ...mergedCandidateResultRaw,
-      candidates: mergedCandidateResultRaw.candidates.map(
-        (candidate: Record<string, any>) =>
-          expandCandidateWindow(candidate, {
-            mediaDurationSec: media.durationSec,
-            mode,
-          }),
-      ),
+      candidates: deliveryCandidates,
+      selectionSummary: {
+        ...mergedCandidateResultRaw.selectionSummary,
+        qualifyingCount: deliveryCandidates.length,
+        notes: arrayUnion(
+          mergedCandidateResultRaw.selectionSummary?.notes,
+          firstDeliveryLimit > 0
+            ? [
+                `首批闭环验收只处理文字召回中的前 ${deliveryCandidates.length} 条；`
+                  + `其余 ${Math.max(0, expandedCandidates.length - deliveryCandidates.length)} 条保留在召回检查点，不调用音视频模型。`,
+              ]
+            : [],
+        ),
+      },
     };
+
+    if (firstDeliveryLimit > 0) {
+      await repository.updateJobStage(
+        job.id,
+        job.workerId,
+        "first_delivery_shortlist",
+        84,
+        `首批闭环验收：从 ${expandedCandidates.length} 条文字召回中只取前 `
+          + `${deliveryCandidates.length} 条进入音视频复核；其余候选本轮不产生模型费用。`,
+      );
+    }
 
     let candidateResultForFinalRefinement = mergedCandidateResult;
     let candidateEvidenceVisualMap = augmentedVisualMap;

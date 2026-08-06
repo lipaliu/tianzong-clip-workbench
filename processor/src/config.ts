@@ -3,6 +3,9 @@ import { z } from "zod";
 const positiveInteger = (fallback: number) =>
   z.coerce.number().int().positive().default(fallback);
 
+const nonNegativeInteger = (fallback: number) =>
+  z.coerce.number().int().nonnegative().default(fallback);
+
 const envBoolean = (fallback: boolean) =>
   z.preprocess(
     (value) => {
@@ -98,6 +101,7 @@ const envSchema = z.object({
   VISION_BATCH_SIZE: positiveInteger(8),
   CANDIDATE_FRAME_SECONDS: positiveInteger(2),
   ANALYSIS_WINDOW_SECONDS: positiveInteger(600),
+  FIRST_DELIVERY_CANDIDATE_LIMIT: nonNegativeInteger(0),
   WORK_DIRECTORY: z.string().min(1).default("/tmp/tianclip"),
 }).superRefine((value, context) => {
   if (
@@ -209,6 +213,7 @@ export type ProcessorConfig = {
     visionBatchSize: number;
     candidateFrameSeconds: number;
     analysisWindowSeconds: number;
+    firstDeliveryCandidateLimit: number;
     workDirectory: string;
   };
 };
@@ -319,6 +324,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
       visionBatchSize: value.VISION_BATCH_SIZE,
       candidateFrameSeconds: value.CANDIDATE_FRAME_SECONDS,
       analysisWindowSeconds: value.ANALYSIS_WINDOW_SECONDS,
+      firstDeliveryCandidateLimit: value.FIRST_DELIVERY_CANDIDATE_LIMIT,
       workDirectory: value.WORK_DIRECTORY,
     },
   };
