@@ -43,7 +43,7 @@ const STAGES=[
   ["听清直播","中文逐字稿、说话人与时间码",["transcribing"]],
   ["整场召回","从完整直播召回全部候选主题",["full_timeline_evidence_preparation","private_core_reasoning"]],
   ["看懂现场","表情、动作、语气与商品展示复核",["candidate_native_av_review"]],
-  ["三模终审","OpenAI、火山与 Kimi 独立执行 Skill",["private_core_reasoning_partial","candidate_dense_refinement"]],
+  ["主编终审","本场选定模型执行天总 Skill 与完整性校验",["private_core_reasoning_partial","candidate_dense_refinement"]],
   ["硬校验","主题、金句、头尾、时长与说话人门禁",["validating_private_contract"]],
   ["粗剪交付","生成候选 MP4、字幕与时间线",["rendering_previews","review_ready"]]
 ];
