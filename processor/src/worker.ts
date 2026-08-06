@@ -3,6 +3,7 @@ import { link, mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { analyzeCandidateWindows } from "./candidate-analysis.js";
+import { canonicalJson, sha256Hex } from "./canonical.js";
 import { loadConfig } from "./config.js";
 import { editorialWindowProgressMessage } from "./progress.js";
 import {
@@ -1364,32 +1365,97 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           qualifyingCount: providerCandidates.length,
         },
       };
-      const refined = await candidateDenseRefine({
-        candidateResult: providerResult,
-        transcript,
-        visualMap: rollingVisualMap,
-        frameManifest: denseFrameManifest,
-        coreBundle,
+      const refinementCheckpointKey =
+        `checkpoints/${job.projectId}/${job.id}/final-refinement-v1/`
+        + `${provider}.json`;
+      const refinementCheckpointIdentity = {
+        sourceSha256: sourceIntegrity.sha256,
+        sourceSizeBytes: sourceIntegrity.sizeBytes,
+        coreSha256: core.provenance.coreSha256,
+        coreVersion: core.provenance.coreVersion,
         mode,
-        client: editorClient(provider),
+        provider,
         model: editorModel(provider),
-        safetyIdentifier: `${job.projectId}:${provider}:refinement`,
-        onProgress: async (event: { completed: number; total: number }) => {
-          const providerShare = 3 / activeEditorialProviders.length;
-          const progress = 90
-            + Math.floor(providerShare * providerIndex)
-            + Math.floor(
-              providerShare * event.completed / Math.max(1, event.total),
-            );
+        inputSha256: sha256Hex(canonicalJson({
+          candidateResult: providerResult,
+          visualMap: rollingVisualMap,
+        })),
+      };
+      let refined: Record<string, any> | null = null;
+      try {
+        const saved = JSON.parse(
+          (await storage.getBuffer(refinementCheckpointKey)).toString("utf8"),
+        );
+        if (
+          saved?.schemaVersion === "tianclip.final-refinement-checkpoint.v1"
+          && canonicalJson(saved.identity)
+            === canonicalJson(refinementCheckpointIdentity)
+          && saved.result
+          && typeof saved.result === "object"
+        ) {
+          refined = saved.result;
           await repository.updateJobStage(
             job.id,
             job.workerId,
             "candidate_dense_refinement",
-            progress,
-            `${providerName} 候选安全窗终审 ${event.completed}/${event.total} 已完成；仍需团队正常倍速确认。`,
+            93,
+            `${providerName} 已复用终审检查点，不重复调用模型。`,
           );
-        },
-      });
+        }
+      } catch {
+        refined = null;
+      }
+      if (!refined) {
+        refined = await candidateDenseRefine({
+          candidateResult: providerResult,
+          transcript,
+          visualMap: rollingVisualMap,
+          frameManifest: denseFrameManifest,
+          coreBundle,
+          mode,
+          client: editorClient(provider),
+          model: editorModel(provider),
+          safetyIdentifier: `${job.projectId}:${provider}:refinement`,
+          onProgress: async (event: { completed: number; total: number }) => {
+            const providerShare = 3 / activeEditorialProviders.length;
+            const progress = 90
+              + Math.floor(providerShare * providerIndex)
+              + Math.floor(
+                providerShare * event.completed / Math.max(1, event.total),
+              );
+            await repository.updateJobStage(
+              job.id,
+              job.workerId,
+              "candidate_dense_refinement",
+              progress,
+              `${providerName} 候选安全窗终审 ${event.completed}/${event.total} 已完成；仍需团队正常倍速确认。`,
+            );
+          },
+        });
+        await storage.uploadJson(
+          refinementCheckpointKey,
+          {
+            schemaVersion: "tianclip.final-refinement-checkpoint.v1",
+            identity: refinementCheckpointIdentity,
+            result: refined,
+            savedAt: new Date().toISOString(),
+          },
+          {
+            "project-id": job.projectId,
+            "job-id": job.id,
+            provider,
+            kind: "retry-safe-final-refinement-checkpoint",
+          },
+        );
+      }
+      if (!refined) {
+        throw new AppError(
+          502,
+          "final_refinement_missing",
+          `${providerName} 未返回可用终审结果。`,
+          { expose: false },
+        );
+      }
       refinedEditorialResults.push({
         ...refined,
         editorProvider: provider,
