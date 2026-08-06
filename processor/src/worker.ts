@@ -19,6 +19,10 @@ import {
 import { AppError, internalErrorMessage } from "./errors.js";
 import { hashAndSize, safeWorkName } from "./media.js";
 import {
+  buildNativeAvReviewCheckpoint,
+  restoreNativeAvReviewCheckpoint,
+} from "./native-av-checkpoint.js";
+import {
   planAudioChunks,
   extractAudioChunks,
   extractRemoteAsrAudio,
@@ -1043,13 +1047,65 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           nextCandidateIndex += 1;
           if (index >= mergedCandidateResult.candidates.length) return;
           const candidate = mergedCandidateResult.candidates[index]!;
+          const safeCandidateId = safeWorkName(candidate.candidateId)
+            || `candidate-${String(index + 1).padStart(4, "0")}`;
+          const avCheckpointKey =
+            `checkpoints/${job.projectId}/${job.id}/native-av-review-v1/`
+            + `${safeCandidateId}.json`;
+          const avCheckpointIdentity = {
+            sourceSha256: sourceIntegrity.sha256,
+            sourceSizeBytes: sourceIntegrity.sizeBytes,
+            mediaDurationSec: media.durationSec,
+            coreSha256: core.provenance.coreSha256,
+            coreVersion: core.provenance.coreVersion,
+            mode,
+            model: config.doubao.ark.avModel,
+            candidateId: candidate.candidateId,
+            safetyWindow: {
+              startSec: candidate.safetyWindow.startSec,
+              endSec: candidate.safetyWindow.endSec,
+            },
+          };
+          let restoredReview: ReturnType<
+            typeof restoreNativeAvReviewCheckpoint
+          > = null;
+          try {
+            restoredReview = restoreNativeAvReviewCheckpoint({
+              checkpoint: JSON.parse(
+                (await storage.getBuffer(avCheckpointKey)).toString("utf8"),
+              ),
+              expectedIdentity: avCheckpointIdentity,
+            });
+          } catch {
+            restoredReview = null;
+          }
+          if (restoredReview) {
+            reviewResultsByIndex[index] = restoredReview.result;
+            nativeAvReviewRecordsByIndex[index] = {
+              ...restoredReview.record,
+              checkpointReused: true,
+            };
+            const completed = ++completedCandidateCount;
+            await repository.updateJobStage(
+              job.id,
+              job.workerId,
+              "candidate_native_av_review",
+              85 + Math.floor(
+                4 * completed
+                  / Math.max(1, mergedCandidateResult.candidates.length),
+              ),
+              `已复用豆包音视频复核检查点 ${completed}/`
+                + `${mergedCandidateResult.candidates.length}，本条不重复调用模型。`,
+            );
+            continue;
+          }
           const outputPath = join(
             avProxyDir,
-            `${candidate.candidateId}.mp4`,
+            `${safeCandidateId}.mp4`,
           );
           const objectKey =
             `provider-inputs/${job.projectId}/${job.id}/doubao-av/`
-            + `${candidate.candidateId}.mp4`;
+            + `${safeCandidateId}.mp4`;
           try {
             await renderSafetyProxy({
               sourcePath,
@@ -1089,8 +1145,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
                 config.providers.avReviewFallbackToSampledStills,
             });
             if (routed.value) {
-              reviewResultsByIndex[index] = routed.value;
-              nativeAvReviewRecordsByIndex[index] = {
+              const reviewRecord = {
                 candidateId: candidate.candidateId,
                 normalized: routed.value.normalized,
                 responseId: routed.value.responseId,
@@ -1100,6 +1155,41 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
                 apiMode: routed.value.apiMode,
                 route: routed.route,
               };
+              reviewResultsByIndex[index] = routed.value;
+              nativeAvReviewRecordsByIndex[index] = reviewRecord;
+              let checkpointSaved = false;
+              let checkpointError: unknown;
+              for (let attempt = 1; attempt <= 3; attempt += 1) {
+                try {
+                  await storage.uploadJson(
+                    avCheckpointKey,
+                    buildNativeAvReviewCheckpoint({
+                      identity: avCheckpointIdentity,
+                      result: routed.value,
+                      record: reviewRecord,
+                    }),
+                    {
+                      "project-id": job.projectId,
+                      "job-id": job.id,
+                      "candidate-id": candidate.candidateId,
+                      kind: "retry-safe-native-av-review-checkpoint",
+                    },
+                  );
+                  checkpointSaved = true;
+                  break;
+                } catch (error) {
+                  checkpointError = error;
+                  if (attempt < 3) await delay(attempt * 250);
+                }
+              }
+              if (!checkpointSaved) {
+                throw new AppError(
+                  502,
+                  "native_av_checkpoint_write_failed",
+                  "豆包音视频复核已返回，但检查点保存失败；任务已暂停，避免继续调用并造成重复费用。",
+                  { expose: false, cause: checkpointError },
+                );
+              }
             } else {
               failedCandidateCount += 1;
               fallbackUsed = true;
@@ -1110,6 +1200,12 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
               };
             }
           } catch (error) {
+            if (
+              error instanceof AppError
+              && error.code === "native_av_checkpoint_write_failed"
+            ) {
+              throw error;
+            }
             failedCandidateCount += 1;
             fallbackUsed = true;
             nativeAvReviewRecordsByIndex[index] = {

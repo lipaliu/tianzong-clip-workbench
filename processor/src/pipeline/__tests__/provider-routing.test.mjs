@@ -124,6 +124,64 @@ test("native AV evidence augments the map while preserving the human playback ga
   assert.match(result.visualMap.coverage.limitation, /does not prove/);
 });
 
+test("transcript-first native AV evidence does not require unused sampled stills", () => {
+  const result = augmentVisualMapWithNativeAvReviews({
+    visualMap: {
+      method: "diarized_transcript",
+      events: [],
+      coverage: {
+        continuousAudioVideoReviewed: false,
+        fullTranscriptRecallPrepared: true,
+        limitation: "Transcript recall plus native AV candidate review.",
+      },
+    },
+    frameManifest: {
+      frames: [],
+      coverage: {
+        fullTimelineScreeningExtracted: false,
+        fullTranscriptRecallPrepared: true,
+        continuousVideoReviewed: false,
+      },
+    },
+    attemptedCandidateCount: 1,
+    reviewResults: [{
+      normalized: {
+        candidateId: "candidate_0001",
+        reviewDecision: "supported",
+        summary: "原生音视频证据支持该候选。",
+        sourceWindow: { startSec: 100, endSec: 110, durationSec: 10 },
+        visualEvents: [],
+        boundarySuggestion: {
+          openingStatus: "supported",
+          closingStatus: "supported",
+          reason: "语义闭环。",
+        },
+        audioAssessment: {
+          availability: "present",
+          toneSummary: "笃定",
+          offscreenSpeechPresent: false,
+          musicPresent: false,
+        },
+        transcriptAlignment: { status: "aligned" },
+        uncertainties: [],
+        reviewContract: {
+          nativeAudioVideoInputReviewed: true,
+          continuousFrameByFrameReviewed: false,
+          humanNormalPlaybackRequired: true,
+        },
+      },
+    }],
+  });
+
+  assert.equal(result.summary.complete, true);
+  assert.equal(result.visualMap.events.length, 1);
+  assert.deepEqual(result.visualMap.events[0].evidenceFrameIds, []);
+  assert.equal(
+    result.visualMap.coverage.candidateNativeAudioVideoModelReviewComplete,
+    true,
+  );
+});
+
 test("native AV boundary suggestions expand the final evidence window within media bounds", () => {
   const result = applyNativeAvBoundarySuggestions({
     candidateResult: {

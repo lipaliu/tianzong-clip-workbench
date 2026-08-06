@@ -181,10 +181,15 @@ export function applyNativeAvBoundarySuggestions({
 }
 
 function nearestFrameIds(frames, startSec, endSec) {
-  invariant(Array.isArray(frames) && frames.length > 0, "Dense frames are required", {
+  invariant(Array.isArray(frames), "Frame evidence must be an array", {
     code: "NATIVE_AV_FRAME_EVIDENCE_MISSING",
     stage: "native_av_augmentation",
   });
+  // Transcript-first recall deliberately does not generate thousands of stills
+  // that no model will read. Native audio-video evidence remains valid in that
+  // route, and the empty frame ids make the provenance explicit instead of
+  // pretending sampled-still evidence exists.
+  if (frames.length === 0) return [];
   const midpoint = (startSec + endSec) / 2;
   const ranked = [...frames].sort((left, right) =>
     Math.abs(left.timestampSec - midpoint)
@@ -246,7 +251,7 @@ export function augmentVisualMapWithNativeAvReviews({
     },
   );
   const frames = frameManifest?.frames;
-  invariant(Array.isArray(frames) && frames.length > 0, "Dense frame manifest is required", {
+  invariant(Array.isArray(frames), "Frame manifest is required", {
     code: "NATIVE_AV_FRAME_MANIFEST_REQUIRED",
     stage: "native_av_augmentation",
   });
