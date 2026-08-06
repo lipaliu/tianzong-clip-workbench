@@ -1372,7 +1372,7 @@ export async function refineCandidatesWithDenseEvidence({
         + " this is not continuous playback or human confirmation.",
     },
   };
-  const result = {
+  const resultBeforeCandidateIsolation = {
     ...candidateResult,
     candidates,
     selectionSummary: {
@@ -1405,6 +1405,70 @@ export async function refineCandidatesWithDenseEvidence({
     },
     refinementRuns: runs,
     visualMap: refinedVisualMap,
+  };
+  // A single malformed retained candidate must not discard every other
+  // independently validated candidate in the same livestream. Re-run the
+  // existing strict candidate contract one candidate at a time, reject only
+  // the failing unit, and then validate the surviving batch again below.
+  const postValidationRejected = [];
+  const validCandidates = [];
+  for (const candidate of candidates) {
+    try {
+      validateCandidateResult(
+        {
+          ...resultBeforeCandidateIsolation,
+          candidates: [candidate],
+          selectionSummary: {
+            ...resultBeforeCandidateIsolation.selectionSummary,
+            qualifyingCount: 1,
+          },
+        },
+        {
+          transcript,
+          visualMap: refinedVisualMap,
+          durationSec: transcript.mediaDurationSec,
+        },
+      );
+      validCandidates.push(candidate);
+    } catch (error) {
+      postValidationRejected.push({
+        candidateId: candidate.candidateId,
+        reason:
+          `候选在批量出片前未通过既有硬校验（${error?.code ?? "UNKNOWN_VALIDATION_ERROR"}），`
+          + "已单条剔除；其他合格候选继续生成 MP4。",
+        safetyWindow: candidate.safetyWindow,
+        discoveryMethods: candidate.discoveryMethods ?? [],
+        requiredHumanNormalPlaybackChecks: [
+          "如需恢复该候选，人工完整播放安全窗并重新确认逐字稿证据。",
+        ],
+      });
+    }
+  }
+  const result = {
+    ...resultBeforeCandidateIsolation,
+    candidates: validCandidates,
+    selectionSummary: {
+      ...resultBeforeCandidateIsolation.selectionSummary,
+      qualifyingCount: validCandidates.length,
+      notes: arrayUnion(
+        resultBeforeCandidateIsolation.selectionSummary.notes,
+        postValidationRejected.length > 0
+          ? [`批量出片硬校验单条剔除 ${postValidationRejected.length} 条；没有拖停其他合格候选。`]
+          : [],
+      ),
+    },
+    refinementSummary: {
+      ...resultBeforeCandidateIsolation.refinementSummary,
+      retainedCandidateCount: validCandidates.length,
+      rejectedCandidateCount:
+        resultBeforeCandidateIsolation.refinementSummary.rejectedCandidateCount
+        + postValidationRejected.length,
+      rejected: [
+        ...resultBeforeCandidateIsolation.refinementSummary.rejected,
+        ...postValidationRejected,
+      ],
+      postValidationRejectedCandidateCount: postValidationRejected.length,
+    },
   };
   validateCandidateResult(result, {
     transcript,
