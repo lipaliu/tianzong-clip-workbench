@@ -32,6 +32,21 @@ test("provider routing defaults preserve the existing OpenAI and sampled-still p
   assert.equal(config.providers.avReviewFallbackToSampledStills, true);
   assert.equal(config.doubao.asr.resourceId, "volc.seedasr.auc");
   assert.equal(config.doubao.ark.avModel, "doubao-seed-2-0-lite-260428");
+  assert.equal(config.worker.firstDeliveryCandidateLimit, 6);
+});
+
+test("first delivery limit is explicit and may be disabled with zero", () => {
+  const enabled = loadConfig({
+    ...baseEnv,
+    FIRST_DELIVERY_CANDIDATE_LIMIT: "6",
+  });
+  assert.equal(enabled.worker.firstDeliveryCandidateLimit, 6);
+
+  const disabled = loadConfig({
+    ...baseEnv,
+    FIRST_DELIVERY_CANDIDATE_LIMIT: "0",
+  });
+  assert.equal(disabled.worker.firstDeliveryCandidateLimit, 0);
 });
 
 test("OpenAI gateway routing keeps the provider key and parses the private gateway token", () => {
