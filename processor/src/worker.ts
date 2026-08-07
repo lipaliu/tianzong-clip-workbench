@@ -47,6 +47,13 @@ import {
   executeProviderRoute,
 } from "./pipeline/provider-routing.mjs";
 import { checkMediaToolchain } from "./pipeline/toolchain.mjs";
+import {
+  DEFAULT_USD_TO_CNY,
+  priceDurationUsage,
+  priceModelUsage,
+  sumUsage,
+} from "./pricing.js";
+import type { CostEntry, CostStage } from "./pricing.js";
 import { transcribeAudioChunks } from "./pipeline/transcription.mjs";
 import { ProcessorRepository } from "./repository.js";
 import { renderCandidateRevision } from "./revision-render.js";
@@ -332,6 +339,108 @@ let stopping = false;
 
 function r2Uri(objectKey: string): string {
   return `r2://${config.r2.bucket}/${objectKey}`;
+}
+
+/**
+ * Appends one row to the cost ledger.
+ *
+ * Accounting is observability, not part of the delivery contract. A ledger
+ * write that fails must not fail a job that already produced real candidates,
+ * so the error is reported and swallowed. The opposite tradeoff would let a
+ * bookkeeping outage destroy finished work.
+ */
+async function recordCost(job: ClaimedJob, entry: CostEntry): Promise<void> {
+  try {
+    await repository.recordCostEntry(job, entry);
+  } catch (error) {
+    process.stderr.write(
+      `cost ledger write failed for job ${job.id} stage ${entry.stage}: `
+        + `${internalErrorMessage(error)}\n`,
+    );
+  }
+}
+
+/**
+ * Builds a ledger row for a stage billed by token usage.
+ *
+ * A provider that returns no usage counters at all is recorded as unpriced.
+ * Summing absent counters would yield zero tokens and therefore a ¥0 cost,
+ * which reads as "this stage was free" instead of "this stage was not
+ * measured" — the more expensive of the two mistakes.
+ */
+function modelCostEntry(input: {
+  stage: CostStage;
+  provider: string;
+  model: string;
+  usages: readonly unknown[];
+}): CostEntry {
+  const measured = input.usages.filter(
+    (usage) => usage !== null && usage !== undefined,
+  );
+  if (measured.length === 0) {
+    return {
+      stage: input.stage,
+      provider: input.provider,
+      model: input.model,
+      priced: false,
+      costCny: null,
+      unpricedReason:
+        `${input.provider} returned no usage counters for ${input.model}`,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+      billedSeconds: null,
+      rateSource: null,
+      rateCheckedOn: null,
+      usdToCny: DEFAULT_USD_TO_CNY,
+    };
+  }
+  const usage = sumUsage(measured);
+  const total = priceModelUsage(input.model, {
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    input_tokens_details: { cached_tokens: usage.cachedInputTokens },
+  });
+  return {
+    stage: input.stage,
+    provider: input.provider,
+    model: input.model,
+    priced: total.priced,
+    costCny: total.costCny,
+    unpricedReason: total.unpricedReason,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    billedSeconds: null,
+    rateSource: total.rate?.source ?? null,
+    rateCheckedOn: total.rate?.checkedOn ?? null,
+    usdToCny: total.usdToCny,
+  };
+}
+
+/** Builds a ledger row for a stage billed by media duration. */
+function durationCostEntry(input: {
+  stage: CostStage;
+  provider: string;
+  resourceId: string;
+  seconds: number;
+}): CostEntry {
+  const priced = priceDurationUsage(input.resourceId, input.seconds);
+  return {
+    stage: input.stage,
+    provider: input.provider,
+    model: input.resourceId,
+    priced: priced.priced,
+    costCny: priced.costCny,
+    unpricedReason: priced.unpricedReason,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    billedSeconds: priced.billedSeconds,
+    rateSource: priced.rate?.source ?? null,
+    rateCheckedOn: priced.rate?.checkedOn ?? null,
+    usdToCny: priced.usdToCny,
+  };
 }
 
 async function withJobHeartbeat<T>(
@@ -699,6 +808,31 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     }
     const transcript = transcriptRoute.value;
 
+    // Doubao BigASR bills by audio hour, OpenAI transcription by token. Which
+    // one actually ran is decided at runtime by the fallback route, so the
+    // ledger follows the effective provider rather than the configured one.
+    if (transcriptRoute.route?.effectiveProvider === "doubao") {
+      await recordCost(
+        job,
+        durationCostEntry({
+          stage: "transcription",
+          provider: "doubao",
+          resourceId: config.doubao.asr.resourceId,
+          seconds: media.durationSec,
+        }),
+      );
+    } else {
+      await recordCost(
+        job,
+        modelCostEntry({
+          stage: "transcription",
+          provider: "openai",
+          model: config.openai.transcriptionModel,
+          usages: [transcript.usage],
+        }),
+      );
+    }
+
     await repository.updateJobStage(
       job.id,
       job.workerId,
@@ -792,6 +926,19 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           );
         },
       });
+      // Billed per editor, so compare mode shows two rows and the operator can
+      // see exactly what the second opinion cost.
+      await recordCost(
+        job,
+        modelCostEntry({
+          stage: "candidate_recall",
+          provider,
+          model: providerModel,
+          usages: (textCandidateResult.windowRuns ?? []).map(
+            (run: Record<string, unknown>) => run.usage,
+          ),
+        }),
+      );
       const merged = candidateSourceMerge({
         textResult: textCandidateResult,
         visualResult: denseRecallResult,
@@ -972,6 +1119,18 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           (record): record is Record<string, unknown> => Boolean(record),
         ),
       );
+      // Frames dominate this stage's input tokens, so it is the one most
+      // likely to surprise. Candidates that fell back to sampled stills
+      // contribute no usage and are simply absent from the sum.
+      await recordCost(
+        job,
+        modelCostEntry({
+          stage: "candidate_av_review",
+          provider: "doubao",
+          model: config.doubao.ark.avModel,
+          usages: nativeAvReviewRecords.map((record) => record.usage),
+        }),
+      );
       const augmentedNativeReview = nativeAvVisualMapAugment({
         visualMap: augmentedVisualMap,
         reviewResults,
@@ -1064,6 +1223,19 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           );
         },
       });
+      await recordCost(
+        job,
+        modelCostEntry({
+          stage: "final_editorial",
+          provider,
+          model: provider === "openai"
+            ? config.openai.reasoningModel
+            : config.doubao.ark.editorModel,
+          usages: (refined.refinementRuns ?? []).map(
+            (run: Record<string, unknown>) => run.usage,
+          ),
+        }),
+      );
       refinedEditorialResults.push({
         ...refined,
         editorProvider: provider,
@@ -1282,6 +1454,20 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         kind: "engine-run-ledger",
       }),
     ]);
+
+    // The denominator for cost-per-second. Source length alone cannot answer
+    // "what did a delivered second cost", because a one-hour and a five-hour
+    // livestream only become comparable once each is divided by its own output.
+    await repository.recordDeliveredOutput(job.id, {
+      clipSeconds: artifacts.candidatePayloads.reduce(
+        (total: number, candidate: CandidatePayload) =>
+          total + (Number.isFinite(candidate.durationSeconds)
+            ? candidate.durationSeconds
+            : 0),
+        0,
+      ),
+      sourceMediaSeconds: media.durationSec,
+    });
 
     await repository.storeCandidates(
       job,

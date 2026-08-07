@@ -731,6 +731,14 @@ export async function registerRoutes(
     return { job: await repository.getJob(jobId) };
   });
 
+  // Spend for one run. Reported separately from the job record because the
+  // ledger accumulates while the job is still running, and a failed job that
+  // already burned tokens must still be able to report what it cost.
+  app.get("/v1/jobs/:jobId/cost", async (request) => {
+    const jobId = parseId(request.params, "jobId");
+    return { cost: await repository.getJobCostSummary(jobId) };
+  });
+
   app.get("/v1/projects/:id/candidates", async (request) => {
     const projectId = parseId(request.params, "id");
     const rows = await repository.listCandidates(projectId);

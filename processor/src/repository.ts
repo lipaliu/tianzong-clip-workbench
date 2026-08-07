@@ -4,6 +4,8 @@ import { sha256Hex } from "./canonical.js";
 import type { ProcessorConfig } from "./config.js";
 import type { Database } from "./db.js";
 import { AppError } from "./errors.js";
+import { summarizeJobCost } from "./pricing.js";
+import type { CostEntry, JobCostSummary } from "./pricing.js";
 import type {
   CandidatePayload,
   CandidateRenderSpec,
@@ -1078,6 +1080,110 @@ export class ProcessorRepository {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Appends one billing row. Written per stage rather than once at the end so
+   * a job that fails midway still reports the spend it already incurred.
+   *
+   * Cost recording must never sink a job that otherwise succeeded, so the
+   * caller is expected to treat a throw here as non-fatal.
+   */
+  async recordCostEntry(
+    job: { id: string; projectId: string },
+    entry: CostEntry,
+  ): Promise<void> {
+    await this.database.query(
+      `INSERT INTO job_cost_entries(
+         job_id, project_id, stage, provider, model, priced, cost_cny,
+         unpriced_reason, input_tokens, output_tokens, cached_input_tokens,
+         billed_seconds, rate_source, rate_checked_on, usd_to_cny)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      [
+        job.id,
+        job.projectId,
+        entry.stage,
+        entry.provider,
+        entry.model,
+        entry.priced,
+        entry.costCny,
+        entry.unpricedReason,
+        Math.trunc(entry.inputTokens),
+        Math.trunc(entry.outputTokens),
+        Math.trunc(entry.cachedInputTokens),
+        entry.billedSeconds,
+        entry.rateSource,
+        entry.rateCheckedOn,
+        entry.usdToCny,
+      ],
+    );
+  }
+
+  /**
+   * Records what the job actually delivered. Cost per second is meaningless
+   * without it, and it must come from the rendered rough cuts rather than the
+   * source length, because a five-hour livestream and a one-hour livestream
+   * only become comparable once divided by their own output.
+   */
+  async recordDeliveredOutput(
+    jobId: string,
+    delivered: { clipSeconds: number; sourceMediaSeconds: number },
+  ): Promise<void> {
+    await this.database.query(
+      `UPDATE processing_jobs
+       SET delivered_clip_seconds = $2,
+           source_media_seconds = $3,
+           updated_at = now()
+       WHERE id = $1`,
+      [jobId, delivered.clipSeconds, delivered.sourceMediaSeconds],
+    );
+  }
+
+  async getJobCostSummary(jobId: string): Promise<JobCostSummary> {
+    const job = await this.database.query(
+      `SELECT clip_count, delivered_clip_seconds, source_media_seconds
+       FROM processing_jobs WHERE id = $1`,
+      [jobId],
+    );
+    const jobRow = job.rows[0] as Record<string, unknown> | undefined;
+    if (!jobRow) {
+      throw new AppError(404, "job_not_found", "任务不存在。", { expose: true });
+    }
+    const rows = await this.database.query(
+      `SELECT stage, provider, model, priced, cost_cny, unpriced_reason,
+              input_tokens, output_tokens, cached_input_tokens, billed_seconds,
+              rate_source, rate_checked_on, usd_to_cny
+       FROM job_cost_entries
+       WHERE job_id = $1
+       ORDER BY id`,
+      [jobId],
+    );
+    const entries: CostEntry[] = rows.rows.map((row: Record<string, unknown>) => ({
+      stage: String(row.stage) as CostEntry["stage"],
+      provider: String(row.provider),
+      model: String(row.model),
+      priced: Boolean(row.priced),
+      costCny: row.cost_cny === null ? null : numberValue(row.cost_cny),
+      unpricedReason: row.unpriced_reason === null
+        ? null
+        : String(row.unpriced_reason),
+      inputTokens: numberValue(row.input_tokens),
+      outputTokens: numberValue(row.output_tokens),
+      cachedInputTokens: numberValue(row.cached_input_tokens),
+      billedSeconds: row.billed_seconds === null
+        ? null
+        : numberValue(row.billed_seconds),
+      rateSource: row.rate_source === null ? null : String(row.rate_source),
+      rateCheckedOn: row.rate_checked_on === null
+        ? null
+        : String(row.rate_checked_on),
+      usdToCny: numberValue(row.usd_to_cny),
+    }));
+    return summarizeJobCost(entries, {
+      clipSeconds: numberValue(jobRow.delivered_clip_seconds),
+      clipCount: numberValue(jobRow.clip_count),
+      sourceMediaSeconds: numberValue(jobRow.source_media_seconds),
+    });
   }
 
   async storeCandidates(
