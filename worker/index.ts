@@ -50,6 +50,13 @@ const worker = {
       return unauthorizedResponse(request);
     }
 
+    // Built client bundles and the curated workbench images are stored in the
+    // static ASSETS binding. They are still session-gated above, but must not
+    // be sent through the dynamic vinext router (which returns 404 for them).
+    if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/photos/")) {
+      return secureAppResponse(await env.ASSETS.fetch(request));
+    }
+
     // This header is a private trust boundary between the outer authenticated
     // Sites Worker and the server-side runtime route. Always overwrite the
     // browser's value so a client cannot choose the feedback actor.
