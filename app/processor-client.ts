@@ -4,7 +4,7 @@ export type ProcessorProjectInput = {
   projectDate: string;
   sourceName: string;
   mode: "聊播" | "带货";
-  editorMode: "openai" | "doubao" | "compare";
+  editorMode: "openai" | "doubao" | "kimi" | "compare";
 };
 
 export type SinglePresignedUpload = {
@@ -62,6 +62,19 @@ export type ProcessorJob = {
   updatedAt: string;
 };
 
+/** Server-calculated ledger only; the browser never invents or estimates cost. */
+export type ProcessorJobCost = {
+  totalCny: number;
+  complete: boolean;
+  unpricedStages: string[];
+  perStageCny: Record<string, number>;
+  deliveredClipSeconds: number;
+  deliveredClipCount: number;
+  cnyPerDeliveredSecond: number | null;
+  sourceMediaSeconds: number;
+  cnyPerSourceHour: number | null;
+};
+
 export type ProcessorTranscriptLine = {
   id: string;
   start: number;
@@ -93,7 +106,7 @@ export type ProcessorSourceMedia = {
 export type ProcessorCandidate = {
   id: string;
   kind: "聊播" | "带货";
-  editorProvider?: "openai" | "doubao";
+  editorProvider?: "openai" | "doubao" | "kimi";
   index: string;
   title: string;
   douyinTitle: string;
@@ -479,6 +492,13 @@ export async function readProcessorJob(jobId: string) {
     cache: "no-store",
   });
   return readJson<{ job: ProcessorJob }>(response);
+}
+
+export async function readProcessorJobCost(jobId: string) {
+  const response = await fetch(`/api/runtime/jobs/${encodeURIComponent(jobId)}/cost`, {
+    cache: "no-store",
+  });
+  return readJson<{ cost: ProcessorJobCost }>(response);
 }
 
 export async function readProcessorCandidates(projectId: string) {

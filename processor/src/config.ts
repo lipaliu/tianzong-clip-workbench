@@ -47,6 +47,12 @@ const envSchema = z.object({
   OPENAI_TRANSCRIPTION_MODEL: z.literal("gpt-4o-transcribe-diarize"),
   OPENAI_REASONING_MODEL: z.literal("gpt-5.6-sol"),
   OPENAI_VISION_MODEL: z.literal("gpt-5.6-sol"),
+  // Kimi remains optional at process boot so OpenAI/Doubao-only jobs can run,
+  // but the worker fails closed if a Kimi-selected job has no server key.
+  KIMI_API_KEY: z.string().min(1).optional(),
+  KIMI_BASE_URL: z.string().url().default("https://api.moonshot.ai/v1"),
+  KIMI_EDITOR_MODEL: z.literal("kimi-k3").default("kimi-k3"),
+  KIMI_REASONING_EFFORT: z.enum(["low", "high", "max"]).default("high"),
   TRANSCRIPTION_PROVIDER: z.enum(["openai", "doubao"]).default("openai"),
   TRANSCRIPTION_FALLBACK_TO_OPENAI: envBoolean(true),
   CANDIDATE_AV_REVIEW_PROVIDER: z.enum(["sampled_stills", "doubao"])
@@ -147,6 +153,12 @@ export type ProcessorConfig = {
     transcriptionModel: "gpt-4o-transcribe-diarize";
     reasoningModel: "gpt-5.6-sol";
     visionModel: "gpt-5.6-sol";
+  };
+  kimi: {
+    apiKey: string | null;
+    baseUrl: string;
+    editorModel: "kimi-k3";
+    reasoningEffort: "low" | "high" | "max";
   };
   providers: {
     transcription: "openai" | "doubao";
@@ -249,6 +261,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
       transcriptionModel: value.OPENAI_TRANSCRIPTION_MODEL,
       reasoningModel: value.OPENAI_REASONING_MODEL,
       visionModel: value.OPENAI_VISION_MODEL,
+    },
+    kimi: {
+      apiKey: value.KIMI_API_KEY ?? null,
+      baseUrl: value.KIMI_BASE_URL.replace(/\/+$/, ""),
+      editorModel: value.KIMI_EDITOR_MODEL,
+      reasoningEffort: value.KIMI_REASONING_EFFORT,
     },
     providers: {
       transcription: value.TRANSCRIPTION_PROVIDER,

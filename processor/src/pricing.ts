@@ -58,6 +58,14 @@ export const MODEL_RATES: Readonly<Record<string, ModelRate>> = Object.freeze({
     source: "https://openai.com/api/pricing/",
     checkedOn: "2026-08-07",
   },
+  "kimi-k3": {
+    currency: "USD",
+    inputPerMillion: 3,
+    outputPerMillion: 15,
+    cachedInputPerMillion: 0.3,
+    source: "https://platform.kimi.ai/docs/pricing/chat-k3",
+    checkedOn: "2026-08-08",
+  },
   "doubao-seed-2-0-pro-260215": {
     currency: "CNY",
     inputPerMillion: 3.2,

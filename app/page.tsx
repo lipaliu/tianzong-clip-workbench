@@ -13,15 +13,17 @@ import {
   prepareProcessorUpload,
   readProcessorCandidates,
   readProcessorJob,
+  readProcessorJobCost,
   startProcessorJob,
   submitProcessorFeedback,
   uploadToPresignedUrl,
   type ProcessorCandidate,
   type ProcessorJob,
+  type ProcessorJobCost,
 } from "./processor-client";
 
 type Mode = "聊播" | "带货";
-type EditorMode = "openai" | "doubao" | "compare";
+type EditorMode = "openai" | "doubao" | "kimi" | "compare";
 type IntakeStep = 1 | 2;
 type WorkflowStep = 1 | 2 | 3;
 type Decision = "keep" | "remove";
@@ -48,7 +50,7 @@ type ScorePart = {
 type ClipIdea = {
   id: string;
   kind: Mode;
-  editorProvider?: "openai" | "doubao";
+  editorProvider?: "openai" | "doubao" | "kimi";
   index: string;
   title: string;
   duration: string;
@@ -148,15 +150,21 @@ const editorChoices: Array<{
 }> = [
   {
     id: "compare",
-    name: "双模型对比",
+    name: "三模型对比",
     eyebrow: "推荐",
-    description: "OpenAI 与火山读取同一份天总 Skill，分别给出切片方案。",
+    description: "OpenAI、Kimi K3 与火山读取同一份天总 Skill，分别给出切片方案。",
   },
   {
     id: "openai",
     name: "OpenAI 主编",
     eyebrow: "复杂判断",
     description: "侧重上下文、因果链、删留边界与结构化剪辑判断。",
+  },
+  {
+    id: "kimi",
+    name: "Kimi K3 主编",
+    eyebrow: "长上下文",
+    description: "侧重长录屏的上下文理解，并以严格 JSON 计划执行同一份天总 Skill。",
   },
   {
     id: "doubao",
@@ -883,6 +891,36 @@ function professionalXmlProfile(
   return rate ? { sourceMedia, rate } : null;
 }
 
+function formatCny(value: number | null) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `¥${value.toFixed(2)}`
+    : "待计费数据";
+}
+
+function CostLedgerSummary({ cost }: { cost: ProcessorJobCost | null }) {
+  if (!cost) return null;
+  const stages = Object.entries(cost.perStageCny);
+  return (
+    <section className="cost-ledger-summary" aria-label="本场实际模型成本">
+      <span>实际模型成本</span>
+      <strong>{formatCny(cost.totalCny)}</strong>
+      <small>
+        {cost.complete
+          ? "已按服务端台账完整计入；不含存储、带宽与云主机。"
+          : `部分调用未返回可计费单价：${cost.unpricedStages.join("、") || "待补充"}。`}
+      </small>
+      <div className="cost-ledger-metrics">
+        <span>{cost.deliveredClipCount} 条粗剪</span>
+        <span>{cost.cnyPerSourceHour === null ? "每小时原片待核" : `${formatCny(cost.cnyPerSourceHour)}/原片小时`}</span>
+        <span>{cost.cnyPerDeliveredSecond === null ? "每秒成片待核" : `${formatCny(cost.cnyPerDeliveredSecond)}/成片秒`}</span>
+      </div>
+      {stages.length > 0 && (
+        <p>{stages.map(([stage, amount]) => `${stage} ${formatCny(amount)}`).join(" · ")}</p>
+      )}
+    </section>
+  );
+}
+
 export default function Home() {
   const [step, setStep] = useState<WorkflowStep>(1);
   const [intakeStep, setIntakeStep] = useState<IntakeStep>(1);
@@ -894,6 +932,7 @@ export default function Home() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisStage, setAnalysisStage] = useState("");
   const [analysisError, setAnalysisError] = useState("");
+  const [analysisCost, setAnalysisCost] = useState<ProcessorJobCost | null>(null);
   const [analysisReady, setAnalysisReady] = useState(false);
   const [runtimeIdeas, setRuntimeIdeas] = useState<ClipIdea[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
@@ -1026,6 +1065,7 @@ export default function Home() {
   const editorCandidateCounts = useMemo(
     () => ({
       openai: modeIdeas.filter((idea) => idea.editorProvider === "openai").length,
+      kimi: modeIdeas.filter((idea) => idea.editorProvider === "kimi").length,
       doubao: modeIdeas.filter((idea) => idea.editorProvider === "doubao").length,
     }),
     [modeIdeas],
@@ -1172,6 +1212,7 @@ export default function Home() {
     setStep(1);
     setAnalysisReady(false);
     setAnalysisError("");
+    setAnalysisCost(null);
     setRuntimeIdeas([]);
     setCurrentTime(0);
     setReviewSourceMode("candidate");
@@ -1248,8 +1289,13 @@ export default function Home() {
       }
 
       setAnalysisProgress(99);
-      setAnalysisStage("读取候选、证据与当前渲染版本");
+      setAnalysisStage("读取候选、证据、粗剪与成本台账");
       const { candidates } = await readProcessorCandidates(project.id);
+      if (job?.id) {
+        const { cost } = await readProcessorJobCost(job.id).catch(() => ({ cost: null }));
+        if (runId !== projectResumeRunRef.current) return;
+        setAnalysisCost(cost);
+      }
       if (runId !== projectResumeRunRef.current) return;
       const nextIdeas = applyProcessorCandidateSet(candidates, project.mode);
       currentProject = {
@@ -1493,9 +1539,11 @@ export default function Home() {
         );
       }
 
-      setAnalysisStage("读取候选、证据与粗剪预览");
+      setAnalysisStage("读取候选、证据、粗剪与成本台账");
       setAnalysisProgress(99);
       const { candidates } = await readProcessorCandidates(projectId);
+      const { cost } = await readProcessorJobCost(job.id).catch(() => ({ cost: null }));
+      setAnalysisCost(cost);
       const modelResultCandidates = applyProcessorCandidateSet(
         candidates,
         selectedMode,
@@ -2115,7 +2163,7 @@ export default function Home() {
                       </div>
                       {editorMode === "compare" && (
                         <p className="editor-compare-note">
-                          两套结果独立生成，不互相抄答案；候选页会并排显示差异。
+三套结果独立生成，不互相抄答案；候选页会按编导来源显示差异与实际成本。
                         </p>
                       )}
                     </section>
@@ -2245,11 +2293,13 @@ export default function Home() {
             </div>
             <p className="panel-intro">按完整语义、同题去重与风险门禁召回；自然返回多少就是多少，不设目标、不设保底，也不补齐。</p>
             {editorMode === "compare" && (
-              <div className="model-comparison-status" aria-label="双模型候选数量">
+              <div className="model-comparison-status" aria-label="三模型候选数量">
                 <span>OpenAI <b>{editorCandidateCounts.openai}</b></span>
+                <span>Kimi K3 <b>{editorCandidateCounts.kimi}</b></span>
                 <span>火山 Seed Pro <b>{editorCandidateCounts.doubao}</b></span>
               </div>
             )}
+            <CostLedgerSummary cost={analysisCost} />
             <div className="version-context"><span>{corpusBaseline.version}</span><p>{mode}规则 · 近期直播最高权重</p></div>
             <div className="idea-list">
               {displayedIdeas.map((idea) => (
@@ -2264,9 +2314,11 @@ export default function Home() {
                     <span>
                       {idea.editorProvider === "openai"
                         ? "OpenAI"
-                        : idea.editorProvider === "doubao"
-                          ? "火山"
-                          : "主编"} · {idea.priority} · {idea.index}
+                        : idea.editorProvider === "kimi"
+                          ? "Kimi K3"
+                          : idea.editorProvider === "doubao"
+                            ? "火山"
+                            : "主编"} · {idea.priority} · {idea.index}
                     </span>
                     <strong>{idea.title}</strong>
                     <small>{idea.duration}</small>
@@ -2282,9 +2334,11 @@ export default function Home() {
               <span>
                 {activeClip.editorProvider === "openai"
                   ? "OpenAI 主编"
-                  : activeClip.editorProvider === "doubao"
-                    ? "火山 Seed Pro 主编"
-                    : "天总候选"} · {activeClip.index}
+                  : activeClip.editorProvider === "kimi"
+                    ? "Kimi K3 主编"
+                    : activeClip.editorProvider === "doubao"
+                      ? "火山 Seed Pro 主编"
+                      : "天总候选"} · {activeClip.index}
               </span>
               <b>编辑适配分 {activeClip.score} / 100</b>
             </div>
@@ -2400,11 +2454,13 @@ export default function Home() {
             </div>
             <p className="panel-intro">数量由天总专属判断自然得出，不设上限，也不补齐。</p>
             {editorMode === "compare" && (
-              <div className="model-comparison-status" aria-label="双模型候选数量">
+              <div className="model-comparison-status" aria-label="三模型候选数量">
                 <span>OpenAI <b>{editorCandidateCounts.openai}</b></span>
+                <span>Kimi K3 <b>{editorCandidateCounts.kimi}</b></span>
                 <span>火山 Seed Pro <b>{editorCandidateCounts.doubao}</b></span>
               </div>
             )}
+            <CostLedgerSummary cost={analysisCost} />
             <div className="version-context"><span>{corpusBaseline.version}</span><p>当前候选沿用已发布判断 · 人工差异进入回标</p></div>
             <div className="idea-list">
               {displayedIdeas.map((idea) => (

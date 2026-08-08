@@ -208,8 +208,8 @@ async function main() {
   const mode = required(args.mode, "--mode");
   if (!["聊播", "带货"].includes(mode)) throw new Error("--mode must be 聊播 or 带货");
   const editorMode = args.editor ?? "compare";
-  if (!["openai", "doubao", "compare"].includes(editorMode)) {
-    throw new Error("--editor must be openai, doubao, or compare");
+  if (!["openai", "doubao", "kimi", "compare"].includes(editorMode)) {
+    throw new Error("--editor must be openai, doubao, kimi, or compare");
   }
   const config = {
     baseUrl: required(process.env.TIANCLIP_API_URL, "TIANCLIP_API_URL"),
