@@ -11,6 +11,10 @@ import {
 } from "./internal-auth";
 
 interface Env extends InternalAuthEnv {
+  /** Server-only processor settings. These must be configured as Worker vars/secrets. */
+  PROCESSOR_API_URL?: string;
+  PROCESSOR_KEY_ID?: string;
+  PROCESSOR_API_SECRET?: string;
   ASSETS: Fetcher;
   DB: D1Database;
   IMAGES: {
@@ -50,11 +54,26 @@ const worker = {
       return unauthorizedResponse(request);
     }
 
+    // Built client bundles and the curated workbench images are stored in the
+    // static ASSETS binding. They are still session-gated above, but must not
+    // be sent through the dynamic vinext router (which returns 404 for them).
+    if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/photos/")) {
+      return secureAppResponse(await env.ASSETS.fetch(request));
+    }
+
     // This header is a private trust boundary between the outer authenticated
     // Sites Worker and the server-side runtime route. Always overwrite the
     // browser's value so a client cannot choose the feedback actor.
     const trustedHeaders = new Headers(request.headers);
     trustedHeaders.set("x-tianclip-authenticated-actor", authenticatedUsername);
+
+    // The outer Worker receives bindings on every request. Forward the
+    // server-only values only to the inner app-router request, after
+    // overwriting every client-supplied value. This avoids relying on a
+    // module-level runtime binding import inside Git-built Worker versions.
+    trustedHeaders.set("x-tianclip-processor-api-url", env.PROCESSOR_API_URL ?? "");
+    trustedHeaders.set("x-tianclip-processor-key-id", env.PROCESSOR_KEY_ID ?? "");
+    trustedHeaders.set("x-tianclip-processor-api-secret", env.PROCESSOR_API_SECRET ?? "");
     const trustedRequest = new Request(request, { headers: trustedHeaders });
 
     const safeMethod = request.method === "GET" || request.method === "HEAD";

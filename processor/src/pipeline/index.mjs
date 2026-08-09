@@ -8,7 +8,6 @@ export * from "./doubao-asr.mjs";
 export * from "./doubao-av-review.mjs";
 export * from "./doubao-editor-client.mjs";
 export * from "./frames.mjs";
-export * from "./kimi-editor-client.mjs";
 export * from "./media.mjs";
 export * from "./openai-client.mjs";
 export * from "./proxy.mjs";

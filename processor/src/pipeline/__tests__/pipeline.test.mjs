@@ -13,7 +13,6 @@ import {
   buildFrameExtractionPlan,
   checkMediaToolchain,
   createDoubaoEditorClient,
-  createKimiEditorClient,
   createOpenAIClient,
   deriveCandidateValidation,
   extractDenseTimelineFrames,
@@ -2203,24 +2202,6 @@ test("candidate validation fails closed on invented evidence or premature AV cla
     }),
     (error) => error.code === "PREMATURE_AV_VERIFICATION",
   );
-  assert.throws(
-    () => validateCandidateResult({
-      ...baseResult,
-      candidates: [{
-        ...fixtures.candidate,
-        title: "Exaggerated emphatic facial reaction",
-        douyinTitle: "Pointing gesture during strong opinion delivery",
-        xiaohongshuTitle: "Creator growth advice segment",
-        topic: "Visual-only facial reaction",
-        hook: "Hand movement",
-      }],
-    }, {
-      transcript: fixtures.transcript,
-      visualMap: fixtures.visualMap,
-      durationSec: 30,
-    }),
-    (error) => error.code === "CANDIDATE_CHINESE_THEME_REQUIRED",
-  );
 });
 
 test("safety-window proxy renders a continuous audio-video review artifact, not a final cut", async () => {
@@ -2482,67 +2463,4 @@ test("Doubao editor executes the same structured Skill contract through Ark Resp
   assert.equal(requestBody.text.format.type, "json_schema");
   assert.equal(requestBody.text.format.strict, true);
   assert.equal(result.provider, "doubao");
-});
-
-test("Kimi K3 executes the same Skill contract with text and candidate frames", async () => {
-  let requestBody;
-  const client = createKimiEditorClient({
-    apiKey: "test-kimi-key",
-    fetchImpl: async (url, init) => {
-      assert.equal(url, "https://api.moonshot.ai/v1/chat/completions");
-      requestBody = JSON.parse(init.body);
-      return jsonResponse({
-        id: "chatcmpl_kimi_1",
-        model: "kimi-k3",
-        choices: [{
-          finish_reason: "stop",
-          message: {
-            role: "assistant",
-            content: JSON.stringify({ answer: "same-skill-with-frame" }),
-            reasoning_content: "private chain of thought must not be parsed",
-          },
-        }],
-        usage: { prompt_tokens: 10, completion_tokens: 4 },
-      });
-    },
-  });
-
-  const result = await client.createStructuredResponse({
-    instructions: "TIANZONG PRIVATE SKILL",
-    input: [{
-      role: "user",
-      content: [
-        { type: "input_text", text: "shared evidence" },
-        {
-          type: "input_image",
-          image_url: "data:image/jpeg;base64,ZmFrZQ==",
-          detail: "high",
-        },
-      ],
-    }],
-    schema: {
-      type: "object",
-      additionalProperties: false,
-      properties: { answer: { type: "string" } },
-      required: ["answer"],
-    },
-    schemaName: "same_skill_schema",
-  });
-
-  assert.deepEqual(result.parsed, { answer: "same-skill-with-frame" });
-  assert.equal(requestBody.model, "kimi-k3");
-  assert.equal(requestBody.messages[0].role, "system");
-  assert.equal(requestBody.messages[0].content, "TIANZONG PRIVATE SKILL");
-  assert.deepEqual(requestBody.messages[1].content[0], {
-    type: "text",
-    text: "shared evidence",
-  });
-  assert.deepEqual(requestBody.messages[1].content[1], {
-    type: "image_url",
-    image_url: { url: "data:image/jpeg;base64,ZmFrZQ==" },
-  });
-  assert.equal(requestBody.reasoning_effort, "max");
-  assert.equal(requestBody.response_format.type, "json_schema");
-  assert.equal(requestBody.response_format.json_schema.strict, true);
-  assert.equal(result.provider, "kimi");
 });

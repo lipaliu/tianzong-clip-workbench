@@ -1,17 +1,15 @@
 import { hostname } from "node:os";
-import { link, mkdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { analyzeCandidateWindows } from "./candidate-analysis.js";
 import { loadConfig } from "./config.js";
-import { editorialWindowProgressMessage } from "./progress.js";
 import {
   loadTianClipCore,
   TianClipCoreError,
   type LoadedTianClipCore,
 } from "./core/index.js";
 import { createDatabase } from "./db.js";
-import { reusableEditorialResults } from "./editorial-checkpoint.js";
 import {
   buildAndValidateEngineArtifacts,
   type EngineArtifacts,
@@ -30,6 +28,9 @@ import { createDoubaoEditorClient } from "./pipeline/doubao-editor-client.mjs";
 import { createKimiEditorClient } from "./pipeline/kimi-editor-client.mjs";
 import { createOpenAIClient } from "./pipeline/openai-client.mjs";
 import {
+  extractDenseTimelineFrames,
+} from "./pipeline/frames.mjs";
+import {
   mergeTextAndVisualCandidateResults,
 } from "./pipeline/dense-visual-recall.mjs";
 import {
@@ -47,6 +48,13 @@ import {
   executeProviderRoute,
 } from "./pipeline/provider-routing.mjs";
 import { checkMediaToolchain } from "./pipeline/toolchain.mjs";
+import {
+  DEFAULT_USD_TO_CNY,
+  priceDurationUsage,
+  priceModelUsage,
+  sumUsage,
+} from "./pricing.js";
+import type { CostEntry, CostStage } from "./pricing.js";
 import { transcribeAudioChunks } from "./pipeline/transcription.mjs";
 import { ProcessorRepository } from "./repository.js";
 import { renderCandidateRevision } from "./revision-render.js";
@@ -72,6 +80,7 @@ const doubaoAvFactory = createDoubaoAvReviewProvider as AnyFunction;
 const doubaoEditorFactory = createDoubaoEditorClient as AnyFunction;
 const kimiEditorFactory = createKimiEditorClient as AnyFunction;
 const mediaProbe = probeMedia as AnyFunction;
+const denseFrameExtract = extractDenseTimelineFrames as AnyFunction;
 const transcribe = transcribeAudioChunks as AnyFunction;
 const candidateSourceMerge = mergeTextAndVisualCandidateResults as AnyFunction;
 const candidateDenseRefine = refineCandidatesWithDenseEvidence as AnyFunction;
@@ -109,7 +118,6 @@ const kimiEditor = config.kimi.apiKey
       baseUrl: config.kimi.baseUrl,
       model: config.kimi.editorModel,
       reasoningEffort: config.kimi.reasoningEffort,
-      timeoutMs: config.kimi.timeoutMs,
     })
   : null;
 const doubaoAsr = config.providers.transcription === "doubao"
@@ -139,34 +147,23 @@ const doubaoAv = config.providers.candidateAvReview === "doubao"
 const workerId = `${hostname()}:${process.pid}:${crypto.randomUUID()}`;
 
 type EditorProvider = "openai" | "doubao" | "kimi";
-type EditorClient = {
-  createStructuredResponse: (...args: any[]) => Promise<any>;
-};
 
-function editorProvidersForMode(
-  mode: ClaimedJob["editorMode"],
-): EditorProvider[] {
-  if (mode === "compare") return ["openai", "doubao"];
-  if (mode === "compare_all") return ["openai", "doubao", "kimi"];
-  return [mode];
-}
-
-function editorName(provider: EditorProvider): string {
+function editorProviderName(provider: EditorProvider): string {
   if (provider === "openai") return "OpenAI";
   if (provider === "doubao") return "火山 Seed Pro";
   return "Kimi K3";
 }
 
-function editorModel(provider: EditorProvider): string {
+function editorProviderModel(provider: EditorProvider): string {
   if (provider === "openai") return config.openai.reasoningModel;
   if (provider === "doubao") return config.doubao.ark.editorModel;
   return config.kimi.editorModel;
 }
 
-function editorClient(provider: EditorProvider): EditorClient {
+function editorProviderClient(provider: EditorProvider): any {
   if (provider === "openai") return openai;
-  if (provider === "doubao") return doubaoEditor!;
-  return kimiEditor!;
+  if (provider === "doubao") return doubaoEditor;
+  return kimiEditor;
 }
 
 function arrayUnion(...groups: Array<unknown[] | undefined>): unknown[] {
@@ -197,7 +194,7 @@ function tagEditorialResult(
       notes: arrayUnion(
         result.selectionSummary?.notes,
         [
-          `本组候选由 ${editorName(provider)} 独立执行同一份天总 Skill。`,
+          `本组候选由 ${editorProviderName(provider)} 独立执行同一份天总 Skill。`,
         ],
       ),
     },
@@ -224,7 +221,7 @@ function combineEditorialResults(
     ...results[0],
     candidates,
     model: results.map((result) => result.model).join(" + "),
-    editorMode: results.length >= 3 ? "compare_all" : "compare",
+    editorMode: "compare",
     editorialRuns: results.map((result) => ({
       provider: result.editorProvider,
       model: result.model,
@@ -239,7 +236,7 @@ function combineEditorialResults(
       notes: arrayUnion(
         ...results.map((result) => result.selectionSummary?.notes),
         [
-          `${results.map((result) => editorName(result.editorProvider)).join("、")}使用同一份逐字稿、画面证据和天总 Skill 独立出稿；此处保留各套结果供团队对比，不跨模型去重。`,
+          "OpenAI、Kimi K3 与火山可使用同一份逐字稿、画面证据和天总 Skill 独立出稿；对比模式保留每家结果供团队复核，不跨模型去重。",
         ],
       ),
     },
@@ -278,7 +275,7 @@ function combineEditorialResults(
               (item) => item.rejected ?? [],
             ),
             method:
-              "same_skill_independent_openai_and_doubao_editorial_comparison",
+              "same_skill_independent_editorial_comparison",
             continuousAudioVideoReviewed: false,
             humanNormalPlaybackRequired: true,
           },
@@ -292,49 +289,48 @@ function combineEditorialResults(
   return combined;
 }
 
-function prepareTranscriptFirstVisualEvidence({
-  durationSec,
-}: {
-  durationSec: number;
-}): {
+function prepareTranscriptFirstVisualEvidence(
+  denseFrameManifest: Record<string, any>,
+): {
   visualMap: Record<string, any>;
   denseRecallResult: Record<string, any>;
 } {
   const generatedAt = new Date().toISOString();
+  const frameIds = denseFrameManifest.frames.map(
+    (frame: Record<string, any>) => frame.id,
+  );
   const coverage = {
     fullTimelineScreeningComplete: true,
-    fullTranscriptRecallPrepared: true,
-    periodicIntervalSec: null,
-    frameCount: 0,
+    periodicIntervalSec: denseFrameManifest.periodicIntervalSec,
+    frameCount: denseFrameManifest.frames.length,
     batchCount: 0,
     continuousAudioVideoReviewed: false,
-    denseVisualReverseRecallComplete: false,
-    densePeriodicIntervalSec: null,
-    denseFrameCount: 0,
+    denseVisualReverseRecallComplete: true,
+    densePeriodicIntervalSec: denseFrameManifest.periodicIntervalSec,
+    denseFrameCount: denseFrameManifest.frames.length,
     semanticVisualReviewScope: "candidate_windows_only",
     limitation:
-      "整场先由完整中文逐字稿召回所有可独立传播的内容单元；"
-      + "不生成不会被模型读取的全片静帧。只有逐字稿召回出的候选安全窗"
-      + "才进入豆包原生音视频复核，"
+      "整场已完成中文逐字稿召回与密集帧证据准备；纯画面事件不得独立成为切片。"
+      + " 只有逐字稿召回出的候选安全窗才进入豆包原生音视频复核，"
       + "用于判断表情、动作、语气、场外插话、商品展示和真实边界；"
       + "这不等于人工逐帧观看整场。",
   };
   const method =
-    "full_transcript_recall_then_candidate_native_av";
+    "full_transcript_recall_plus_dense_frame_evidence_then_candidate_native_av";
   const visualMap = {
     model: null,
     method,
-    durationSec,
+    durationSec: denseFrameManifest.durationSec,
     events: [],
     batchSummaries: [],
-    frameIds: [],
+    frameIds,
     modelResponses: [],
     denseVisualRecall: {
       eventCount: 0,
       candidateCount: 0,
       unboundProposalCount: 0,
-      frameCount: 0,
-      periodicIntervalSec: null,
+      frameCount: denseFrameManifest.frames.length,
+      periodicIntervalSec: denseFrameManifest.periodicIntervalSec,
       batchCount: 0,
     },
     coverage,
@@ -345,7 +341,7 @@ function prepareTranscriptFirstVisualEvidence({
   const denseRecallResult = {
     model: "not_used_for_full_timeline_visual_candidates",
     method,
-    frameManifestCoverage: coverage,
+    frameManifestCoverage: denseFrameManifest.coverage,
     events: [],
     candidates: [],
     selectionSummary: {
@@ -369,6 +365,108 @@ let stopping = false;
 
 function r2Uri(objectKey: string): string {
   return `r2://${config.r2.bucket}/${objectKey}`;
+}
+
+/**
+ * Appends one row to the cost ledger.
+ *
+ * Accounting is observability, not part of the delivery contract. A ledger
+ * write that fails must not fail a job that already produced real candidates,
+ * so the error is reported and swallowed. The opposite tradeoff would let a
+ * bookkeeping outage destroy finished work.
+ */
+async function recordCost(job: ClaimedJob, entry: CostEntry): Promise<void> {
+  try {
+    await repository.recordCostEntry(job, entry);
+  } catch (error) {
+    process.stderr.write(
+      `cost ledger write failed for job ${job.id} stage ${entry.stage}: `
+        + `${internalErrorMessage(error)}\n`,
+    );
+  }
+}
+
+/**
+ * Builds a ledger row for a stage billed by token usage.
+ *
+ * A provider that returns no usage counters at all is recorded as unpriced.
+ * Summing absent counters would yield zero tokens and therefore a ¥0 cost,
+ * which reads as "this stage was free" instead of "this stage was not
+ * measured" — the more expensive of the two mistakes.
+ */
+function modelCostEntry(input: {
+  stage: CostStage;
+  provider: string;
+  model: string;
+  usages: readonly unknown[];
+}): CostEntry {
+  const measured = input.usages.filter(
+    (usage) => usage !== null && usage !== undefined,
+  );
+  if (measured.length === 0) {
+    return {
+      stage: input.stage,
+      provider: input.provider,
+      model: input.model,
+      priced: false,
+      costCny: null,
+      unpricedReason:
+        `${input.provider} returned no usage counters for ${input.model}`,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+      billedSeconds: null,
+      rateSource: null,
+      rateCheckedOn: null,
+      usdToCny: DEFAULT_USD_TO_CNY,
+    };
+  }
+  const usage = sumUsage(measured);
+  const total = priceModelUsage(input.model, {
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    input_tokens_details: { cached_tokens: usage.cachedInputTokens },
+  });
+  return {
+    stage: input.stage,
+    provider: input.provider,
+    model: input.model,
+    priced: total.priced,
+    costCny: total.costCny,
+    unpricedReason: total.unpricedReason,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    billedSeconds: null,
+    rateSource: total.rate?.source ?? null,
+    rateCheckedOn: total.rate?.checkedOn ?? null,
+    usdToCny: total.usdToCny,
+  };
+}
+
+/** Builds a ledger row for a stage billed by media duration. */
+function durationCostEntry(input: {
+  stage: CostStage;
+  provider: string;
+  resourceId: string;
+  seconds: number;
+}): CostEntry {
+  const priced = priceDurationUsage(input.resourceId, input.seconds);
+  return {
+    stage: input.stage,
+    provider: input.provider,
+    model: input.resourceId,
+    priced: priced.priced,
+    costCny: priced.costCny,
+    unpricedReason: priced.unpricedReason,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    billedSeconds: priced.billedSeconds,
+    rateSource: priced.rate?.source ?? null,
+    rateCheckedOn: priced.rate?.checkedOn ?? null,
+    usdToCny: priced.usdToCny,
+  };
 }
 
 async function withJobHeartbeat<T>(
@@ -446,27 +544,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       "正在从私有存储读取整场直播。",
     );
     const sourcePath = join(workDir, safeWorkName(job.sourceName));
-    const sourceCacheDir = join(config.worker.workDirectory, "source-cache");
-    const sourceCachePath = join(
-      sourceCacheDir,
-      `${job.uploadId}-${safeWorkName(job.sourceName)}`,
-    );
-    await mkdir(sourceCacheDir, { recursive: true });
-    let reusedCachedSource = false;
-    try {
-      const cachedSource = await stat(sourceCachePath);
-      if (cachedSource.size === job.expectedSizeBytes) {
-        await link(sourceCachePath, sourcePath);
-        reusedCachedSource = true;
-      } else {
-        await rm(sourceCachePath, { force: true });
-      }
-    } catch {
-      reusedCachedSource = false;
-    }
-    if (!reusedCachedSource) {
-      await storage.download(job.objectKey, sourcePath);
-    }
+    await storage.download(job.objectKey, sourcePath);
     const sourceIntegrity = await hashAndSize(sourcePath);
     if (
       sourceIntegrity.sizeBytes !== job.expectedSizeBytes
@@ -477,10 +555,6 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         "source_size_mismatch",
         "原片下载后的大小与上传记录不一致。",
       );
-    }
-    if (!reusedCachedSource) {
-      await rename(sourcePath, sourceCachePath);
-      await link(sourceCachePath, sourcePath);
     }
     if (
       job.expectedSha256 !== null
@@ -760,39 +834,79 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     }
     const transcript = transcriptRoute.value;
 
+    // Doubao BigASR bills by audio hour, OpenAI transcription by token. Which
+    // one actually ran is decided at runtime by the fallback route, so the
+    // ledger follows the effective provider rather than the configured one.
+    if (transcriptRoute.route?.effectiveProvider === "doubao") {
+      await recordCost(
+        job,
+        durationCostEntry({
+          stage: "transcription",
+          provider: "doubao",
+          resourceId: config.doubao.asr.resourceId,
+          seconds: media.durationSec,
+        }),
+      );
+    } else {
+      await recordCost(
+        job,
+        modelCostEntry({
+          stage: "transcription",
+          provider: "openai",
+          model: config.openai.transcriptionModel,
+          usages: [transcript.usage],
+        }),
+      );
+    }
+
     await repository.updateJobStage(
       job.id,
       job.workerId,
       "full_timeline_evidence_preparation",
-      54,
-      "完整中文逐字稿已就绪；不再重复生成不会被模型读取的全片静帧，候选召回后直接进入原生音视频复核。",
+      44,
+      `正在为整场逐字稿准备每 ${config.worker.candidateFrameSeconds} 秒与镜头变化帧；`
+        + "画面不单独冒充切片，后续只在候选安全窗内做原生音视频复核。",
     );
-    const denseFrameManifest = {
+    const denseFrameManifest = await denseFrameExtract({
+      sourcePath,
+      outputDir: join(workDir, "dense-frames"),
       durationSec: media.durationSec,
-      periodicIntervalSec: null,
-      frames: [],
-      coverage: {
-        fullTimelineScreeningExtracted: false,
-        fullTranscriptRecallPrepared: true,
-        extractedFrameCount: 0,
-        continuousVideoReviewed: false,
+      intervalSec: config.worker.candidateFrameSeconds,
+      onProgress: async (event: {
+        phase: string;
+        completed: number;
+        total: number;
+        frameCount: number;
+      }) => {
+        await repository.updateJobStage(
+          job.id,
+          job.workerId,
+          "full_timeline_evidence_preparation",
+          44 + Math.floor(10 * event.completed / event.total),
+          event.phase === "periodic"
+            ? `全片每 ${config.worker.candidateFrameSeconds} 秒密集帧已抽取 ${event.frameCount} 张。`
+            : `镜头变化帧已合并，共 ${event.frameCount} 张视觉证据。`,
+        );
       },
-    };
+    });
     const {
       visualMap: augmentedVisualMap,
       denseRecallResult,
-    } = prepareTranscriptFirstVisualEvidence({
-      durationSec: media.durationSec,
-    });
+    } = prepareTranscriptFirstVisualEvidence(denseFrameManifest);
 
     await repository.updateJobStage(
       job.id,
       job.workerId,
       "private_core_reasoning",
       56,
-      `${editorProvidersForMode(job.editorMode).map(editorName).join("、")}正在读取同一份证据、独立执行同一版天总 Skill；不预设候选条数。`,
+      job.editorMode === "compare"
+        ? "OpenAI、Kimi K3 与火山正在读取同一份证据、独立执行同一版天总 Skill；不预设候选条数。"
+        : `${editorProviderName(job.editorMode)} 正在执行天总 Skill；不预设候选条数。`,
     );
-    const editorialProviders = editorProvidersForMode(job.editorMode);
+    const editorialProviders: EditorProvider[] =
+      job.editorMode === "compare"
+        ? ["openai", "kimi", "doubao"]
+        : [job.editorMode];
     if (editorialProviders.includes("doubao") && !doubaoEditor) {
       throw new AppError(
         500,
@@ -809,70 +923,16 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         { expose: false },
       );
     }
-    const editorialCheckpointKey =
-      `checkpoints/${job.projectId}/${job.id}/editorial-recall-v1.json`;
-    const editorialCheckpointIdentity = {
-      sourceSha256: sourceIntegrity.sha256,
-      sourceSizeBytes: sourceIntegrity.sizeBytes,
-      mediaDurationSec: media.durationSec,
-      coreSha256: core.provenance.coreSha256,
-      coreVersion: core.provenance.coreVersion,
-      mode,
-      editorMode: job.editorMode,
-      openaiModel: config.openai.reasoningModel,
-      doubaoModel: config.doubao.ark.editorModel,
-      kimiModel: config.kimi.editorModel,
-      analysisWindowSeconds: config.worker.analysisWindowSeconds,
-    };
-    let mergedEditorialResults: Array<Record<string, any>> = [];
-    try {
-      const checkpoint = JSON.parse(
-        (await storage.getBuffer(editorialCheckpointKey)).toString("utf8"),
-      ) as Record<string, unknown>;
-      mergedEditorialResults = reusableEditorialResults({
-        checkpoint,
-        currentIdentity: editorialCheckpointIdentity,
-        requestedModels: Object.fromEntries(
-          editorialProviders.map((provider) => [provider, editorModel(provider)]),
-        ),
-      }) as Array<Record<string, any>>;
-    } catch {
-      mergedEditorialResults = [];
-    }
-    const providerProgress: number[] = editorialProviders.map((provider) =>
-      mergedEditorialResults.some(
-        (result) => result.editorProvider === provider,
-      )
-        ? 1
-        : 0
-    );
-    let checkpointWrite = Promise.resolve<unknown>(undefined);
-    const editorialSettlements = await Promise.allSettled(
-      editorialProviders.map(async (provider, providerIndex) => {
-      const providerClient = editorClient(provider);
-      const providerModel = editorModel(provider);
-      const providerName = editorName(provider);
-      if (
-        mergedEditorialResults.some(
-          (result) => result.editorProvider === provider,
-        )
-      ) {
-        providerProgress[providerIndex] = 1;
-        await repository.updateJobStage(
-          job.id,
-          job.workerId,
-          "private_core_reasoning",
-          56 + Math.floor(
-            24 * providerProgress.reduce(
-              (total, value) => total + value,
-              0,
-            ) / editorialProviders.length,
-          ),
-          `已校验并复用 ${providerName} 整场主编召回检查点，`
-            + "避免音画复核或渲染重试时重复消耗模型。",
-        );
-        return;
-      }
+    const mergedEditorialResults: Array<Record<string, any>> = [];
+    for (
+      let providerIndex = 0;
+      providerIndex < editorialProviders.length;
+      providerIndex += 1
+    ) {
+      const provider = editorialProviders[providerIndex]!;
+      const providerClient = editorProviderClient(provider);
+      const providerModel = editorProviderModel(provider);
+      const providerName = editorProviderName(provider);
       const textCandidateResult = await analyzeCandidateWindows({
         transcript,
         visualMap: augmentedVisualMap as never,
@@ -883,28 +943,34 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         analysisWindowSeconds: config.worker.analysisWindowSeconds,
         safetyIdentifier: `${job.projectId}:${provider}`,
         onProgress: async (event) => {
-          providerProgress[providerIndex] =
-            event.completed / Math.max(1, event.total);
+          const providerShare = 24 / editorialProviders.length;
           const progress = 56
+            + Math.floor(providerShare * providerIndex)
             + Math.floor(
-              24 * providerProgress.reduce(
-                (total, value) => total + value,
-                0,
-              ) / editorialProviders.length,
+              providerShare * event.completed / Math.max(1, event.total),
             );
           await repository.updateJobStage(
             job.id,
             job.workerId,
             "private_core_reasoning",
             progress,
-            editorialWindowProgressMessage(
-              providerName,
-              event.completed,
-              event.total,
-            ),
+            `${providerName} 独立分析窗口 ${event.completed}/${event.total} 已完成。`,
           );
         },
       });
+      // Billed per editor, so compare mode shows two rows and the operator can
+      // see exactly what the second opinion cost.
+      await recordCost(
+        job,
+        modelCostEntry({
+          stage: "candidate_recall",
+          provider,
+          model: providerModel,
+          usages: (textCandidateResult.windowRuns ?? []).map(
+            (run: Record<string, unknown>) => run.usage,
+          ),
+        }),
+      );
       const merged = candidateSourceMerge({
         textResult: textCandidateResult,
         visualResult: denseRecallResult,
@@ -916,66 +982,6 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       });
       mergedEditorialResults.push(
         tagEditorialResult(merged, provider, providerModel),
-      );
-      providerProgress[providerIndex] = 1;
-      const checkpointResults = [...mergedEditorialResults];
-      checkpointWrite = checkpointWrite.then(async () =>
-        await storage.uploadJson(
-          editorialCheckpointKey,
-          {
-            schemaVersion: "tianclip.editorial-recall-checkpoint.v1",
-            identity: editorialCheckpointIdentity,
-            results: checkpointResults,
-            completedProviders: checkpointResults.map(
-              (result) => result.editorProvider,
-            ),
-            savedAt: new Date().toISOString(),
-          },
-          {
-            "project-id": job.projectId,
-            "job-id": job.id,
-            kind: "retry-safe-editorial-recall-checkpoint",
-          },
-        )
-      );
-      await checkpointWrite;
-      }),
-    );
-    const failedEditorialProviders = editorialSettlements.flatMap(
-      (settlement, providerIndex) =>
-        settlement.status === "rejected"
-          ? [{
-              provider: editorialProviders[providerIndex]!,
-              error: internalErrorMessage(settlement.reason),
-            }]
-          : [],
-    );
-    if (mergedEditorialResults.length === 0) {
-      const firstFailure = editorialSettlements.find(
-        (settlement) => settlement.status === "rejected",
-      );
-      throw firstFailure?.status === "rejected"
-        ? firstFailure.reason
-        : new AppError(
-            502,
-            "all_editorial_providers_failed",
-            "全部主编模型均未返回可用结果。",
-            { expose: false },
-          );
-    }
-    const activeEditorialProviders = editorialProviders.filter((provider) =>
-      mergedEditorialResults.some(
-        (result) => result.editorProvider === provider,
-      )
-    );
-    if (failedEditorialProviders.length > 0) {
-      await repository.updateJobStage(
-        job.id,
-        job.workerId,
-        "private_core_reasoning_partial",
-        80,
-        `${failedEditorialProviders.map(({ provider }) => editorName(provider)).join("、")}线路暂时不可用；`
-          + `${activeEditorialProviders.map(editorName).join("、")}的已完成结果继续生成，不重复消耗。`,
       );
     }
     const mergedCandidateResultRaw =
@@ -1145,6 +1151,18 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           (record): record is Record<string, unknown> => Boolean(record),
         ),
       );
+      // Frames dominate this stage's input tokens, so it is the one most
+      // likely to surprise. Candidates that fell back to sampled stills
+      // contribute no usage and are simply absent from the sum.
+      await recordCost(
+        job,
+        modelCostEntry({
+          stage: "candidate_av_review",
+          provider: "doubao",
+          model: config.doubao.ark.avModel,
+          usages: nativeAvReviewRecords.map((record) => record.usage),
+        }),
+      );
       const augmentedNativeReview = nativeAvVisualMapAugment({
         visualMap: augmentedVisualMap,
         reviewResults,
@@ -1179,18 +1197,20 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       job.workerId,
       "candidate_dense_refinement",
       90,
-      `${activeEditorialProviders.map(editorName).join("、")}正在各自终审自己的候选；全部强制读取同一版天总 Skill、逐字稿`
-        + `${nativeAvEvidenceCount > 0 ? "与原生音视频证据" : ""}作最终编导判断。`,
+      job.editorMode === "compare"
+        ? "OpenAI、Kimi K3 与火山正在各自终审自己的候选；三家都强制读取同一版天总 Skill 和同一套音画证据。"
+        : `${editorProviderName(job.editorMode)} 正在强制加载天总 Skill，综合逐字稿、密集画面`
+          + `${nativeAvEvidenceCount > 0 ? "与原生音视频证据" : ""}作最终编导判断。`,
     );
     const refinedEditorialResults: Array<Record<string, any>> = [];
     let rollingVisualMap = candidateEvidenceVisualMap;
     for (
       let providerIndex = 0;
-      providerIndex < activeEditorialProviders.length;
+      providerIndex < editorialProviders.length;
       providerIndex += 1
     ) {
-      const provider = activeEditorialProviders[providerIndex]!;
-      const providerName = editorName(provider);
+      const provider = editorialProviders[providerIndex]!;
+      const providerName = editorProviderName(provider);
       const originalProviderResult = mergedEditorialResults.find(
         (result) => result.editorProvider === provider,
       )!;
@@ -1214,11 +1234,11 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         frameManifest: denseFrameManifest,
         coreBundle,
         mode,
-        client: editorClient(provider),
-        model: editorModel(provider),
+        client: editorProviderClient(provider),
+        model: editorProviderModel(provider),
         safetyIdentifier: `${job.projectId}:${provider}:refinement`,
         onProgress: async (event: { completed: number; total: number }) => {
-          const providerShare = 3 / activeEditorialProviders.length;
+          const providerShare = 3 / editorialProviders.length;
           const progress = 90
             + Math.floor(providerShare * providerIndex)
             + Math.floor(
@@ -1233,10 +1253,21 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           );
         },
       });
+      await recordCost(
+        job,
+        modelCostEntry({
+          stage: "final_editorial",
+          provider,
+          model: editorProviderModel(provider),
+          usages: (refined.refinementRuns ?? []).map(
+            (run: Record<string, unknown>) => run.usage,
+          ),
+        }),
+      );
       refinedEditorialResults.push({
         ...refined,
         editorProvider: provider,
-        model: editorModel(provider),
+        model: editorProviderModel(provider),
       });
       rollingVisualMap = refined.visualMap;
     }
@@ -1309,11 +1340,12 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             candidateAvReview: nativeAvReviewSummary,
             finalEditorial: {
               mode: job.editorMode,
-              editors: activeEditorialProviders.map((provider) => ({
+              editors: editorialProviders.map((provider) => ({
                 provider,
-                model: editorModel(provider),
+                model: provider === "openai"
+                  ? config.openai.reasoningModel
+                  : config.doubao.ark.editorModel,
               })),
-              failedEditors: failedEditorialProviders,
               privateCoreBound: true,
               coreVersion: core.provenance.coreVersion,
               coreSha256: core.provenance.coreSha256,
@@ -1449,6 +1481,20 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       }),
     ]);
 
+    // The denominator for cost-per-second. Source length alone cannot answer
+    // "what did a delivered second cost", because a one-hour and a five-hour
+    // livestream only become comparable once each is divided by its own output.
+    await repository.recordDeliveredOutput(job.id, {
+      clipSeconds: artifacts.candidatePayloads.reduce(
+        (total: number, candidate: CandidatePayload) =>
+          total + (Number.isFinite(candidate.durationSeconds)
+            ? candidate.durationSeconds
+            : 0),
+        0,
+      ),
+      sourceMediaSeconds: media.durationSec,
+    });
+
     await repository.storeCandidates(
       job,
       artifacts.candidatePayloads,
@@ -1459,7 +1505,10 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       {
         models: {
           transcription: transcript.model,
-          reasoning: activeEditorialProviders.map(editorModel),
+          reasoning: editorialProviders.map((provider) =>
+            provider === "openai"
+              ? config.openai.reasoningModel
+              : config.doubao.ark.editorModel),
           vision: null,
           nativeAudioVideoReview:
             nativeAvEvidenceCount > 0
@@ -1471,11 +1520,12 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           candidateAvReview: nativeAvReviewSummary,
           finalEditorial: {
             mode: job.editorMode,
-            editors: activeEditorialProviders.map((provider) => ({
+            editors: editorialProviders.map((provider) => ({
               provider,
-              model: editorModel(provider),
+              model: provider === "openai"
+                ? config.openai.reasoningModel
+                : config.doubao.ark.editorModel,
             })),
-            failedEditors: failedEditorialProviders,
             privateCoreBound: true,
           },
         },
@@ -1490,9 +1540,8 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           sparseFrameCount: 0,
           denseFrameCount: denseFrameManifest.coverage.extractedFrameCount,
           densePeriodicIntervalSec: denseFrameManifest.periodicIntervalSec,
-          denseVisualReverseRecallComplete: false,
-          candidateDenseStillTranscriptRefinementComplete: false,
-          candidateNativeAvTranscriptRefinementComplete: true,
+          denseVisualReverseRecallComplete: true,
+          candidateDenseStillTranscriptRefinementComplete: true,
           candidateNativeAudioVideoModelReviewAttempted:
             evidenceVisualMap.coverage
               .candidateNativeAudioVideoModelReviewAttempted ?? false,
@@ -1631,11 +1680,6 @@ async function processRevisionRender(render: ClaimedRender): Promise<void> {
 }
 
 function publicJobError(error: unknown): string {
-  if (/country, region, or territory not supported/i.test(
-    internalErrorMessage(error),
-  )) {
-    return "OpenAI 当前部署线路受地区限制；火山与 Kimi 的已完成结果会保留，任务不会自动重复消耗。";
-  }
   if (error instanceof AppError && error.expose) return error.message;
   if (error instanceof TianClipCoreError) {
     return "私有天总切片核心校验失败，任务已停止。";
@@ -1644,9 +1688,6 @@ function publicJobError(error: unknown): string {
 }
 
 function retryableJobError(error: unknown): boolean {
-  if (/country, region, or territory not supported/i.test(
-    internalErrorMessage(error),
-  )) return false;
   if (error instanceof TianClipCoreError) return false;
   if (error instanceof AppError && error.statusCode >= 400 && error.statusCode < 500) {
     return false;

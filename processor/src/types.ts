@@ -1,10 +1,5 @@
 export type TianClipMode = "聊播" | "带货";
-export type EditorialModelMode =
-  | "openai"
-  | "doubao"
-  | "kimi"
-  | "compare"
-  | "compare_all";
+export type EditorialModelMode = "openai" | "doubao" | "kimi" | "compare";
 export type JobStatus =
   | "queued"
   | "running"
@@ -45,16 +40,6 @@ export type JobApi = {
   result: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
-};
-
-export type JobEventApi = {
-  id: string;
-  jobId: string;
-  stage: string;
-  progress: number;
-  message: string;
-  detail: Record<string, unknown> | null;
-  createdAt: string;
 };
 
 export type CandidateTranscriptLine = {

@@ -25,13 +25,7 @@ const projectBody = z.object({
   projectDate: z.iso.date(),
   sourceName: z.string().trim().min(1).max(500),
   mode: z.enum(["聊播", "带货"]),
-  editorMode: z.enum([
-    "openai",
-    "doubao",
-    "kimi",
-    "compare",
-    "compare_all",
-  ]).default("compare"),
+  editorMode: z.enum(["openai", "doubao", "kimi", "compare"]).default("compare"),
 }).strict();
 
 const uploadBody = z.object({
@@ -737,9 +731,12 @@ export async function registerRoutes(
     return { job: await repository.getJob(jobId) };
   });
 
-  app.get("/v1/jobs/:jobId/events", async (request) => {
+  // Spend for one run. Reported separately from the job record because the
+  // ledger accumulates while the job is still running, and a failed job that
+  // already burned tokens must still be able to report what it cost.
+  app.get("/v1/jobs/:jobId/cost", async (request) => {
     const jobId = parseId(request.params, "jobId");
-    return { events: await repository.listJobEvents(jobId) };
+    return { cost: await repository.getJobCostSummary(jobId) };
   });
 
   app.get("/v1/projects/:id/candidates", async (request) => {

@@ -4,6 +4,8 @@ import { sha256Hex } from "./canonical.js";
 import type { ProcessorConfig } from "./config.js";
 import type { Database } from "./db.js";
 import { AppError } from "./errors.js";
+import { summarizeJobCost } from "./pricing.js";
+import type { CostEntry, JobCostSummary } from "./pricing.js";
 import type {
   CandidatePayload,
   CandidateRenderSpec,
@@ -11,7 +13,6 @@ import type {
   CandidateReviewStatus,
   ClaimedJob,
   ClaimedRender,
-  JobEventApi,
   JobApi,
   ProjectApi,
   EditorialModelMode,
@@ -76,20 +77,6 @@ export function mapJob(row: Record<string, unknown>): JobApi {
       : null,
     createdAt: isoValue(row.created_at),
     updatedAt: isoValue(row.updated_at),
-  };
-}
-
-export function mapJobEvent(row: Record<string, unknown>): JobEventApi {
-  return {
-    id: String(row.id),
-    jobId: String(row.job_id),
-    stage: String(row.stage),
-    progress: numberValue(row.progress),
-    message: String(row.message),
-    detail: row.detail && typeof row.detail === "object"
-      ? row.detail as Record<string, unknown>
-      : null,
-    createdAt: isoValue(row.created_at),
   };
 }
 
@@ -478,81 +465,12 @@ export class ProcessorRepository {
         { expose: true },
       );
     }
-    const project = await this.getProject(input.projectId);
-    const expectedSha256 = typeof upload.expected_sha256 === "string"
-      && /^[a-f0-9]{64}$/.test(upload.expected_sha256)
-      ? upload.expected_sha256
-      : null;
-    const sourceIdentity = expectedSha256 === null
-      ? [
-          String(upload.source_name).trim().toLocaleLowerCase("zh-CN"),
-          numberValue(upload.actual_size_bytes ?? upload.expected_size_bytes),
-        ].join(":" )
-      : `sha256:${expectedSha256}`;
-    const sourceFingerprint = sha256Hex([
-      project.mode,
-      project.editorMode,
-      sourceIdentity,
-    ].join("\u001f"));
-
-    const duplicate = await this.database.query(
-      `SELECT j.*
-       FROM processing_jobs j
-       JOIN media_uploads u ON u.id = j.upload_id
-       JOIN projects p ON p.id = j.project_id
-       WHERE j.status IN ('queued', 'running', 'retrying')
-         AND p.mode = $3
-         AND p.editor_mode = $4
-         AND (
-           ($5::text IS NOT NULL AND u.expected_sha256 = $5)
-           OR (
-             lower(trim(u.source_name)) = $6
-             AND COALESCE(u.actual_size_bytes, u.expected_size_bytes) = $7
-           )
-         )
-       ORDER BY j.created_at DESC
-       LIMIT 1`,
-      [
-        input.projectId,
-        input.uploadId,
-        project.mode,
-        project.editorMode,
-        expectedSha256,
-        String(upload.source_name).trim().toLocaleLowerCase("zh-CN"),
-        numberValue(upload.actual_size_bytes ?? upload.expected_size_bytes),
-      ],
-    );
-    const duplicateRow = duplicate.rows[0] as Record<string, unknown> | undefined;
-    if (duplicateRow) {
-      if (String(duplicateRow.project_id) === input.projectId) {
-        return mapJob(duplicateRow);
-      }
-      throw new AppError(
-        409,
-        "duplicate_active_source_job",
-        "同一原片、直播类型和主编模式已有处理中的任务，请直接打开现有项目，避免重复计费。",
-        {
-          expose: true,
-          details: {
-            existingProjectId: String(duplicateRow.project_id),
-            existingJobId: String(duplicateRow.id),
-          },
-        },
-      );
-    }
     try {
       const result = await this.database.query(
-        `INSERT INTO processing_jobs(
-           project_id, upload_id, max_attempts, source_fingerprint
-         )
-         VALUES($1, $2, $3, $4)
+        `INSERT INTO processing_jobs(project_id, upload_id, max_attempts)
+         VALUES($1, $2, $3)
          RETURNING *`,
-        [
-          input.projectId,
-          input.uploadId,
-          this.config.worker.maxAttempts,
-          sourceFingerprint,
-        ],
+        [input.projectId, input.uploadId, this.config.worker.maxAttempts],
       );
       await this.database.query(
         `UPDATE projects
@@ -572,24 +490,6 @@ export class ProcessorRepository {
         );
         const row = existing.rows[0] as Record<string, unknown> | undefined;
         if (row) return mapJob(row);
-        const crossProject = await this.database.query(
-          `SELECT * FROM processing_jobs
-           WHERE source_fingerprint = $1
-             AND status IN ('queued', 'running', 'retrying')
-           ORDER BY created_at DESC LIMIT 1`,
-          [sourceFingerprint],
-        );
-        const crossProjectRow = crossProject.rows[0] as
-          | Record<string, unknown>
-          | undefined;
-        if (crossProjectRow) {
-          throw new AppError(
-            409,
-            "duplicate_active_source_job",
-            "同一原片、直播类型和主编模式已有处理中的任务，请直接打开现有项目，避免重复计费。",
-            { expose: true },
-          );
-        }
       }
       throw error;
     }
@@ -603,22 +503,6 @@ export class ProcessorRepository {
     const row = result.rows[0] as Record<string, unknown> | undefined;
     if (!row) throw new AppError(404, "job_not_found", "处理任务不存在。");
     return mapJob(row);
-  }
-
-  async listJobEvents(jobId: string, limit = 200): Promise<JobEventApi[]> {
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
-      throw new AppError(400, "job_event_limit_invalid", "任务进度记录数量无效。");
-    }
-    await this.getJob(jobId);
-    const result = await this.database.query(
-      `SELECT id, job_id, stage, progress, message, detail, created_at
-       FROM job_events
-       WHERE job_id = $1
-       ORDER BY id DESC
-       LIMIT $2`,
-      [jobId, limit],
-    );
-    return result.rows.map((row) => mapJobEvent(row as Record<string, unknown>));
   }
 
   async listCandidates(projectId: string): Promise<Array<{
@@ -1196,6 +1080,110 @@ export class ProcessorRepository {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Appends one billing row. Written per stage rather than once at the end so
+   * a job that fails midway still reports the spend it already incurred.
+   *
+   * Cost recording must never sink a job that otherwise succeeded, so the
+   * caller is expected to treat a throw here as non-fatal.
+   */
+  async recordCostEntry(
+    job: { id: string; projectId: string },
+    entry: CostEntry,
+  ): Promise<void> {
+    await this.database.query(
+      `INSERT INTO job_cost_entries(
+         job_id, project_id, stage, provider, model, priced, cost_cny,
+         unpriced_reason, input_tokens, output_tokens, cached_input_tokens,
+         billed_seconds, rate_source, rate_checked_on, usd_to_cny)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+      [
+        job.id,
+        job.projectId,
+        entry.stage,
+        entry.provider,
+        entry.model,
+        entry.priced,
+        entry.costCny,
+        entry.unpricedReason,
+        Math.trunc(entry.inputTokens),
+        Math.trunc(entry.outputTokens),
+        Math.trunc(entry.cachedInputTokens),
+        entry.billedSeconds,
+        entry.rateSource,
+        entry.rateCheckedOn,
+        entry.usdToCny,
+      ],
+    );
+  }
+
+  /**
+   * Records what the job actually delivered. Cost per second is meaningless
+   * without it, and it must come from the rendered rough cuts rather than the
+   * source length, because a five-hour livestream and a one-hour livestream
+   * only become comparable once divided by their own output.
+   */
+  async recordDeliveredOutput(
+    jobId: string,
+    delivered: { clipSeconds: number; sourceMediaSeconds: number },
+  ): Promise<void> {
+    await this.database.query(
+      `UPDATE processing_jobs
+       SET delivered_clip_seconds = $2,
+           source_media_seconds = $3,
+           updated_at = now()
+       WHERE id = $1`,
+      [jobId, delivered.clipSeconds, delivered.sourceMediaSeconds],
+    );
+  }
+
+  async getJobCostSummary(jobId: string): Promise<JobCostSummary> {
+    const job = await this.database.query(
+      `SELECT clip_count, delivered_clip_seconds, source_media_seconds
+       FROM processing_jobs WHERE id = $1`,
+      [jobId],
+    );
+    const jobRow = job.rows[0] as Record<string, unknown> | undefined;
+    if (!jobRow) {
+      throw new AppError(404, "job_not_found", "任务不存在。", { expose: true });
+    }
+    const rows = await this.database.query(
+      `SELECT stage, provider, model, priced, cost_cny, unpriced_reason,
+              input_tokens, output_tokens, cached_input_tokens, billed_seconds,
+              rate_source, rate_checked_on, usd_to_cny
+       FROM job_cost_entries
+       WHERE job_id = $1
+       ORDER BY id`,
+      [jobId],
+    );
+    const entries: CostEntry[] = rows.rows.map((row: Record<string, unknown>) => ({
+      stage: String(row.stage) as CostEntry["stage"],
+      provider: String(row.provider),
+      model: String(row.model),
+      priced: Boolean(row.priced),
+      costCny: row.cost_cny === null ? null : numberValue(row.cost_cny),
+      unpricedReason: row.unpriced_reason === null
+        ? null
+        : String(row.unpriced_reason),
+      inputTokens: numberValue(row.input_tokens),
+      outputTokens: numberValue(row.output_tokens),
+      cachedInputTokens: numberValue(row.cached_input_tokens),
+      billedSeconds: row.billed_seconds === null
+        ? null
+        : numberValue(row.billed_seconds),
+      rateSource: row.rate_source === null ? null : String(row.rate_source),
+      rateCheckedOn: row.rate_checked_on === null
+        ? null
+        : String(row.rate_checked_on),
+      usdToCny: numberValue(row.usd_to_cny),
+    }));
+    return summarizeJobCost(entries, {
+      clipSeconds: numberValue(jobRow.delivered_clip_seconds),
+      clipCount: numberValue(jobRow.clip_count),
+      sourceMediaSeconds: numberValue(jobRow.source_media_seconds),
+    });
   }
 
   async storeCandidates(

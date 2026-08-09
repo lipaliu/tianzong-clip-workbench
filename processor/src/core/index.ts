@@ -174,7 +174,6 @@ const ZIP_MAX_TOTAL_BYTES = 48 * 1024 * 1024;
  */
 const OPERATIONAL_REFERENCE_PATHS = [
   "references/private-core-model.md",
-  "references/confirmed-error-zero-recurrence-v1.md",
   "references/persona-and-topic-system.md",
   "references/editing-playbook.md",
   "references/duration-calibration.md",

@@ -13,25 +13,19 @@ import {
   prepareProcessorUpload,
   readProcessorCandidates,
   readProcessorJob,
-  readProcessorJobEvents,
+  readProcessorJobCost,
   startProcessorJob,
   submitProcessorFeedback,
   uploadToPresignedUrl,
   type ProcessorCandidate,
   type ProcessorJob,
-  type ProcessorJobEvent,
+  type ProcessorJobCost,
 } from "./processor-client";
-import {
-  normalizePackagingSettings,
-  packagingPreset,
-  type PackagingSection,
-  type PackagingSettings,
-} from "./packaging";
 
 type Mode = "聊播" | "带货";
-type EditorMode = "openai" | "doubao" | "kimi" | "compare" | "compare_all";
+type EditorMode = "openai" | "doubao" | "kimi" | "compare";
 type IntakeStep = 1 | 2;
-type WorkflowStep = 1 | 2 | 3 | 4;
+type WorkflowStep = 1 | 2 | 3;
 type Decision = "keep" | "remove";
 type PersonaMode = "实战老板" | "强姐姐" | "视觉吸引" | "搞笑女" | "脆弱真实";
 type LocalExportOption = "mp4" | "srt" | "xml";
@@ -86,11 +80,6 @@ type ClipIdea = {
   sourceMedia?: ProcessorCandidate["sourceMedia"];
 };
 
-type SmartBgmProfile = Pick<PackagingSettings["bgm"], "mood" | "tempoBpm" | "prompt"> & {
-  reason: string;
-  searchTerms: string;
-};
-
 type ProjectStatus = "analyzing" | "ready" | "failed";
 
 type ProjectRecord = {
@@ -121,72 +110,6 @@ const corpusBaseline = {
 
 const MAX_UPLOAD_BYTES = 9_000_000_000;
 const MAX_SRT_BYTES = 5_000_000;
-
-const freeMusicSources = [
-  {
-    name: "Mixkit",
-    href: "https://mixkit.co/free-stock-music/",
-    note: "可试听下载；逐首保留来源和许可页面",
-  },
-  {
-    name: "Pixabay Music",
-    href: "https://pixabay.com/music/",
-    note: "可商用素材较多；优先避开 Content ID 标记曲目",
-  },
-  {
-    name: "YouTube Audio Library",
-    href: "https://www.youtube.com/audiolibrary",
-    note: "适合 YouTube；跨平台使用前仍检查单曲许可",
-  },
-] as const;
-
-function smartBgmProfile(clip: ClipIdea): SmartBgmProfile {
-  const searchable = `${clip.kind} ${clip.contentType} ${clip.title} ${clip.summary}`;
-  const spokenCharacters = clip.transcript
-    .filter((line) => line.defaultDecision === "keep")
-    .reduce((sum, line) => sum + line.text.replace(/\s/g, "").length, 0);
-  const seconds = Math.max(20, (clip.sourceEnd ?? clip.sourceStart + 50) - clip.sourceStart);
-  const speechDensity = spokenCharacters / seconds;
-  const tempoOffset = speechDensity >= 5 ? 4 : speechDensity <= 2.6 ? -4 : 0;
-
-  if (clip.personaModes.includes("脆弱真实") || /情感|原生家庭|失去|自愈|疲惫/.test(searchable)) {
-    return {
-      mood: "柔和氛围",
-      tempoBpm: 80 + tempoOffset,
-      prompt: "无歌词、克制钢琴与轻氛围铺底、留出呼吸感、不要煽情过度、不要抢人声",
-      reason: "这条依赖真实和停顿，不用强鼓点；音乐只承接情绪，不替她煽情。",
-      searchTerms: "soft ambient reflective minimal piano no vocals",
-    };
-  }
-
-  if (clip.kind === "带货" || /穿搭|服装|商品|成交|购买/.test(searchable)) {
-    return {
-      mood: "时装律动",
-      tempoBpm: 112 + tempoOffset,
-      prompt: "无歌词、轻奢时装律动、干净鼓点、稳定循环、适合商品讲解与展示、不要抢人声",
-      reason: "带货需要让展示更利落，但鼓点不能盖住购买理由和产品证据。",
-      searchTerms: "fashion electronic clean beat product showcase no vocals",
-    };
-  }
-
-  if (clip.personaModes.includes("搞笑女") || /搞笑|翻车|发疯|反差/.test(searchable)) {
-    return {
-      mood: "轻电子",
-      tempoBpm: 118 + tempoOffset,
-      prompt: "无歌词、俏皮轻电子、短促节奏点、适合反应与翻车、克制不做廉价综艺音效",
-      reason: "反差内容需要节奏点托住反应，但不能把她剪成纯搞笑素材。",
-      searchTerms: "playful electronic quirky reaction light no vocals",
-    };
-  }
-
-  return {
-    mood: "轻电子",
-    tempoBpm: 96 + tempoOffset,
-    prompt: "无歌词、克制轻电子、稳定脉冲、适合商业判断与观点口播、清醒有力量、不要抢人声",
-    reason: "观点口播优先保证听清判断；稳定低频只负责推进，不制造虚假高潮。",
-    searchTerms: "minimal electronic confident business talk no vocals",
-  };
-}
 
 const modelGalleryPhotos = [
   { src: "/photos/tz_street_tall.jpg", alt: "天总街头蓝色穿搭" },
@@ -227,15 +150,9 @@ const editorChoices: Array<{
 }> = [
   {
     id: "compare",
-    name: "OpenAI / 火山对比",
-    eyebrow: "推荐",
-    description: "OpenAI 与火山读取同一份天总 Skill，分别给出切片方案。",
-  },
-  {
-    id: "compare_all",
     name: "三模型对比",
-    eyebrow: "完整盲测",
-    description: "OpenAI、火山与 Kimi K3 使用同一证据和 Skill，各自独立出稿。",
+    eyebrow: "推荐",
+    description: "OpenAI、Kimi K3 与火山读取同一份天总 Skill，分别给出切片方案。",
   },
   {
     id: "openai",
@@ -244,16 +161,16 @@ const editorChoices: Array<{
     description: "侧重上下文、因果链、删留边界与结构化剪辑判断。",
   },
   {
+    id: "kimi",
+    name: "Kimi K3 主编",
+    eyebrow: "长上下文",
+    description: "侧重长录屏的上下文理解，并以严格 JSON 计划执行同一份天总 Skill。",
+  },
+  {
     id: "doubao",
     name: "火山主编",
     eyebrow: "中文音画",
     description: "侧重中文直播语境、现场感、动作表情与本土表达。",
-  },
-  {
-    id: "kimi",
-    name: "Kimi K3 主编",
-    eyebrow: "第三意见",
-    description: "独立执行完整天总 Skill，用长上下文推理检验主题、金句与完整闭环。",
   },
 ];
 
@@ -663,8 +580,7 @@ const initialDecisions = Object.fromEntries(
 const stepLabels: { step: WorkflowStep; label: string }[] = [
   { step: 1, label: "上传与类型" },
   { step: 2, label: "内容地图" },
-  { step: 3, label: "删字与粗剪" },
-  { step: 4, label: "包装与交付" },
+  { step: 3, label: "文字精剪" },
 ];
 
 function projectDateFromFile(file: File) {
@@ -758,8 +674,6 @@ function processorCandidateToIdea(candidate: ProcessorCandidate, position: numbe
 const processorStageLabels: Record<string, string> = {
   queued: "等待处理",
   starting: "启动真实分析任务",
-  downloading: "从私有存储读取整场直播",
-  binding_private_core: "绑定并校验天总私有切片核心",
   probe: "读取原片与音画轨",
   probing: "读取原片与音画轨",
   audio_extract: "提取原片音轨",
@@ -769,17 +683,13 @@ const processorStageLabels: Record<string, string> = {
   visual_mapping: "扫描全场画面与动作",
   sparse_visual_screening: "建立全场视觉事件地图",
   dense_visual_reverse_recall: "密集画面反向寻找漏网切片",
-  full_timeline_evidence_preparation: "建立整场逐字稿证据轴",
   private_core_reasoning: "运行天总私有切片内核",
-  private_core_reasoning_partial: "保留已完成的主编结果",
   candidate_generation: "运行天总专属切片内核",
-  candidate_native_av_review: "逐条复核原生音画证据",
   candidate_dense_refinement: "逐条校正画面、逐字稿与切口",
   candidate_validation: "逐条校验候选音画证据",
   candidate_verification: "逐条校验候选音画证据",
   validating_private_contract: "校验事实层、编辑计划与决策台账",
   rendering_previews: "生成候选粗剪预览",
-  rendering_rough_proxies: "生成候选粗剪 MP4",
   retry_wait: "本次处理失败，等待自动重试",
   review_ready: "候选已生成",
   ready: "候选已生成",
@@ -810,243 +720,6 @@ function processorProgress(job: ProcessorJob) {
       99,
       Math.round(29 + Math.max(0, Math.min(100, job.progress)) * 0.7),
     ),
-  );
-}
-
-async function readProcessorProgress(jobId: string) {
-  const [{ job }, eventsResult] = await Promise.all([
-    readProcessorJob(jobId),
-    readProcessorJobEvents(jobId).catch(() => ({ events: [] as ProcessorJobEvent[] })),
-  ]);
-  return { job, events: eventsResult.events };
-}
-
-type ProgressState = "done" | "active" | "waiting" | "failed";
-
-const analysisWorkflow = [
-  {
-    id: "source",
-    label: "原片入库",
-    description: "上传、完整性校验、读取音画轨",
-    stages: ["queued", "starting", "downloading", "binding_private_core", "probe", "probing"],
-  },
-  {
-    id: "transcript",
-    label: "听清直播",
-    description: "中文逐字稿、说话人、绝对时间码",
-    stages: ["audio_extract", "transcription", "transcribing"],
-  },
-  {
-    id: "recall",
-    label: "整场召回",
-    description: "完整时间轴找主题、金句与自然候选",
-    stages: [
-      "visual_map",
-      "visual_mapping",
-      "sparse_visual_screening",
-      "dense_visual_reverse_recall",
-      "full_timeline_evidence_preparation",
-      "private_core_reasoning",
-      "private_core_reasoning_partial",
-      "candidate_generation",
-    ],
-  },
-  {
-    id: "av",
-    label: "看懂现场",
-    description: "动作、表情、语气、插话与商品展示",
-    stages: ["candidate_native_av_review"],
-  },
-  {
-    id: "editorial",
-    label: "三模终审",
-    description: "OpenAI、火山、Kimi 各自执行同版 Skill",
-    stages: ["candidate_dense_refinement", "candidate_validation", "candidate_verification"],
-  },
-  {
-    id: "contract",
-    label: "硬校验",
-    description: "主题、金句、开头、结尾、时长与证据闭环",
-    stages: ["validating_private_contract"],
-  },
-  {
-    id: "delivery",
-    label: "粗剪交付",
-    description: "生成可播放 MP4、候选清单与下载文件",
-    stages: ["rendering_previews", "rendering_rough_proxies", "review_ready", "ready"],
-  },
-] as const;
-
-function workflowProgressState(
-  phaseIndex: number,
-  job: ProcessorJob | null,
-  progress: number,
-): ProgressState {
-  if (!job) {
-    if (phaseIndex === 0 && progress > 0) return "active";
-    return "waiting";
-  }
-  if (job.status === "failed" || job.status === "cancelled") {
-    const currentIndex = Math.max(
-      0,
-      analysisWorkflow.findIndex((phase) =>
-        (phase.stages as readonly string[]).includes(job.stage)
-      ),
-    );
-    if (phaseIndex < currentIndex) return "done";
-    return phaseIndex === currentIndex ? "failed" : "waiting";
-  }
-  if (job.status === "succeeded") return "done";
-  const currentIndex = analysisWorkflow.findIndex((phase) =>
-    (phase.stages as readonly string[]).includes(job.stage)
-  );
-  if (currentIndex === -1) return phaseIndex === 0 ? "active" : "waiting";
-  if (phaseIndex < currentIndex) return "done";
-  if (phaseIndex === currentIndex) return "active";
-  return "waiting";
-}
-
-const providerUi = [
-  { id: "openai", label: "OpenAI" },
-  { id: "doubao", label: "火山 Seed Pro" },
-  { id: "kimi", label: "Kimi K3" },
-] as const;
-
-function selectedProviders(editorMode: EditorMode) {
-  if (editorMode === "compare_all") return providerUi;
-  if (editorMode === "compare") return providerUi.filter(({ id }) => id !== "kimi");
-  return providerUi.filter(({ id }) => id === editorMode);
-}
-
-function providerProgressCopy(
-  provider: (typeof providerUi)[number],
-  events: ProcessorJobEvent[],
-  job: ProcessorJob | null,
-) {
-  const aliases = provider.id === "openai"
-    ? ["OpenAI"]
-    : provider.id === "doubao"
-      ? ["火山 Seed Pro", "豆包"]
-      : ["Kimi K3", "Kimi"];
-  const event = events.find((item) => aliases.some((alias) => item.message.includes(alias)));
-  if (!event) {
-    if (job?.status === "succeeded") return { state: "done" as ProgressState, copy: "本场结果已交付" };
-    if (job?.stage.startsWith("private_core_reasoning")) {
-      return { state: "active" as ProgressState, copy: "并行执行中，等待首个窗口回报" };
-    }
-    return { state: "waiting" as ProgressState, copy: "等待进入主编阶段" };
-  }
-  const match = event.message.match(/(\d+)\/(\d+)/);
-  const failed = /不可用|失败/.test(event.message);
-  const completed = Boolean(match && match[1] === match[2]) || /已校验并复用|已完成结果/.test(event.message);
-  return {
-    state: failed ? "failed" as ProgressState : completed ? "done" as ProgressState : "active" as ProgressState,
-    copy: match ? `${match[1]}/${match[2]} 个窗口` : event.message,
-  };
-}
-
-function eventTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(date);
-}
-
-function AnalysisProgressPanel({
-  progress,
-  stage,
-  job,
-  events,
-  editorMode,
-}: {
-  progress: number;
-  stage: string;
-  job: ProcessorJob | null;
-  events: ProcessorJobEvent[];
-  editorMode: EditorMode;
-}) {
-  const currentPhaseIndex = job
-    ? analysisWorkflow.findIndex((phase) =>
-        (phase.stages as readonly string[]).includes(job.stage)
-      )
-    : 0;
-  const safePhaseIndex = Math.max(0, currentPhaseIndex);
-  const latestEvent = events[0];
-  const displayedProgress = Math.round(job?.progress ?? progress);
-
-  return (
-    <section className="analysis-progress-panel" aria-labelledby="analysis-progress-title">
-      <div className="analysis-progress-heading">
-        <div>
-          <span>真实任务进度</span>
-          <h3 id="analysis-progress-title">
-            第 {safePhaseIndex + 1}/{analysisWorkflow.length} 步 · {stage || analysisWorkflow[safePhaseIndex]!.label}
-          </h3>
-        </div>
-        <strong>{Math.max(0, Math.min(100, displayedProgress))}%</strong>
-      </div>
-
-      <div className="analysis-progress-track" aria-hidden="true">
-        <span style={{ width: `${Math.max(0, Math.min(100, displayedProgress))}%` }} />
-      </div>
-
-      <p className="analysis-progress-now" aria-live="polite">
-        {latestEvent?.message ?? stage}
-      </p>
-
-      <ol className="analysis-workflow-list">
-        {analysisWorkflow.map((phase, index) => {
-          const state = workflowProgressState(index, job, progress);
-          return (
-            <li key={phase.id} data-state={state}>
-              <span className="analysis-step-number">{String(index + 1).padStart(2, "0")}</span>
-              <div>
-                <b>{phase.label}</b>
-                <small>{phase.description}</small>
-              </div>
-              <em>{state === "done" ? "已完成" : state === "active" ? "进行中" : state === "failed" ? "需处理" : "等待"}</em>
-            </li>
-          );
-        })}
-      </ol>
-
-      <div className="provider-progress-section">
-        <div className="provider-progress-title">
-          <b>主编模型</b>
-          <small>各自独立执行同一版天总 Skill</small>
-        </div>
-        <div className="provider-progress-grid">
-          {selectedProviders(editorMode).map((provider) => {
-            const providerProgress = providerProgressCopy(provider, events, job);
-            return (
-              <article key={provider.id} data-state={providerProgress.state}>
-                <span>{provider.label}</span>
-                <b>{providerProgress.copy}</b>
-              </article>
-            );
-          })}
-        </div>
-      </div>
-
-      {events.length > 0 && (
-        <details className="analysis-event-details">
-          <summary>查看后台真实记录 · 最近 {Math.min(events.length, 12)} 条</summary>
-          <ol>
-            {events.slice(0, 12).map((event) => (
-              <li key={event.id}>
-                <time>{eventTime(event.createdAt)}</time>
-                <span>{event.message}</span>
-                <b>{event.progress}%</b>
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-    </section>
   );
 }
 
@@ -1218,6 +891,36 @@ function professionalXmlProfile(
   return rate ? { sourceMedia, rate } : null;
 }
 
+function formatCny(value: number | null) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `¥${value.toFixed(2)}`
+    : "待计费数据";
+}
+
+function CostLedgerSummary({ cost }: { cost: ProcessorJobCost | null }) {
+  if (!cost) return null;
+  const stages = Object.entries(cost.perStageCny);
+  return (
+    <section className="cost-ledger-summary" aria-label="本场实际模型成本">
+      <span>实际模型成本</span>
+      <strong>{formatCny(cost.totalCny)}</strong>
+      <small>
+        {cost.complete
+          ? "已按服务端台账完整计入；不含存储、带宽与云主机。"
+          : `部分调用未返回可计费单价：${cost.unpricedStages.join("、") || "待补充"}。`}
+      </small>
+      <div className="cost-ledger-metrics">
+        <span>{cost.deliveredClipCount} 条粗剪</span>
+        <span>{cost.cnyPerSourceHour === null ? "每小时原片待核" : `${formatCny(cost.cnyPerSourceHour)}/原片小时`}</span>
+        <span>{cost.cnyPerDeliveredSecond === null ? "每秒成片待核" : `${formatCny(cost.cnyPerDeliveredSecond)}/成片秒`}</span>
+      </div>
+      {stages.length > 0 && (
+        <p>{stages.map(([stage, amount]) => `${stage} ${formatCny(amount)}`).join(" · ")}</p>
+      )}
+    </section>
+  );
+}
+
 export default function Home() {
   const [step, setStep] = useState<WorkflowStep>(1);
   const [intakeStep, setIntakeStep] = useState<IntakeStep>(1);
@@ -1229,9 +932,8 @@ export default function Home() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisStage, setAnalysisStage] = useState("");
   const [analysisError, setAnalysisError] = useState("");
+  const [analysisCost, setAnalysisCost] = useState<ProcessorJobCost | null>(null);
   const [analysisReady, setAnalysisReady] = useState(false);
-  const [activeProcessorJob, setActiveProcessorJob] = useState<ProcessorJob | null>(null);
-  const [analysisEvents, setAnalysisEvents] = useState<ProcessorJobEvent[]>([]);
   const [runtimeIdeas, setRuntimeIdeas] = useState<ClipIdea[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
   const [activeClipId, setActiveClipId] = useState(ideas[0].id);
@@ -1250,8 +952,6 @@ export default function Home() {
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [importedSubtitle, setImportedSubtitle] = useState<ImportedSubtitle | null>(null);
   const [selectedLocalExports, setSelectedLocalExports] = useState<LocalExportOption[]>(["mp4"]);
-  const [packagingSettings, setPackagingSettings] = useState<PackagingSettings>(() => packagingPreset("聊播"));
-  const [packagingSaveState, setPackagingSaveState] = useState<"idle" | "loading" | "dirty" | "saving" | "saved" | "failed">("idle");
   const [galleryMotionAllowed, setGalleryMotionAllowed] = useState(false);
   const [galleryVisible, setGalleryVisible] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1365,8 +1065,8 @@ export default function Home() {
   const editorCandidateCounts = useMemo(
     () => ({
       openai: modeIdeas.filter((idea) => idea.editorProvider === "openai").length,
-      doubao: modeIdeas.filter((idea) => idea.editorProvider === "doubao").length,
       kimi: modeIdeas.filter((idea) => idea.editorProvider === "kimi").length,
+      doubao: modeIdeas.filter((idea) => idea.editorProvider === "doubao").length,
     }),
     [modeIdeas],
   );
@@ -1404,38 +1104,6 @@ export default function Home() {
     const next = activeClip.transcript[index + 1]?.seconds ?? line.seconds + 5;
     return [{ start: line.seconds, end: next }];
   });
-  const packagingCaptionText = activeClip.transcript.find(
-    (line) => (decisions[line.id] ?? line.defaultDecision) === "keep",
-  )?.text ?? activeClip.title;
-  const recommendedBgm = useMemo(() => smartBgmProfile(activeClip), [activeClip]);
-
-  useEffect(() => {
-    if (step !== 4 || !activeProjectId || !activeClip?.id) return;
-    const controller = new AbortController();
-    void fetch(
-      `/api/projects/${encodeURIComponent(activeProjectId)}/packaging?candidateId=${encodeURIComponent(activeClip.id)}`,
-      { cache: "no-store", signal: controller.signal },
-    )
-      .then(async (response) => {
-        if (!response.ok) throw new Error("packaging settings unavailable");
-        return response.json() as Promise<{ settings?: unknown }>;
-      })
-      .then((payload) => {
-        if (controller.signal.aborted) return;
-        setPackagingSettings(
-          payload.settings
-            ? normalizePackagingSettings(payload.settings, activeClip.kind)
-            : packagingPreset(activeClip.kind),
-        );
-        setPackagingSaveState(payload.settings ? "saved" : "idle");
-      })
-      .catch((error) => {
-        if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) return;
-        setPackagingSettings(packagingPreset(activeClip.kind));
-        setPackagingSaveState("failed");
-      });
-    return () => controller.abort();
-  }, [step, activeProjectId, activeClip.id, activeClip.kind]);
 
   function showToast(message: string) {
     setToast(message);
@@ -1544,8 +1212,7 @@ export default function Home() {
     setStep(1);
     setAnalysisReady(false);
     setAnalysisError("");
-    setActiveProcessorJob(null);
-    setAnalysisEvents([]);
+    setAnalysisCost(null);
     setRuntimeIdeas([]);
     setCurrentTime(0);
     setReviewSourceMode("candidate");
@@ -1571,17 +1238,13 @@ export default function Home() {
       let currentProject = project;
       let job: ProcessorJob | null = null;
       if (project.processorJobId) {
-        const progressSnapshot = await readProcessorProgress(project.processorJobId);
-        job = progressSnapshot.job;
-        setActiveProcessorJob(job);
-        setAnalysisEvents(progressSnapshot.events);
+        ({ job } = await readProcessorJob(project.processorJobId));
         let provisionalCandidatesShown = false;
         while (
           runId === projectResumeRunRef.current &&
           processorJobIsPending(job)
         ) {
           currentProject = projectMirrorFromJob(currentProject, job);
-          setActiveProcessorJob(job);
           setProjects((current) => current.map((item) =>
             item.id === currentProject.id ? currentProject : item
           ));
@@ -1608,10 +1271,7 @@ export default function Home() {
           }
           await wait(2_500);
           if (runId !== projectResumeRunRef.current) return;
-          const progressSnapshot = await readProcessorProgress(project.processorJobId!);
-          job = progressSnapshot.job;
-          setActiveProcessorJob(job);
-          setAnalysisEvents(progressSnapshot.events);
+          ({ job } = await readProcessorJob(project.processorJobId!));
         }
         if (runId !== projectResumeRunRef.current) return;
         currentProject = projectMirrorFromJob(currentProject, job);
@@ -1629,8 +1289,13 @@ export default function Home() {
       }
 
       setAnalysisProgress(99);
-      setAnalysisStage("读取候选、证据与当前渲染版本");
+      setAnalysisStage("读取候选、证据、粗剪与成本台账");
       const { candidates } = await readProcessorCandidates(project.id);
+      if (job?.id) {
+        const { cost } = await readProcessorJobCost(job.id).catch(() => ({ cost: null }));
+        if (runId !== projectResumeRunRef.current) return;
+        setAnalysisCost(cost);
+      }
       if (runId !== projectResumeRunRef.current) return;
       const nextIdeas = applyProcessorCandidateSet(candidates, project.mode);
       currentProject = {
@@ -1700,8 +1365,6 @@ export default function Home() {
     setSelectedIds([first.id]);
     setRuntimeIdeas([]);
     setAnalysisReady(false);
-    setActiveProcessorJob(null);
-    setAnalysisEvents([]);
     setAnalysisProgress(0);
     setAnalysisStage("");
     setAnalysisError("");
@@ -1739,8 +1402,6 @@ export default function Home() {
     setAnalysisProgress(0);
     setAnalysisStage("");
     setAnalysisError("");
-    setActiveProcessorJob(null);
-    setAnalysisEvents([]);
     setRuntimeIdeas([]);
     setActiveProjectId("");
     setStep(1);
@@ -1775,8 +1436,6 @@ export default function Home() {
     setRuntimeIdeas([]);
     setAnalysisReady(false);
     setAnalysisError("");
-    setActiveProcessorJob(null);
-    setAnalysisEvents([]);
     setAnalysisProgress(1);
     setAnalysisStage("创建本场切片项目");
     let projectId = "";
@@ -1825,7 +1484,6 @@ export default function Home() {
       setAnalysisStage("原片校验完成，进入异步分析");
       const { job: startedJob } = await startProcessorJob(projectId, upload.id);
       processorJobId = startedJob.id;
-      setActiveProcessorJob(startedJob);
       const persistedStartedProject = await persistProjectMirror({
         ...payload.project,
         status: "analyzing",
@@ -1843,7 +1501,6 @@ export default function Home() {
       while (processorJobIsPending(job)) {
         const normalizedProgress = processorProgress(job);
         const stageLabel = processorStageLabel(job.stage);
-        setActiveProcessorJob(job);
         setAnalysisProgress(normalizedProgress);
         setAnalysisStage(stageLabel);
         setProjects((current) => current.map((project) => project.id === projectId ? {
@@ -1870,13 +1527,8 @@ export default function Home() {
           }
         }
         await wait(2_500);
-        const progressSnapshot = await readProcessorProgress(startedJob.id);
-        job = progressSnapshot.job;
-        setActiveProcessorJob(job);
-        setAnalysisEvents(progressSnapshot.events);
+        ({ job } = await readProcessorJob(startedJob.id));
       }
-
-      setActiveProcessorJob(job);
 
       if (job.status !== "succeeded") {
         throw new Error(
@@ -1887,9 +1539,11 @@ export default function Home() {
         );
       }
 
-      setAnalysisStage("读取候选、证据与粗剪预览");
+      setAnalysisStage("读取候选、证据、粗剪与成本台账");
       setAnalysisProgress(99);
       const { candidates } = await readProcessorCandidates(projectId);
+      const { cost } = await readProcessorJobCost(job.id).catch(() => ({ cost: null }));
+      setAnalysisCost(cost);
       const modelResultCandidates = applyProcessorCandidateSet(
         candidates,
         selectedMode,
@@ -1956,97 +1610,7 @@ export default function Home() {
   }
 
   function openStep(nextStep: WorkflowStep) {
-    if (nextStep === 1) {
-      setStep(nextStep);
-      return;
-    }
-    if (!analysisReady) return;
-    if (nextStep === 4 && generationState !== "done") {
-      showToast("先完成逐字删留、生成粗剪并确认音画，再进入包装。");
-      return;
-    }
-    setStep(nextStep);
-  }
-
-  function patchPackaging<K extends PackagingSection>(
-    section: K,
-    patch: Partial<PackagingSettings[K]>,
-  ) {
-    setPackagingSettings((current) => ({
-      ...current,
-      preset: "custom",
-      [section]: { ...current[section], ...patch },
-    }));
-    setPackagingSaveState("dirty");
-  }
-
-  function applyPackagingPreset(preset: "tianzong_magazine" | "light" | "clean" | "none") {
-    setPackagingSettings(packagingPreset(activeClip.kind, preset));
-    setPackagingSaveState("dirty");
-  }
-
-  function applySmartBgm() {
-    patchPackaging("bgm", {
-      enabled: true,
-      selectionMode: "智能推荐",
-      source: "AI原创",
-      mood: recommendedBgm.mood,
-      tempoBpm: recommendedBgm.tempoBpm,
-      prompt: recommendedBgm.prompt,
-      volume: 9,
-      autoDucking: true,
-    });
-    showToast("已按本条内容、人物线和说话密度生成配乐建议；试听后仍可换曲或关闭。");
-  }
-
-  async function savePackagingPlan() {
-    if (!activeProjectId) {
-      showToast("当前不是已创建的真实项目，不能保存包装方案。");
-      return false;
-    }
-    setPackagingSaveState("saving");
-    try {
-      const response = await fetch(
-        `/api/projects/${encodeURIComponent(activeProjectId)}/packaging`,
-        {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            candidateId: activeClip.id,
-            settings: packagingSettings,
-          }),
-        },
-      );
-      const payload = await response.json().catch(() => ({})) as { settings?: unknown; error?: string };
-      if (!response.ok) throw new Error(payload.error || "包装方案保存失败");
-      setPackagingSettings(normalizePackagingSettings(payload.settings, activeClip.kind));
-      setPackagingSaveState("saved");
-      showToast("包装方案已保存到本场项目；团队重新打开仍会看到同一套参数。");
-      return true;
-    } catch (error) {
-      setPackagingSaveState("failed");
-      showToast(error instanceof Error ? error.message : "包装方案保存失败。");
-      return false;
-    }
-  }
-
-  function downloadPackagingPlan() {
-    const safeTitle = activeClip.title.replace(/[\\/:*?"<>|]/g, "-");
-    downloadBlob(
-      JSON.stringify({
-        schema: "tianpack-1.0",
-        projectId: activeProjectId,
-        candidateId: activeClip.id,
-        title: activeClip.title,
-        kind: activeClip.kind,
-        sourceStart: activeClip.sourceStart,
-        sourceEnd: activeClip.sourceEnd,
-        settings: packagingSettings,
-      }, null, 2),
-      "application/json;charset=utf-8",
-      `${projectDate?.label ?? "天总"}-${safeTitle}-包装方案.json`,
-    );
-    showToast("已下载可复用的包装方案；这不是压平视频，而是逐项可改的参数清单。");
+    if (nextStep === 1 || analysisReady) setStep(nextStep);
   }
 
   function toggleSelected(id: string) {
@@ -2256,7 +1820,7 @@ export default function Home() {
   }
 
   function handoffToChatCut() {
-    showToast(`当前站点还缺 ChatCut 服务授权；授权接通后会创建原生可编辑时间线，并带入${packagingSettings.enabled ? "全部包装参数" : "干净粗剪"}${importedSubtitle ? `和 ${importedSubtitle.name}` : ""}。`);
+    showToast(`当前尚未接通 ChatCut 授权。正式版会创建可编辑时间线，并带入删留决定${importedSubtitle ? `和 ${importedSubtitle.name}` : ""}。`);
   }
 
   async function importSrt(event: ChangeEvent<HTMLInputElement>) {
@@ -2426,10 +1990,7 @@ export default function Home() {
               <button
                 key={item.step}
                 className={step === item.step ? "active" : step > item.step ? "complete" : ""}
-                disabled={
-                  (item.step > 1 && !analysisReady)
-                  || (item.step === 4 && generationState !== "done")
-                }
+                disabled={item.step > 1 && !analysisReady}
                 onClick={() => openStep(item.step)}
                 aria-current={step === item.step ? "step" : undefined}
               >
@@ -2600,9 +2161,9 @@ export default function Home() {
                           </button>
                         ))}
                       </div>
-                      {(editorMode === "compare" || editorMode === "compare_all") && (
+                      {editorMode === "compare" && (
                         <p className="editor-compare-note">
-                          各套结果独立生成，不互相抄答案；候选页会并排显示差异。
+三套结果独立生成，不互相抄答案；候选页会按编导来源显示差异与实际成本。
                         </p>
                       )}
                     </section>
@@ -2623,13 +2184,10 @@ export default function Home() {
                 )}
 
                 {analysisProgress > 0 && analysisProgress < 100 && (
-                  <AnalysisProgressPanel
-                    progress={analysisProgress}
-                    stage={analysisStage}
-                    job={activeProcessorJob}
-                    events={analysisEvents}
-                    editorMode={editorMode}
-                  />
+                  <div className="composer-progress" aria-live="polite">
+                    <span style={{ width: `${analysisProgress}%` }} />
+                    <small>{analysisStage} · {analysisProgress}%</small>
+                  </div>
                 )}
                 {analysisError && (
                   <p className="composer-error" role="alert">
@@ -2734,13 +2292,14 @@ export default function Home() {
               <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看 S 级"}</button>
             </div>
             <p className="panel-intro">按完整语义、同题去重与风险门禁召回；自然返回多少就是多少，不设目标、不设保底，也不补齐。</p>
-            {(editorMode === "compare" || editorMode === "compare_all") && (
-              <div className="model-comparison-status" aria-label="模型候选数量">
+            {editorMode === "compare" && (
+              <div className="model-comparison-status" aria-label="三模型候选数量">
                 <span>OpenAI <b>{editorCandidateCounts.openai}</b></span>
+                <span>Kimi K3 <b>{editorCandidateCounts.kimi}</b></span>
                 <span>火山 Seed Pro <b>{editorCandidateCounts.doubao}</b></span>
-                {editorMode === "compare_all" && <span>Kimi K3 <b>{editorCandidateCounts.kimi}</b></span>}
               </div>
             )}
+            <CostLedgerSummary cost={analysisCost} />
             <div className="version-context"><span>{corpusBaseline.version}</span><p>{mode}规则 · 近期直播最高权重</p></div>
             <div className="idea-list">
               {displayedIdeas.map((idea) => (
@@ -2755,11 +2314,11 @@ export default function Home() {
                     <span>
                       {idea.editorProvider === "openai"
                         ? "OpenAI"
-                        : idea.editorProvider === "doubao"
-                          ? "火山"
-                          : idea.editorProvider === "kimi"
-                            ? "Kimi"
-                          : "主编"} · {idea.priority} · {idea.index}
+                        : idea.editorProvider === "kimi"
+                          ? "Kimi K3"
+                          : idea.editorProvider === "doubao"
+                            ? "火山"
+                            : "主编"} · {idea.priority} · {idea.index}
                     </span>
                     <strong>{idea.title}</strong>
                     <small>{idea.duration}</small>
@@ -2775,11 +2334,11 @@ export default function Home() {
               <span>
                 {activeClip.editorProvider === "openai"
                   ? "OpenAI 主编"
-                  : activeClip.editorProvider === "doubao"
-                    ? "火山 Seed Pro 主编"
-                    : activeClip.editorProvider === "kimi"
-                      ? "Kimi K3 主编"
-                    : "天总候选"} · {activeClip.index}
+                  : activeClip.editorProvider === "kimi"
+                    ? "Kimi K3 主编"
+                    : activeClip.editorProvider === "doubao"
+                      ? "火山 Seed Pro 主编"
+                      : "天总候选"} · {activeClip.index}
               </span>
               <b>编辑适配分 {activeClip.score} / 100</b>
             </div>
@@ -2894,13 +2453,14 @@ export default function Home() {
               <button onClick={toggleIdeaFilter} aria-pressed={highPotentialOnly}>{highPotentialOnly ? "查看全部" : "只看 S 级"}</button>
             </div>
             <p className="panel-intro">数量由天总专属判断自然得出，不设上限，也不补齐。</p>
-            {(editorMode === "compare" || editorMode === "compare_all") && (
-              <div className="model-comparison-status" aria-label="模型候选数量">
+            {editorMode === "compare" && (
+              <div className="model-comparison-status" aria-label="三模型候选数量">
                 <span>OpenAI <b>{editorCandidateCounts.openai}</b></span>
+                <span>Kimi K3 <b>{editorCandidateCounts.kimi}</b></span>
                 <span>火山 Seed Pro <b>{editorCandidateCounts.doubao}</b></span>
-                {editorMode === "compare_all" && <span>Kimi K3 <b>{editorCandidateCounts.kimi}</b></span>}
               </div>
             )}
+            <CostLedgerSummary cost={analysisCost} />
             <div className="version-context"><span>{corpusBaseline.version}</span><p>当前候选沿用已发布判断 · 人工差异进入回标</p></div>
             <div className="idea-list">
               {displayedIdeas.map((idea) => (
@@ -2914,8 +2474,6 @@ export default function Home() {
                       ? "OpenAI"
                       : idea.editorProvider === "doubao"
                         ? "火山"
-                        : idea.editorProvider === "kimi"
-                          ? "Kimi"
                         : "主编"} · {idea.priority} · {idea.index}
                   </span><strong>{idea.title}</strong><small>{idea.duration}</small>
                 </button>
@@ -3056,10 +2614,103 @@ export default function Home() {
               })}
             </div>
 
+            {generationState === "done" && (
+              <section ref={deliveryRef} className="delivery-panel" aria-labelledby="delivery-title" tabIndex={-1}>
+                <header>
+                  <span>FINAL DELIVERY / 本条已定稿</span>
+                  <h3 id="delivery-title">现在怎么输出？</h3>
+                  <p>要下载到本地的格式可以同时勾选；ChatCut 是独立交付，不参与批量下载。</p>
+                </header>
+
+                <div className="delivery-choice-grid" aria-label="最终交付选项">
+                  <article className={`delivery-option local ${selectedLocalExports.includes("mp4") ? "selected" : ""}`}>
+                    <label>
+                      <span className="delivery-option-top">
+                        <span>MP4 · 候选粗剪</span>
+                        <span className="delivery-choice-check">
+                          <input
+                            type="checkbox"
+                            checked={selectedLocalExports.includes("mp4")}
+                            onChange={() => toggleLocalExport("mp4")}
+                          />
+                          本地
+                        </span>
+                      </span>
+                      <strong>直接下载成片（候选粗剪）</strong>
+                      <small>无字幕 · 无效果 · 保留原声；修改删留后需等待新版重渲染</small>
+                    </label>
+                  </article>
+
+                  <article className={`delivery-option local ${selectedLocalExports.includes("srt") ? "selected" : ""}`}>
+                    <label>
+                      <span className="delivery-option-top">
+                        <span>SRT · 本地字幕</span>
+                        <span className="delivery-choice-check">
+                          <input
+                            type="checkbox"
+                            checked={selectedLocalExports.includes("srt")}
+                            onChange={() => toggleLocalExport("srt")}
+                          />
+                          本地
+                        </span>
+                      </span>
+                      <strong>{importedSubtitle ? importedSubtitle.name : "SRT 字幕文件"}</strong>
+                      <small>{importedSubtitle ? `已识别 ${importedSubtitle.cueCount} 条 · 可随所选格式下载` : "先导入字幕，再与其他格式一起下载"}</small>
+                    </label>
+                    <button type="button" className="subtitle-import-action" onClick={() => subtitleRef.current?.click()}>
+                      {importedSubtitle ? "更换 SRT 字幕" : "导入 SRT 字幕"}
+                    </button>
+                  </article>
+
+                  <article className={`delivery-option local ${selectedLocalExports.includes("xml") ? "selected" : ""}`}>
+                    <label>
+                      <span className="delivery-option-top">
+                        <span>XML · 本地时间线</span>
+                        <span className="delivery-choice-check">
+                          <input
+                            type="checkbox"
+                            checked={selectedLocalExports.includes("xml")}
+                            disabled={!activeXmlProfile}
+                            onChange={() => toggleLocalExport("xml")}
+                          />
+                          本地
+                        </span>
+                      </span>
+                      <strong>{activeXmlProfile ? "导出到专业剪辑软件" : "专业 XML 暂不可导出"}</strong>
+                      <small>
+                        {activeXmlProfile
+                          ? `Premiere / DaVinci Resolve · ${activeXmlProfile.sourceMedia.frameRate?.rational} fps · ${activeXmlProfile.sourceMedia.width}×${activeXmlProfile.sourceMedia.height} · ${activeXmlProfile.sourceMedia.audioChannels} 声道 · 按原片名重连`
+                          : "缺少经 ffprobe 验证的原片时基、宽高、声道或时长；不输出伪精准草案"}
+                      </small>
+                    </label>
+                  </article>
+
+                  <button type="button" className="delivery-option chatcut" onClick={handoffToChatCut}>
+                    <span className="delivery-option-top">
+                      <span>CHATCUT · 待授权</span>
+                      <span className="delivery-independent">独立操作</span>
+                    </span>
+                    <strong>进入 ChatCut 精修</strong>
+                    <small>创建可编辑时间线，继续加字幕、包装与效果</small>
+                  </button>
+                </div>
+                <input ref={subtitleRef} type="file" accept=".srt,application/x-subrip,text/plain" hidden onChange={importSrt} />
+
+                <div className="delivery-download-bar">
+                  <p><strong>{selectedLocalExports.length}</strong> 项本地格式已选</p>
+                  <button type="button" className="pink-action" disabled={!selectedLocalExports.length} onClick={() => void downloadSelectedLocalOutputs()}>
+                    下载所选到本地
+                  </button>
+                </div>
+
+                <p className="delivery-boundary">候选 MP4 由服务端按当前候选计划真实渲染；SRT 只做本地校验并原样下载；XML 只有取得原片真实帧率、宽高、声道与时长后才开放。团队改动删留后，只有新版渲染完成才会替换 MP4；ChatCut 工程仍作为独立精修交付。</p>
+              </section>
+            )}
+
             <div className="cut-actions">
               <button className="outline-action" onClick={() => setStep(2)}>返回内容地图</button>
               {generationState === "done" ? (
-                <button className="pink-action" onClick={() => setStep(4)}>粗剪已确认 · 进入包装</button>
+                <span className="delivery-ready">已确认 · 在上方选择输出方式</span>
               ) : (
                 <button className="pink-action" onClick={() => void generateClip()} disabled={generationState === "working"}>
                   {generationState === "working" ? "正在写入后台…" : "确认音画与本条剪辑决定"}
@@ -3068,222 +2719,6 @@ export default function Home() {
             </div>
           </section>
         </section>
-      )}
-
-      {step === 4 && (
-        <main className="packaging-workspace" aria-labelledby="packaging-title">
-          <header className="packaging-hero">
-            <div>
-              <span>STEP 04 / 包装与交付</span>
-              <h1 id="packaging-title">粗剪已经成立，包装现在由你决定。</h1>
-              <p>可以完全不包装，直接交付干净粗剪；也可以接受系统建议，再逐项修改字幕、花字、放大、跟踪、动画、转场、特效、音效和配乐。</p>
-            </div>
-            <button className="outline-action" onClick={() => setStep(3)}>返回删字与粗剪</button>
-          </header>
-
-          <section className="packaging-decision" aria-label="是否进行包装">
-            <button
-              type="button"
-              className={packagingSettings.enabled ? "active" : ""}
-              onClick={() => applyPackagingPreset("tianzong_magazine")}
-            >
-              <span>01</span><strong>要包装</strong><small>先用天总杂志风建议，再逐项修改</small>
-            </button>
-            <button
-              type="button"
-              className={!packagingSettings.enabled ? "active" : ""}
-              onClick={() => applyPackagingPreset("none")}
-            >
-              <span>02</span><strong>不包装</strong><small>保留无字幕、无效果、原声干净粗剪</small>
-            </button>
-          </section>
-
-          <div className={`packaging-grid ${packagingSettings.enabled ? "" : "packaging-off"}`}>
-            <aside className="packaging-controls" aria-label="可编辑包装参数">
-              <div className="packaging-control-head">
-                <span>EDITABLE PACKAGING</span>
-                <strong>{packagingSettings.enabled ? "所有元素都可编辑" : "当前跳过包装"}</strong>
-                <p>{packagingSettings.enabled ? "每一项都保存为独立参数，进入时间线后仍可改。" : "系统不会偷偷添加字幕、音乐或效果。"}</p>
-              </div>
-
-              {packagingSettings.enabled && (
-                <>
-                  <div className="packaging-presets" aria-label="包装预设">
-                    <button className={packagingSettings.preset === "tianzong_magazine" ? "active" : ""} onClick={() => applyPackagingPreset("tianzong_magazine")}>天总杂志风</button>
-                    <button className={packagingSettings.preset === "light" ? "active" : ""} onClick={() => applyPackagingPreset("light")}>轻包装</button>
-                    <button className={packagingSettings.preset === "clean" ? "active" : ""} onClick={() => applyPackagingPreset("clean")}>纯净字幕</button>
-                  </div>
-
-                  <details className="packaging-module" open>
-                    <summary>
-                      <label><input type="checkbox" checked={packagingSettings.captions.enabled} onChange={(event) => patchPackaging("captions", { enabled: event.target.checked })} />字幕</label>
-                      <small>{packagingSettings.captions.style} · {packagingSettings.captions.size}px</small>
-                    </summary>
-                    <div>
-                      <label>字体气质<select value={packagingSettings.captions.style} onChange={(event) => patchPackaging("captions", { style: event.target.value as PackagingSettings["captions"]["style"] })}><option>杂志衬线</option><option>清透无衬线</option><option>高对比</option></select></label>
-                      <label>字号<input type="range" min="42" max="96" value={packagingSettings.captions.size} onChange={(event) => patchPackaging("captions", { size: Number(event.target.value) })} /><output>{packagingSettings.captions.size}px</output></label>
-                      <label>位置<select value={packagingSettings.captions.position} onChange={(event) => patchPackaging("captions", { position: event.target.value as PackagingSettings["captions"]["position"] })}><option>下方</option><option>中下</option></select></label>
-                      <label className="inline-check"><input type="checkbox" checked={packagingSettings.captions.keywordHighlight} onChange={(event) => patchPackaging("captions", { keywordHighlight: event.target.checked })} />当前关键词高亮</label>
-                    </div>
-                  </details>
-
-                  <details className="packaging-module">
-                    <summary><label><input type="checkbox" checked={packagingSettings.keywordPunch.enabled} onChange={(event) => patchPackaging("keywordPunch", { enabled: event.target.checked })} />关键词放大</label><small>{packagingSettings.keywordPunch.scale}% · {packagingSettings.keywordPunch.density}</small></summary>
-                    <div>
-                      <label>放大比例<input type="range" min="100" max="135" value={packagingSettings.keywordPunch.scale} onChange={(event) => patchPackaging("keywordPunch", { scale: Number(event.target.value) })} /><output>{packagingSettings.keywordPunch.scale}%</output></label>
-                      <label>密度<select value={packagingSettings.keywordPunch.density} onChange={(event) => patchPackaging("keywordPunch", { density: event.target.value as PackagingSettings["keywordPunch"]["density"] })}><option>只放金句</option><option>标准</option><option>强化</option></select></label>
-                    </div>
-                  </details>
-
-                  <details className="packaging-module">
-                    <summary><label><input type="checkbox" checked={packagingSettings.flowerText.enabled} onChange={(event) => patchPackaging("flowerText", { enabled: event.target.checked })} />花字与信息卡</label><small>{packagingSettings.flowerText.style} · {packagingSettings.flowerText.density}</small></summary>
-                    <div>
-                      <label>样式<select value={packagingSettings.flowerText.style} onChange={(event) => patchPackaging("flowerText", { style: event.target.value as PackagingSettings["flowerText"]["style"] })}><option>粉白杂志</option><option>黑白画报</option><option>极简标签</option></select></label>
-                      <label>密度<select value={packagingSettings.flowerText.density} onChange={(event) => patchPackaging("flowerText", { density: event.target.value as PackagingSettings["flowerText"]["density"] })}><option>克制</option><option>标准</option><option>强化</option></select></label>
-                    </div>
-                  </details>
-
-                  <details className="packaging-module">
-                    <summary><label><input type="checkbox" checked={packagingSettings.tracking.enabled} onChange={(event) => patchPackaging("tracking", { enabled: event.target.checked })} />跟踪与推近</label><small>强度 {packagingSettings.tracking.intensity}</small></summary>
-                    <div>
-                      <label>强度<input type="range" min="0" max="30" value={packagingSettings.tracking.intensity} onChange={(event) => patchPackaging("tracking", { intensity: Number(event.target.value) })} /><output>{packagingSettings.tracking.intensity}</output></label>
-                      <label className="inline-check"><input type="checkbox" checked={packagingSettings.tracking.followFace} onChange={(event) => patchPackaging("tracking", { followFace: event.target.checked })} />优先跟随人物脸部</label>
-                    </div>
-                  </details>
-
-                  <details className="packaging-module">
-                    <summary><label><input type="checkbox" checked={packagingSettings.animation.enabled} onChange={(event) => patchPackaging("animation", { enabled: event.target.checked })} />动画</label><small>{packagingSettings.animation.style} · {packagingSettings.animation.intensity}</small></summary>
-                    <div>
-                      <label>动作<select value={packagingSettings.animation.style} onChange={(event) => patchPackaging("animation", { style: event.target.value as PackagingSettings["animation"]["style"] })}><option>轻推近</option><option>杂志滑入</option><option>呼吸缩放</option></select></label>
-                      <label>强度<input type="range" min="0" max="100" value={packagingSettings.animation.intensity} onChange={(event) => patchPackaging("animation", { intensity: Number(event.target.value) })} /><output>{packagingSettings.animation.intensity}</output></label>
-                    </div>
-                  </details>
-
-                  <details className="packaging-module">
-                    <summary><label><input type="checkbox" checked={packagingSettings.transitions.enabled} onChange={(event) => patchPackaging("transitions", { enabled: event.target.checked })} />转场</label><small>{packagingSettings.transitions.style} · {packagingSettings.transitions.durationMs}ms</small></summary>
-                    <div>
-                      <label>方式<select value={packagingSettings.transitions.style} onChange={(event) => patchPackaging("transitions", { style: event.target.value as PackagingSettings["transitions"]["style"] })}><option>无感叠化</option><option>节奏硬切</option><option>柔和闪白</option></select></label>
-                      <label>时长<input type="range" min="80" max="800" step="20" value={packagingSettings.transitions.durationMs} onChange={(event) => patchPackaging("transitions", { durationMs: Number(event.target.value) })} /><output>{packagingSettings.transitions.durationMs}ms</output></label>
-                    </div>
-                  </details>
-
-                  <details className="packaging-module">
-                    <summary><label><input type="checkbox" checked={packagingSettings.effects.enabled} onChange={(event) => patchPackaging("effects", { enabled: event.target.checked })} />画面特效</label><small>{packagingSettings.effects.style} · {packagingSettings.effects.intensity}</small></summary>
-                    <div>
-                      <label>风格<select value={packagingSettings.effects.style} onChange={(event) => patchPackaging("effects", { style: event.target.value as PackagingSettings["effects"]["style"] })}><option>原片优先</option><option>冷白时装</option><option>轻颗粒</option></select></label>
-                      <label>强度<input type="range" min="0" max="100" value={packagingSettings.effects.intensity} onChange={(event) => patchPackaging("effects", { intensity: Number(event.target.value) })} /><output>{packagingSettings.effects.intensity}</output></label>
-                    </div>
-                  </details>
-
-                  <details className="packaging-module">
-                    <summary><label><input type="checkbox" checked={packagingSettings.soundEffects.enabled} onChange={(event) => patchPackaging("soundEffects", { enabled: event.target.checked })} />音效</label><small>{packagingSettings.soundEffects.density} · {packagingSettings.soundEffects.volume}%</small></summary>
-                    <div>
-                      <label>密度<select value={packagingSettings.soundEffects.density} onChange={(event) => patchPackaging("soundEffects", { density: event.target.value as PackagingSettings["soundEffects"]["density"] })}><option>克制</option><option>标准</option><option>强化</option></select></label>
-                      <label>音量<input type="range" min="0" max="100" value={packagingSettings.soundEffects.volume} onChange={(event) => patchPackaging("soundEffects", { volume: Number(event.target.value) })} /><output>{packagingSettings.soundEffects.volume}%</output></label>
-                    </div>
-                  </details>
-
-                  <details className="packaging-module bgm-module" open>
-                    <summary><label><input type="checkbox" checked={packagingSettings.bgm.enabled} onChange={(event) => patchPackaging("bgm", { enabled: event.target.checked })} />背景音乐</label><small>{packagingSettings.bgm.enabled ? `${packagingSettings.bgm.source} · ${packagingSettings.bgm.mood} · ${packagingSettings.bgm.tempoBpm} BPM` : "不配乐"}</small></summary>
-                    <div className="bgm-editor">
-                      <div className="bgm-smart-card">
-                        <span>本条智能建议</span>
-                        <strong>{recommendedBgm.mood} · {recommendedBgm.tempoBpm} BPM</strong>
-                        <p>{recommendedBgm.reason}</p>
-                        <button type="button" onClick={applySmartBgm}>采用智能建议</button>
-                      </div>
-                      <label>选择方式<select value={packagingSettings.bgm.selectionMode} onChange={(event) => patchPackaging("bgm", { selectionMode: event.target.value as PackagingSettings["bgm"]["selectionMode"] })}><option>智能推荐</option><option>人工选择</option></select></label>
-                      <label>音源路径<select value={packagingSettings.bgm.source} onChange={(event) => patchPackaging("bgm", { source: event.target.value as PackagingSettings["bgm"]["source"], selectionMode: event.target.value === "AI原创" ? "智能推荐" : "人工选择" })}><option>AI原创</option><option>免费曲库</option><option>抖音端内补歌</option><option>上传授权音源</option></select></label>
-                      <label>音乐气质<select value={packagingSettings.bgm.mood} onChange={(event) => patchPackaging("bgm", { mood: event.target.value as PackagingSettings["bgm"]["mood"], selectionMode: "人工选择" })}><option>轻电子</option><option>时装律动</option><option>柔和氛围</option></select></label>
-                      <label>目标节奏<input type="range" min="60" max="150" value={packagingSettings.bgm.tempoBpm} onChange={(event) => patchPackaging("bgm", { tempoBpm: Number(event.target.value), selectionMode: "人工选择" })} /><output>{packagingSettings.bgm.tempoBpm} BPM</output></label>
-                      <label className="bgm-prompt">生成 / 搜索关键词<textarea value={packagingSettings.bgm.prompt} onChange={(event) => patchPackaging("bgm", { prompt: event.target.value, selectionMode: "人工选择" })} /><small>免费曲库可搜索：{recommendedBgm.searchTerms}</small></label>
-                      {packagingSettings.bgm.source === "免费曲库" && (
-                        <div className="free-music-links">
-                          {freeMusicSources.map((source) => (
-                            <a key={source.name} href={source.href} target="_blank" rel="noreferrer noopener"><strong>{source.name}</strong><small>{source.note}</small></a>
-                          ))}
-                        </div>
-                      )}
-                      {packagingSettings.bgm.source === "抖音端内补歌" && (
-                        <div className="douyin-music-note"><strong>热歌不下载进工程</strong><p>先导出无 BGM 包装片，再在抖音发布页试听并选择当日热歌。这样更接近平台趋势，也不把抖音授权音乐搬到站外。</p></div>
-                      )}
-                      {packagingSettings.bgm.source === "AI原创" && (
-                        <div className="douyin-music-note"><strong>AI 生成三首原创候选</strong><p>正式执行时按当前提示词、目标 BPM 和本条时长生成三首，先试听再确定；生成后再做裁切、循环、淡入淡出和人声避让。</p></div>
-                      )}
-                      <label>音乐音量<input type="range" min="0" max="30" value={packagingSettings.bgm.volume} onChange={(event) => patchPackaging("bgm", { volume: Number(event.target.value) })} /><output>{packagingSettings.bgm.volume}%</output></label>
-                      <label className="inline-check"><input type="checkbox" checked={packagingSettings.bgm.autoDucking} onChange={(event) => patchPackaging("bgm", { autoDucking: event.target.checked })} />说话时自动压低音乐</label>
-                    </div>
-                  </details>
-                </>
-              )}
-            </aside>
-
-            <section className="packaging-preview" aria-label="包装预览">
-              <div className="packaging-preview-head"><span>实时结构预览</span><b>{activeClip.duration} · {activeClip.title}</b></div>
-              <div className={`packaging-preview-stage style-${packagingSettings.effects.style}`}>
-                {reviewVideoSource ? (
-                  <video src={candidatePreviewUrl || reviewVideoSource} controls playsInline preload="metadata" />
-                ) : (
-                  <img src="/photos/tz_pink_dress.jpg" alt="天总包装预览占位" />
-                )}
-                {packagingSettings.enabled && packagingSettings.flowerText.enabled && (
-                  <div className={`preview-flower density-${packagingSettings.flowerText.density}`}><span>天总说</span><strong>{activeClip.title}</strong></div>
-                )}
-                {packagingSettings.enabled && packagingSettings.captions.enabled && (
-                  <div
-                    className={`preview-caption caption-${packagingSettings.captions.position} caption-${packagingSettings.captions.style}`}
-                    style={{ fontSize: `${Math.max(18, Math.round(packagingSettings.captions.size * 0.42))}px` }}
-                  >
-                    {packagingCaptionText}
-                  </div>
-                )}
-                {!packagingSettings.enabled && <div className="preview-clean-badge">干净粗剪 · 无包装</div>}
-              </div>
-              <div className="packaging-proof-strip">
-                <span>字幕 {packagingSettings.enabled && packagingSettings.captions.enabled ? "开" : "关"}</span>
-                <span>花字 {packagingSettings.enabled && packagingSettings.flowerText.enabled ? "开" : "关"}</span>
-                <span>音效 {packagingSettings.enabled && packagingSettings.soundEffects.enabled ? "开" : "关"}</span>
-                <span>配乐 {packagingSettings.enabled && packagingSettings.bgm.enabled ? `${packagingSettings.bgm.mood} ${packagingSettings.bgm.volume}%` : "关"}</span>
-              </div>
-              <p>这里先显示元素结构和位置；真正创建工程时，每项会进入独立可编辑层，不会压成一张图或一条不可改视频。</p>
-            </section>
-
-            <aside ref={deliveryRef} className="packaging-delivery delivery-panel" aria-labelledby="delivery-title" tabIndex={-1}>
-              <header>
-                <span>FINAL DELIVERY / 本条交付</span>
-                <h3 id="delivery-title">保存方案，再决定去哪里。</h3>
-                <p>本地格式可多选；ChatCut 独立创建可编辑工程。</p>
-              </header>
-
-              <div className="packaging-save-row">
-                <span>{packagingSaveState === "saved" ? "已保存到项目" : packagingSaveState === "dirty" ? "有未保存修改" : packagingSaveState === "saving" ? "正在保存…" : packagingSaveState === "loading" ? "正在读取…" : "使用系统建议"}</span>
-                <button className="pink-action" disabled={packagingSaveState === "saving" || packagingSaveState === "loading"} onClick={() => void savePackagingPlan()}>保存包装方案</button>
-              </div>
-
-              <div className="delivery-choice-grid compact" aria-label="最终交付选项">
-                <article className={`delivery-option local ${selectedLocalExports.includes("mp4") ? "selected" : ""}`}>
-                  <label><span className="delivery-option-top"><span>MP4 · 干净粗剪</span><span className="delivery-choice-check"><input type="checkbox" checked={selectedLocalExports.includes("mp4")} onChange={() => toggleLocalExport("mp4")} />本地</span></span><strong>下载粗剪 MP4</strong><small>无字幕 · 无效果 · 保留原声</small></label>
-                </article>
-                <article className={`delivery-option local ${selectedLocalExports.includes("srt") ? "selected" : ""}`}>
-                  <label><span className="delivery-option-top"><span>SRT · 字幕</span><span className="delivery-choice-check"><input type="checkbox" checked={selectedLocalExports.includes("srt")} onChange={() => toggleLocalExport("srt")} />本地</span></span><strong>{importedSubtitle ? importedSubtitle.name : "导入 SRT"}</strong><small>{importedSubtitle ? `已识别 ${importedSubtitle.cueCount} 条` : "可与其他格式一起下载"}</small></label>
-                  <button type="button" className="subtitle-import-action" onClick={() => subtitleRef.current?.click()}>{importedSubtitle ? "更换 SRT 字幕" : "导入 SRT 字幕"}</button>
-                </article>
-                <article className={`delivery-option local ${selectedLocalExports.includes("xml") ? "selected" : ""}`}>
-                  <label><span className="delivery-option-top"><span>XML · 时间线</span><span className="delivery-choice-check"><input type="checkbox" checked={selectedLocalExports.includes("xml")} disabled={!activeXmlProfile} onChange={() => toggleLocalExport("xml")} />本地</span></span><strong>{activeXmlProfile ? "导出专业时间线" : "XML 暂不可导出"}</strong><small>{activeXmlProfile ? `Premiere / DaVinci Resolve · ${activeXmlProfile.sourceMedia.frameRate?.rational} fps · ${activeXmlProfile.sourceMedia.width}×${activeXmlProfile.sourceMedia.height}` : "缺少已验证原片时基"}</small></label>
-                </article>
-                <button type="button" className="delivery-option plan" onClick={downloadPackagingPlan}><span className="delivery-option-top"><span>TIANPACK · 参数</span><span className="delivery-independent">可复用</span></span><strong>下载包装方案</strong><small>保存全部开关、样式、强度与音乐设置</small></button>
-              </div>
-              <input ref={subtitleRef} type="file" accept=".srt,application/x-subrip,text/plain" hidden onChange={importSrt} />
-
-              <div className="delivery-download-bar stack">
-                <p><strong>{selectedLocalExports.length}</strong> 项本地格式已选</p>
-                <button type="button" className="outline-action full" disabled={!selectedLocalExports.length} onClick={() => void downloadSelectedLocalOutputs()}>下载所选到本地</button>
-                <button type="button" className="pink-action full" onClick={handoffToChatCut}>{packagingSettings.enabled ? "创建可编辑 ChatCut 工程" : "把干净粗剪送进 ChatCut"}</button>
-              </div>
-              <p className="delivery-boundary">不包装时直接交付干净粗剪。选择包装时，字幕、花字、放大、跟踪、动画、转场、特效、音效和配乐均按当前方案进入独立可编辑层。</p>
-            </aside>
-          </div>
-        </main>
       )}
 
       {showArchitecture && (

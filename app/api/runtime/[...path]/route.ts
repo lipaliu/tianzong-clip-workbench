@@ -11,12 +11,24 @@ type ProcessorEnv = {
 
 const TRUSTED_ACTOR_HEADER = "x-tianclip-authenticated-actor";
 const SIGNED_ACTOR_HEADER = "x-tianclip-actor";
+const PROCESSOR_API_URL_HEADER = "x-tianclip-processor-api-url";
+const PROCESSOR_KEY_ID_HEADER = "x-tianclip-processor-key-id";
+const PROCESSOR_API_SECRET_HEADER = "x-tianclip-processor-api-secret";
 
-function processorConfig() {
+function internalSetting(request: Request, header: string, fallback?: string) {
+  const forwarded = request.headers.get(header)?.trim();
+  return (forwarded || fallback?.trim() || "").trim();
+}
+
+function processorConfig(request: Request) {
   const runtimeEnv = env as unknown as ProcessorEnv;
-  const baseUrl = runtimeEnv.PROCESSOR_API_URL?.trim().replace(/\/+$/, "");
-  const keyId = runtimeEnv.PROCESSOR_KEY_ID?.trim();
-  const secret = runtimeEnv.PROCESSOR_API_SECRET?.trim();
+  const baseUrl = internalSetting(
+    request,
+    PROCESSOR_API_URL_HEADER,
+    runtimeEnv.PROCESSOR_API_URL,
+  ).replace(/\/+$/, "");
+  const keyId = internalSetting(request, PROCESSOR_KEY_ID_HEADER, runtimeEnv.PROCESSOR_KEY_ID);
+  const secret = internalSetting(request, PROCESSOR_API_SECRET_HEADER, runtimeEnv.PROCESSOR_API_SECRET);
 
   if (!baseUrl || !keyId || !secret) {
     throw new Error(
@@ -123,7 +135,7 @@ async function forward(
   context: { params: Promise<{ path: string[] }> },
 ) {
   try {
-    const { baseUrl, keyId, secret } = processorConfig();
+    const { baseUrl, keyId, secret } = processorConfig(request);
     const actor = trustedActor(request);
     const { path } = await context.params;
     const target = new URL(`/v1/${safePath(path)}`, `${baseUrl}/`);

@@ -1184,7 +1184,6 @@ export async function generateCandidates({
   signal = undefined,
   safetyIdentifier = undefined,
   recallConfig = undefined,
-  recallConcurrency = 3,
   onBatchProgress = undefined,
 } = {}) {
   invariant(mode === "chat" || mode === "sales", "Mode must be chat or sales", {
@@ -1218,16 +1217,6 @@ export async function generateCandidates({
       stage: "candidate_generation",
     },
   );
-  invariant(
-    Number.isSafeInteger(recallConcurrency)
-    && recallConcurrency >= 1
-    && recallConcurrency <= 8,
-    "Candidate recall concurrency must be an integer from 1 to 8",
-    {
-      code: "INVALID_CANDIDATE_RECALL_CONCURRENCY",
-      stage: "candidate_generation",
-    },
-  );
 
   const privateKnowledge = coreBundle.privateKnowledge ?? coreBundle.instructions;
   const modeRules = getModeRules(coreBundle, mode);
@@ -1236,16 +1225,9 @@ export async function generateCandidates({
     transcript,
     config: normalizedConfig,
   });
-  const batchResults = new Array(batches.length);
-  let nextBatchIndex = 0;
-  let completedBatchCount = 0;
+  const batchResults = [];
 
-  const recallNextBatch = async () => {
-    while (true) {
-      const batchIndex = nextBatchIndex;
-      nextBatchIndex += 1;
-      if (batchIndex >= batches.length) return;
-      const batch = batches[batchIndex];
+  for (const batch of batches) {
     const batchVisualEvents = visualMap.events.filter(
       (event) =>
         event.endSec >= batch.contextStartSec
@@ -1393,27 +1375,19 @@ export async function generateCandidates({
         validationError = error;
       }
     }
-    batchResults[batch.index] = {
+    batchResults.push({
       batch,
       result: response.parsed,
       response,
       transcriptSegmentCount: batch.transcriptSegments.length,
       sparseVisualEventCount: batchVisualEvents.length,
-    };
-    const completed = ++completedBatchCount;
+    });
     await onBatchProgress?.({
-      completed,
+      completed: batch.index + 1,
       total: batches.length,
       batchId: batch.batchId,
     });
-    }
-  };
-  await Promise.all(
-    Array.from(
-      { length: Math.min(recallConcurrency, batches.length) },
-      () => recallNextBatch(),
-    ),
-  );
+  }
 
   const mergedResult = mergeCandidateBatchResults(batchResults, {
     transcript,

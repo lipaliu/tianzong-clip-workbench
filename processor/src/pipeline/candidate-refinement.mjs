@@ -6,8 +6,6 @@ const DENSE_EVIDENCE_METHOD =
   "dense_still_frames_plus_diarized_transcript";
 const DENSE_PLUS_NATIVE_AV_METHOD =
   "dense_still_frames_plus_diarized_transcript_plus_native_av_model_evidence";
-const TRANSCRIPT_PLUS_NATIVE_AV_METHOD =
-  "diarized_transcript_plus_native_av_model_evidence";
 const RETRYABLE_REFINEMENT_VALIDATION_CODES = new Set([
   "CANDIDATE_REFINEMENT_ID_MISMATCH",
   "CANDIDATE_REFINEMENT_WINDOW_INVALID",
@@ -28,6 +26,7 @@ const CANDIDATE_LOCAL_PROVIDER_FAILURE_CODES = new Set([
   "DOUBAO_EDITOR_RESPONSE_INCOMPLETE",
   "DOUBAO_EDITOR_OUTPUT_TEXT_MISSING",
   "DOUBAO_EDITOR_STRUCTURED_OUTPUT_INVALID",
+  "KIMI_EDITOR_RESPONSE_INCOMPLETE",
   "KIMI_EDITOR_OUTPUT_TEXT_MISSING",
   "KIMI_EDITOR_STRUCTURED_OUTPUT_INVALID",
 ]);
@@ -123,6 +122,7 @@ export const CANDIDATE_DENSE_REFINEMENT_SCHEMA = {
         description: { type: "string" },
         evidenceFrameIds: {
           type: "array",
+          minItems: 1,
           items: { type: "string" },
         },
       },
@@ -156,7 +156,6 @@ export const CANDIDATE_DENSE_REFINEMENT_SCHEMA = {
       enum: [
         DENSE_EVIDENCE_METHOD,
         DENSE_PLUS_NATIVE_AV_METHOD,
-        TRANSCRIPT_PLUS_NATIVE_AV_METHOD,
       ],
     },
     continuousAudioVideoReviewed: { type: "boolean", enum: [false] },
@@ -331,12 +330,9 @@ function refinementInstructions({
   visualEvents,
   frames,
 }) {
-  const hasDenseFrames = frames.length > 0;
   return [
     `Execute private Tianzong clipping core ${coreBundle.coreVersion} (${coreBundle.coreSha256}).`,
-    hasDenseFrames
-      ? "This is a candidate-level SECOND PASS over dense sampled still frames plus the diarized transcript from the same safety window."
-      : "This is a candidate-level SECOND PASS over the diarized transcript plus an evidence-bound Doubao native audio-video model review from the same safety window; no redundant sampled stills are supplied.",
+    "This is a candidate-level SECOND PASS over dense sampled still frames plus the diarized transcript from the same safety window.",
     nativeAvEvidencePresent
       ? [
           "The known visual-event evidence also contains a prior Doubao native",
@@ -357,9 +353,6 @@ function refinementInstructions({
       ? "Rough cuts are right-biased: chat/value keeps 50–75 seconds and should normally aim for 60–75 seconds when source evidence exists; business judgment keeps 45–75 seconds and should normally aim for 55–75 seconds. The minimum is an admission gate, never a target. Keep extending right until Tianzong completes the reason, evidence, recommendation, and emotional landing. Only a naturally complete joke/reaction may be micro_complete."
       : "Rough cuts are right-biased: sales/product keeps 30–60 seconds and should normally aim for 45–60 seconds when source evidence exists; business method keeps 45–75 seconds and should normally aim for 55–75 seconds. The minimum is an admission gate, never a target. Keep extending right until Tianzong completes the product proof, reason, recommendation, and closing line. Only a naturally complete joke/reaction may be micro_complete.",
     "Never call the material continuous video reviewed, audio-video verified, human reviewed, publish ready, or final.",
-    hasDenseFrames
-      ? "Cite only the supplied frame ids."
-      : "Return empty evidenceFrameIds arrays; rely on supplied visualEventIds for native audio-video evidence.",
     "A human must still watch the entire rendered safety window at normal playback speed.",
     validationRetry
       ? [
@@ -438,24 +431,17 @@ async function buildRefinementInput({
   frames,
   expectedMachineReviewMethod,
 }) {
-  const hasDenseFrames = frames.length > 0;
   const content = [{
     type: "input_text",
     text: JSON.stringify({
       task:
-        hasDenseFrames
-          ? "Second-pass candidate-level dense still-frame and diarized-transcript refinement."
-          : "Second-pass candidate-level native audio-video evidence and diarized-transcript refinement.",
+        "Second-pass candidate-level dense still-frame and diarized-transcript refinement.",
       candidate: compactCandidate(candidate),
       transcript: transcriptSegments,
       knownVisualEvents: visualEvents,
       constraints: [
-        hasDenseFrames
-          ? "The supplied images cover this candidate safety window at the configured dense interval plus shot changes."
-          : "No sampled still images are supplied because this candidate already has a native audio-video model review bound in knownVisualEvents.",
-        hasDenseFrames
-          ? "The images remain sampled stills, not continuous video and not audio."
-          : "Use the evidence-bound native audio-video review literally; it is still machine evidence rather than human confirmation.",
+        "The supplied images cover this candidate safety window at the configured dense interval plus shot changes.",
+        "They remain sampled stills, not continuous video and not audio.",
         "refinedSafetyWindow must stay inside the candidate's supplied safetyWindow.",
         "refinedRecallWindow must stay inside refinedSafetyWindow.",
         "openingLine must be an exact contiguous quote from openingSegmentId.",
@@ -464,7 +450,7 @@ async function buildRefinementInput({
         "All spokenContentSegmentIds must share tianzongSpeakerLabel. Put every other speaker in contextOnlySegmentIds.",
         "decision=retain requires semanticClosureStatus=complete, supported opening and closing boundaries, and a right-biased complete rough-cut duration.",
         "Do not stop merely because the minimum duration has been reached. The minimum is only an admission gate; prefer the middle-right of the applicable range whenever later Tianzong speech still provides reason, evidence, recommendation, product proof, punchline, or emotional landing.",
-        "Use only supplied transcript segment ids, visual event ids, and frame ids. When no frames are supplied, every evidenceFrameIds array must be empty.",
+        "Use only supplied transcript segment ids, visual event ids, and frame ids.",
         `machineReviewMethod must equal ${expectedMachineReviewMethod}.`,
         expectedMachineReviewMethod === DENSE_PLUS_NATIVE_AV_METHOD
           ? [
@@ -823,8 +809,6 @@ function buildRefinementObservationEvent(result, candidate, ordinal) {
 }
 
 function applyRefinement(candidate, result, refinementEvent, transcriptSegments) {
-  const usesNativeAvWithoutDenseFrames =
-    result.machineReviewMethod === TRANSCRIPT_PLUS_NATIVE_AV_METHOD;
   const risks = arrayUnion(
     candidate.risks,
     result.risks,
@@ -832,9 +816,7 @@ function applyRefinement(candidate, result, refinementEvent, transcriptSegments)
     result.actionCompleteness.status !== "complete_in_sampled_evidence"
       ? `动作完整性仍为 ${result.actionCompleteness.status}：${result.actionCompleteness.description}`
       : [],
-    usesNativeAvWithoutDenseFrames
-      ? "候选级原生音视频模型证据与逐字稿二次理解仍不能代替完整正常倍速人工视听确认。"
-      : "候选级密集静帧与逐字稿二次理解仍不能代替完整正常倍速视听确认。",
+    "候选级密集静帧与逐字稿二次理解仍不能代替完整正常倍速视听确认。",
   );
   const visualEventIds = arrayUnion(
     result.visualEventIds,
@@ -905,9 +887,7 @@ function applyRefinement(candidate, result, refinementEvent, transcriptSegments)
       transcriptSegmentIds: [...result.transcriptSegmentIds],
       visualEventIds,
       visualEvidenceStatus:
-        usesNativeAvWithoutDenseFrames
-          ? "candidate_native_av_plus_transcript_refined_needs_human_normal_playback"
-          : "candidate_dense_still_plus_transcript_refined_needs_human_normal_playback",
+        "candidate_dense_still_plus_transcript_refined_needs_human_normal_playback",
       continuousAudioVideoReviewed: false,
       audioVideoVerified: false,
     },
@@ -1032,11 +1012,8 @@ export async function refineCandidatesWithDenseEvidence({
     },
   );
   invariant(
-    frameManifest?.coverage?.continuousVideoReviewed === false
-    && (
-      frameManifest.coverage.fullTimelineScreeningExtracted === true
-      || frameManifest.coverage.fullTranscriptRecallPrepared === true
-    ),
+    frameManifest?.coverage?.fullTimelineScreeningExtracted === true
+    && frameManifest.coverage.continuousVideoReviewed === false,
     "Dense frame manifest coverage is invalid",
     {
       code: "DENSE_FRAME_SCREENING_INCOMPLETE",
@@ -1111,45 +1088,21 @@ export async function refineCandidatesWithDenseEvidence({
     const nativeAvContradicted =
       nativeAvReviewDecisions.includes("contradicted");
     const expectedMachineReviewMethod = nativeAvEvidencePresent
-      ? (frames.length > 0
-          ? DENSE_PLUS_NATIVE_AV_METHOD
-          : TRANSCRIPT_PLUS_NATIVE_AV_METHOD)
+      ? DENSE_PLUS_NATIVE_AV_METHOD
       : DENSE_EVIDENCE_METHOD;
+    invariant(frames.length > 0, "Candidate safety window has no dense frame evidence", {
+      code: "CANDIDATE_DENSE_FRAME_COVERAGE_MISSING",
+      stage: "candidate_dense_refinement",
+      details: {
+        candidateId: candidate.candidateId,
+        safetyWindow: candidate.safetyWindow,
+      },
+    });
     invariant(transcriptSegments.length > 0, "Candidate safety window has no transcript evidence", {
       code: "CANDIDATE_REFINEMENT_TRANSCRIPT_MISSING",
       stage: "candidate_dense_refinement",
       details: { candidateId: candidate.candidateId },
     });
-    if (frames.length === 0 && !nativeAvEvidencePresent) {
-      rejected.push({
-        candidateId: candidate.candidateId,
-        reason: "该候选没有取得原生音视频模型证据，已安全淘汰，未用纯文字冒充视觉复核。",
-        safetyWindow: candidate.safetyWindow,
-        discoveryMethods: candidate.discoveryMethods ?? [],
-        requiredHumanNormalPlaybackChecks: [
-          "如需恢复该候选，人工完整播放安全窗后重新提交。",
-        ],
-      });
-      runs.push({
-        candidateId: candidate.candidateId,
-        decision: "reject",
-        originalSafetyWindow: candidate.safetyWindow,
-        denseFrameCount: 0,
-        transcriptSegmentCount: transcriptSegments.length,
-        visualEventCount: visualEvents.length,
-        nativeAvModelEvidencePresent: false,
-        validationFailureCode: "CANDIDATE_NATIVE_AV_EVIDENCE_MISSING",
-        continuousAudioVideoReviewed: false,
-        humanNormalPlaybackRequired: true,
-      });
-      await onProgress?.({
-        stage: "candidate_dense_refinement",
-        completed: ++completedCandidateCount,
-        total: candidateResult.candidates.length,
-        candidateId: candidate.candidateId,
-      });
-      continue;
-    }
 
     const refinementInput = await buildRefinementInput({
       candidate,
@@ -1387,9 +1340,7 @@ export async function refineCandidatesWithDenseEvidence({
     (run) => run.nativeAvContradicted === true,
   ).length;
   const aggregateRefinementMethod = nativeAvReviewedCandidateCount > 0
-    ? (frameManifest.frames.length > 0
-        ? "private_core_dense_stills_transcript_plus_native_av_model_evidence"
-        : "private_core_transcript_plus_native_av_model_evidence")
+    ? "private_core_dense_stills_transcript_plus_native_av_model_evidence"
     : DENSE_EVIDENCE_METHOD;
   const refinedVisualMap = {
     ...visualMap,
@@ -1409,18 +1360,12 @@ export async function refineCandidatesWithDenseEvidence({
     },
     coverage: {
       ...visualMap.coverage,
-      candidateDenseStillTranscriptRefinementComplete:
-        frameManifest.frames.length > 0,
-      candidateNativeAvTranscriptRefinementComplete:
-        frameManifest.frames.length === 0
-        && nativeAvReviewedCandidateCount > 0,
+      candidateDenseStillTranscriptRefinementComplete: true,
       candidateSafetyWindowsReviewed: candidateResult.candidates.length,
       continuousAudioVideoReviewed: false,
       limitation:
         `${visualMap.coverage.limitation} Candidate safety windows were`
-        + (frameManifest.frames.length > 0
-          ? " second-pass reviewed using dense sampled still frames plus diarized"
-          : " second-pass reviewed using diarized")
+        + " second-pass reviewed using dense sampled still frames plus diarized"
         + (nativeAvReviewedCandidateCount > 0
           ? " transcript and available native audio-video model evidence;"
           : " transcript;")
@@ -1436,7 +1381,7 @@ export async function refineCandidatesWithDenseEvidence({
       notes: arrayUnion(
         candidateResult.selectionSummary.notes,
         nativeAvReviewedCandidateCount > 0
-          ? `天总私有核心综合逐字稿与 ${nativeAvReviewedCandidateCount} 条候选的原生音视频模型结论（支持 ${nativeAvSupportedCandidateCount}、不确定 ${nativeAvUncertainCandidateCount}、反证 ${nativeAvContradictedCandidateCount}），保留 ${candidates.length} 条，证据不足拒绝 ${rejected.length} 条。`
+          ? `天总私有核心综合逐字稿、密集画面与 ${nativeAvReviewedCandidateCount} 条候选的原生音视频模型结论（支持 ${nativeAvSupportedCandidateCount}、不确定 ${nativeAvUncertainCandidateCount}、反证 ${nativeAvContradictedCandidateCount}），保留 ${candidates.length} 条，证据不足拒绝 ${rejected.length} 条。`
           : `候选级密集静帧+逐字稿二次理解保留 ${candidates.length} 条，证据不足拒绝 ${rejected.length} 条。`,
         consolidation.duplicateCount > 0
           ? `最终切口、边界与逐字稿证据完全相同的 ${consolidation.duplicateCount} 条重复候选已合并，不重复生成同一条成片。`

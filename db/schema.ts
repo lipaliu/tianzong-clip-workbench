@@ -1,13 +1,7 @@
-import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const projectModes = ["聊播", "带货"] as const;
-export const editorModes = [
-  "openai",
-  "doubao",
-  "kimi",
-  "compare",
-  "compare_all",
-] as const;
+export const editorModes = ["openai", "doubao", "kimi", "compare"] as const;
 export const projectStatuses = ["analyzing", "ready", "failed"] as const;
 
 export const projects = sqliteTable(
@@ -36,22 +30,6 @@ export const projects = sqliteTable(
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
-
-export const clipPackagingSettings = sqliteTable(
-  "clip_packaging_settings",
-  {
-    projectId: text("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    candidateId: text("candidate_id").notNull(),
-    settings: text("settings").notNull(),
-    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.projectId, table.candidateId] }),
-    index("clip_packaging_settings_project_idx").on(table.projectId, table.updatedAt),
-  ],
-);
 
 export const authLoginAttempts = sqliteTable(
   "auth_login_attempts",

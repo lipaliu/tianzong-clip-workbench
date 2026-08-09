@@ -14,7 +14,6 @@ import {
 
 const referencePaths = [
   "references/private-core-model.md",
-  "references/confirmed-error-zero-recurrence-v1.md",
   "references/persona-and-topic-system.md",
   "references/editing-playbook.md",
   "references/duration-calibration.md",
@@ -28,7 +27,6 @@ const referencePaths = [
 
 const manifestRequiredReferences = [
   "references/private-core-model.md",
-  "references/confirmed-error-zero-recurrence-v1.md",
   "references/full-production-rules-v1.1.md",
   "references/candidate-generation-and-validation-v1.md",
   "references/chat-and-sales-rules-v1.1.md",
@@ -311,19 +309,6 @@ test("fails closed on a SHA mismatch before parsing private documents", async (t
 test("fails closed when a mandatory reference is missing", async (t) => {
   const entries = syntheticEntries();
   entries.delete("references/private-core-model.md");
-  const root = await writeFixtureDirectory(entries);
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const digest = await computeTianClipCoreSha256(root);
-
-  await assert.rejects(
-    loadTianClipCore(loadOptions(root, digest.sha256)),
-    (error) => error instanceof TianClipCoreError && error.code === "CORE_ENTRY_MISSING",
-  );
-});
-
-test("fails closed when the confirmed-error zero-recurrence contract is missing", async (t) => {
-  const entries = syntheticEntries();
-  entries.delete("references/confirmed-error-zero-recurrence-v1.md");
   const root = await writeFixtureDirectory(entries);
   t.after(() => rm(root, { recursive: true, force: true }));
   const digest = await computeTianClipCoreSha256(root);
