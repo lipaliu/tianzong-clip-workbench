@@ -11,6 +11,10 @@ import {
 } from "./internal-auth";
 
 interface Env extends InternalAuthEnv {
+  /** Server-only processor settings. These must be configured as Worker vars/secrets. */
+  PROCESSOR_API_URL?: string;
+  PROCESSOR_KEY_ID?: string;
+  PROCESSOR_API_SECRET?: string;
   ASSETS: Fetcher;
   DB: D1Database;
   IMAGES: {
@@ -62,6 +66,14 @@ const worker = {
     // browser's value so a client cannot choose the feedback actor.
     const trustedHeaders = new Headers(request.headers);
     trustedHeaders.set("x-tianclip-authenticated-actor", authenticatedUsername);
+
+    // The outer Worker receives bindings on every request. Forward the
+    // server-only values only to the inner app-router request, after
+    // overwriting every client-supplied value. This avoids relying on a
+    // module-level runtime binding import inside Git-built Worker versions.
+    trustedHeaders.set("x-tianclip-processor-api-url", env.PROCESSOR_API_URL ?? "");
+    trustedHeaders.set("x-tianclip-processor-key-id", env.PROCESSOR_KEY_ID ?? "");
+    trustedHeaders.set("x-tianclip-processor-api-secret", env.PROCESSOR_API_SECRET ?? "");
     const trustedRequest = new Request(request, { headers: trustedHeaders });
 
     const safeMethod = request.method === "GET" || request.method === "HEAD";
