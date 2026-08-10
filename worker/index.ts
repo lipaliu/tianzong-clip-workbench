@@ -4,7 +4,7 @@ import handler from "vinext/server/app-router-entry";
 import {
   handleLogin,
   handleLogout,
-  secureAppResponse,
+  secureAuthenticatedResponse,
   sessionUsername,
   unauthorizedResponse,
   type InternalAuthEnv,
@@ -54,11 +54,19 @@ const worker = {
       return unauthorizedResponse(request);
     }
 
+    const authenticatedResponse = (response: Response) =>
+      secureAuthenticatedResponse(
+        request,
+        response,
+        env,
+        authenticatedUsername,
+      );
+
     // Built client bundles and the curated workbench images are stored in the
     // static ASSETS binding. They are still session-gated above, but must not
     // be sent through the dynamic vinext router (which returns 404 for them).
     if (url.pathname.startsWith("/assets/") || url.pathname.startsWith("/photos/")) {
-      return secureAppResponse(await env.ASSETS.fetch(request));
+      return authenticatedResponse(await env.ASSETS.fetch(request));
     }
 
     // This header is a private trust boundary between the outer authenticated
@@ -86,13 +94,13 @@ const worker = {
         sameOrigin = false;
       }
       if (!sameOrigin) {
-        return secureAppResponse(Response.json({ error: "请求来源无效。" }, { status: 403 }));
+        return authenticatedResponse(Response.json({ error: "请求来源无效。" }, { status: 403 }));
       }
       if (
         url.pathname.startsWith("/api/") &&
         !request.headers.get("content-type")?.toLowerCase().startsWith("application/json")
       ) {
-        return secureAppResponse(Response.json({ error: "请求格式无效。" }, { status: 415 }));
+        return authenticatedResponse(Response.json({ error: "请求格式无效。" }, { status: 415 }));
       }
     }
 
@@ -105,10 +113,10 @@ const worker = {
           return result.response();
         },
       }, allowedWidths);
-      return secureAppResponse(response);
+      return authenticatedResponse(response);
     }
 
-    return secureAppResponse(await handler.fetch(trustedRequest, env, ctx));
+    return authenticatedResponse(await handler.fetch(trustedRequest, env, ctx));
   },
 };
 

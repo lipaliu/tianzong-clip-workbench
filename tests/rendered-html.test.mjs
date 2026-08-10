@@ -268,6 +268,7 @@ async function render() {
       logoutCookie: logoutResponse.headers.get("set-cookie"),
       logoutStatus: logoutResponse.status,
       loginPage,
+      refreshedSessionCookie: response.headers.get("set-cookie"),
       status: response.status,
       headers: response.headers,
       text: responseText,
@@ -306,6 +307,11 @@ test("server-renders the Tianzong project workbench", async () => {
   assert.equal(response.logoutStatus, 200);
   assert.match(response.logoutCookie ?? "", /Max-Age=0/);
   assert.equal(response.status, 200);
+  assert.match(
+    response.refreshedSessionCookie ?? "",
+    /tianzong_internal_session=.*Max-Age=43200/,
+    "authenticated activity should renew the 12-hour session window",
+  );
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   assert.equal(response.headers.get("cache-control"), "private, no-store");
   assert.match(response.headers.get("vary") ?? "", /Cookie/i);
