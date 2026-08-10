@@ -413,6 +413,20 @@ export function secureAppResponse(response: Response): Response {
   });
 }
 
+export async function secureAuthenticatedResponse(
+  request: Request,
+  response: Response,
+  env: InternalAuthEnv,
+  username: string,
+): Promise<Response> {
+  const secured = secureAppResponse(response);
+  const token = await createSessionToken(env, username);
+  if (token) {
+    secured.headers.append("set-cookie", sessionCookie(request, token));
+  }
+  return secured;
+}
+
 function jsonResponse(
   payload: Record<string, unknown>,
   status: number,
