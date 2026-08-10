@@ -164,7 +164,7 @@
 正式站点在 Cloudflare Worker 最外层执行内部账号校验。未登录访问首页、接口、静态脚本或媒体资源时，都只会收到登录窗口或 `401`；账号配置不会进入浏览器脚本。
 
 - `INTERNAL_AUTH_CREDENTIALS`：服务端 Secret，JSON 对象格式，可配置多个内部用户名，例如 `{\"editor-a\":\"strong-password\"}`。
-- `INTERNAL_AUTH_SESSION_SECRET`：服务端 Secret，至少 32 个随机字符，用于签发 12 小时有效的 HttpOnly、SameSite 会话 Cookie。
+- `INTERNAL_AUTH_SESSION_SECRET`：服务端 Secret，至少 32 个随机字符，用于签发无闲置超时的 HttpOnly、SameSite 会话 Cookie；会话仅在主动退出、账号移除或 Secret 更换后失效。
 - 登录尝试会按访问来源和用户名分别写入 D1 原子限流记录，15 分钟窗口内达到 5 次后暂时锁定。
 - 生产值只通过 Sites 运行时变量配置；仓库和 `.env.example` 不保存真实账号或密码。
 

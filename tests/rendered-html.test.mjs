@@ -6,6 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+function decodeSessionPayload(setCookie) {
+  const token = setCookie?.match(/tianzong_internal_session=([^;]+)/)?.[1];
+  assert.ok(token, "session cookie should contain a signed token");
+  const encodedPayload = token.split(".", 1)[0];
+  return JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+}
+
 async function openPort() {
   const server = createServer();
   await new Promise((resolve, reject) => {
@@ -267,6 +274,7 @@ async function render() {
       },
       logoutCookie: logoutResponse.headers.get("set-cookie"),
       logoutStatus: logoutResponse.status,
+      loginCookie: loginResponse.headers.get("set-cookie"),
       loginPage,
       refreshedSessionCookie: response.headers.get("set-cookie"),
       status: response.status,
@@ -308,9 +316,19 @@ test("server-renders the Tianzong project workbench", async () => {
   assert.match(response.logoutCookie ?? "", /Max-Age=0/);
   assert.equal(response.status, 200);
   assert.match(
+    response.loginCookie ?? "",
+    /tianzong_internal_session=.*Max-Age=34560000/,
+    "login should create a persistent browser session",
+  );
+  const sessionPayload = decodeSessionPayload(response.loginCookie);
+  assert.equal(sessionPayload.v, 2);
+  assert.equal(sessionPayload.u, "test-editor");
+  assert.equal(typeof sessionPayload.iat, "number");
+  assert.equal("exp" in sessionPayload, false, "persistent sessions should not carry an idle expiry");
+  assert.match(
     response.refreshedSessionCookie ?? "",
-    /tianzong_internal_session=.*Max-Age=43200/,
-    "authenticated activity should renew the 12-hour session window",
+    /tianzong_internal_session=.*Max-Age=34560000/,
+    "authenticated activity should keep the persistent browser session",
   );
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   assert.equal(response.headers.get("cache-control"), "private, no-store");

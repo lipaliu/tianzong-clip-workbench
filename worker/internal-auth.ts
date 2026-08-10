@@ -1,5 +1,10 @@
 const SESSION_COOKIE = "tianzong_internal_session";
-const SESSION_TTL_SECONDS = 12 * 60 * 60;
+const LEGACY_SESSION_TTL_SECONDS = 12 * 60 * 60;
+// Chromium caps persistent cookies at roughly 400 days. The signed session
+// itself has no idle expiry and this browser lifetime is renewed on every
+// authenticated request. Logout, credential removal, or secret rotation still
+// revokes access.
+const PERSISTENT_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 const MAX_FAILURES = 5;
@@ -13,10 +18,9 @@ export interface InternalAuthEnv {
 }
 
 type SessionPayload = {
-  exp: number;
   iat: number;
   u: string;
-  v: 1;
+  v: 2;
 };
 
 type LoginAttemptRow = {
@@ -161,10 +165,9 @@ export async function createSessionToken(
 
   const issuedAt = Math.floor(Date.now() / 1000);
   const payload: SessionPayload = {
-    exp: issuedAt + SESSION_TTL_SECONDS,
     iat: issuedAt,
     u: username,
-    v: 1,
+    v: 2,
   };
   const encodedPayload = textToBase64Url(JSON.stringify(payload));
   const signature = await signValue(encodedPayload, secret);
@@ -197,17 +200,25 @@ export async function sessionUsername(
   if (!decodedPayload) return null;
 
   try {
-    const payload = JSON.parse(decodedPayload) as Partial<SessionPayload>;
+    const payload = JSON.parse(decodedPayload) as Record<string, unknown>;
     const now = Math.floor(Date.now() / 1000);
     if (
-      payload.v !== 1 ||
       typeof payload.u !== "string" ||
       typeof payload.iat !== "number" ||
-      typeof payload.exp !== "number" ||
-      payload.iat > now + 60 ||
-      payload.exp <= now ||
-      payload.exp - payload.iat > SESSION_TTL_SECONDS
+      payload.iat > now + 60
     ) {
+      return null;
+    }
+
+    if (payload.v === 1) {
+      if (
+        typeof payload.exp !== "number" ||
+        payload.exp <= now ||
+        payload.exp - payload.iat > LEGACY_SESSION_TTL_SECONDS
+      ) {
+        return null;
+      }
+    } else if (payload.v !== 2) {
       return null;
     }
     return parseCredentials(env).has(payload.u) ? payload.u : null;
@@ -230,7 +241,7 @@ export function sessionCookie(request: Request, token: string): string {
     "HttpOnly",
     "SameSite=Strict",
     requestIsSecure(request) ? "Secure" : "",
-    `Max-Age=${SESSION_TTL_SECONDS}`,
+    `Max-Age=${PERSISTENT_COOKIE_MAX_AGE_SECONDS}`,
   ].filter(Boolean).join("; ");
 }
 
