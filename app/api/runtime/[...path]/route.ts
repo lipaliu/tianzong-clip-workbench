@@ -206,6 +206,43 @@ async function forward(
     const replayed = response.headers.get("idempotency-replayed");
     if (replayed) responseHeaders.set("idempotency-replayed", replayed);
 
+    // Keep public job state observable without logging signed headers, source
+    // URLs, credentials, transcripts, or candidate payloads. This lets the
+    // production log distinguish a transport failure from a processor job
+    // that genuinely exhausted its retries.
+    if (request.method === "GET" && /^\/v1\/jobs\/[^/]+$/.test(target.pathname)) {
+      const snapshot = await response.clone().json().catch(() => null) as {
+        job?: {
+          status?: unknown;
+          stage?: unknown;
+          progress?: unknown;
+          clipCount?: unknown;
+          error?: unknown;
+          attempt?: unknown;
+          maxAttempts?: unknown;
+        };
+      } | null;
+      if (snapshot?.job) {
+        const safeJobState = {
+          event: "processor_job_state",
+          status: snapshot.job.status,
+          stage: snapshot.job.stage,
+          progress: snapshot.job.progress,
+          clipCount: snapshot.job.clipCount,
+          error: snapshot.job.error,
+          attempt: snapshot.job.attempt,
+          maxAttempts: snapshot.job.maxAttempts,
+          requestId,
+        };
+        const line = JSON.stringify(safeJobState);
+        if (snapshot.job.status === "failed" || snapshot.job.status === "cancelled") {
+          console.error(line);
+        } else {
+          console.info(line);
+        }
+      }
+    }
+
     return new Response(response.body, {
       status: response.status,
       headers: responseHeaders,

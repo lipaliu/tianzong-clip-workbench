@@ -490,6 +490,8 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /后台实时分析/);
   assert.match(page, /原片已经保存，正在持续找切片/);
   assert.match(page, /继续后台任务（不用重传）/);
+  assert.match(page, /用已保存原片重启分析（不用重传）/);
+  assert.match(page, /restartFailedAnalysis/);
   assert.match(page, /网络波动，后台任务仍在运行，正在自动恢复连接/);
   assert.match(page, /setStep\(2\);/);
   assert.match(page, /synchronized\.find\(projectNeedsAutomaticResume\)/);

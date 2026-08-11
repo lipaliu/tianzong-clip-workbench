@@ -996,6 +996,7 @@ export default function Home() {
   const [analysisError, setAnalysisError] = useState("");
   const [analysisCost, setAnalysisCost] = useState<ProcessorJobCost | null>(null);
   const [analysisReady, setAnalysisReady] = useState(false);
+  const [failedProcessorJob, setFailedProcessorJob] = useState<ProcessorJob | null>(null);
   const [uploadResumeAvailable, setUploadResumeAvailable] = useState(false);
   const [runtimeIdeas, setRuntimeIdeas] = useState<ClipIdea[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
@@ -1312,6 +1313,7 @@ export default function Home() {
     setStep(project.processorJobId ? 2 : 1);
     setAnalysisReady(false);
     setAnalysisError("");
+    setFailedProcessorJob(null);
     setAnalysisCost(null);
     setRuntimeIdeas([]);
     setCurrentTime(0);
@@ -1389,11 +1391,13 @@ export default function Home() {
       }
 
       if (job && job.status !== "succeeded") {
+        setFailedProcessorJob(job);
+        setStep(2);
         throw new Error(
-          job.error ||
+          `${job.error ||
           (job.status === "cancelled"
             ? "真实分析任务已取消。"
-            : "真实分析任务没有成功完成。"),
+            : "真实分析任务没有成功完成。")} 原片仍保存在私有存储，可以直接重启分析，不需要重新上传。`,
         );
       }
 
@@ -1466,6 +1470,55 @@ export default function Home() {
     }
   }
 
+  async function restartFailedAnalysis(
+    project: ProjectRecord,
+    failedJob: ProcessorJob,
+  ) {
+    if (failedJob.projectId !== project.id) return;
+    const runId = projectResumeRunRef.current + 1;
+    projectResumeRunRef.current = runId;
+    setStep(2);
+    setAnalysisReady(false);
+    setAnalysisError("");
+    setAnalysisProgress(29);
+    setAnalysisStage("使用已保存原片重新启动后台分析");
+    showToast("原片不用重传，正在重新启动后台分析任务。");
+
+    try {
+      const { job: restartedJob } = await startProcessorJob(
+        project.id,
+        failedJob.uploadId,
+      );
+      if (runId !== projectResumeRunRef.current) return;
+      const restartedProject: ProjectRecord = {
+        ...project,
+        status: "analyzing",
+        processorJobId: restartedJob.id,
+        stage: processorStageLabel(restartedJob.stage),
+        progress: processorProgress(restartedJob),
+        clipCount: 0,
+        error: null,
+      };
+      const persistedProject = await persistProjectMirror(restartedProject)
+        .catch(() => restartedProject);
+      if (runId !== projectResumeRunRef.current) return;
+      setProjects((current) => current.map((item) =>
+        item.id === project.id ? persistedProject : item
+      ));
+      setFailedProcessorJob(null);
+      await resumeProject(persistedProject, { quiet: true });
+    } catch (error) {
+      if (runId !== projectResumeRunRef.current) return;
+      const message = error instanceof Error
+        ? error.message
+        : "后台分析任务没有重新启动。";
+      setAnalysisProgress(0);
+      setAnalysisStage("重新启动失败");
+      setAnalysisError(`${message} 原片仍然保留，不需要重新上传。`);
+      showToast(message);
+    }
+  }
+
   function switchMode(nextMode: Mode) {
     setIntakeStep(2);
     if (mode === nextMode) return;
@@ -1480,6 +1533,7 @@ export default function Home() {
     setAnalysisProgress(0);
     setAnalysisStage("");
     setAnalysisError("");
+    setFailedProcessorJob(null);
     setUploadResumeAvailable(false);
     setActiveProjectId("");
     setStep(1);
@@ -1521,6 +1575,7 @@ export default function Home() {
     setAnalysisProgress(0);
     setAnalysisStage(uploadCheckpoint ? "检测到未完成的分片，等待断点续传" : "");
     setAnalysisError("");
+    setFailedProcessorJob(null);
     setUploadResumeAvailable(Boolean(uploadCheckpoint));
     setRuntimeIdeas([]);
     setActiveProjectId(uploadCheckpoint?.project.id ?? "");
@@ -1569,6 +1624,7 @@ export default function Home() {
     setRuntimeIdeas([]);
     setAnalysisReady(false);
     setAnalysisError("");
+    setFailedProcessorJob(null);
     setAnalysisProgress(1);
     setAnalysisStage("创建本场切片项目");
     let projectId = "";
@@ -1727,6 +1783,7 @@ export default function Home() {
       }
 
       if (job.status !== "succeeded") {
+        setFailedProcessorJob(job);
         throw new Error(
           job.error ||
           (job.status === "cancelled"
@@ -2436,11 +2493,17 @@ export default function Home() {
                         type="button"
                         onClick={() => {
                           const project = projects.find((item) => item.id === activeProjectId);
-                          if (project?.processorJobId) void resumeProject(project);
+                          if (project && failedProcessorJob?.projectId === project.id) {
+                            void restartFailedAnalysis(project, failedProcessorJob);
+                          } else if (project?.processorJobId) void resumeProject(project);
                           else if (uploadResumeAvailable) void startAnalysis();
                         }}
                       >
-                        {uploadResumeAvailable ? "从断点继续上传" : "继续后台任务（不用重传）"}
+                        {uploadResumeAvailable
+                          ? "从断点继续上传"
+                          : failedProcessorJob
+                            ? "用已保存原片重启分析（不用重传）"
+                            : "继续后台任务（不用重传）"}
                       </button>
                     )}
                   </div>
@@ -2573,10 +2636,16 @@ export default function Home() {
                 type="button"
                 onClick={() => {
                   const project = projects.find((item) => item.id === activeProjectId);
-                  if (project) void resumeProject(project);
+                  if (project && failedProcessorJob?.projectId === project.id) {
+                    void restartFailedAnalysis(project, failedProcessorJob);
+                  } else if (project) {
+                    void resumeProject(project);
+                  }
                 }}
               >
-                继续后台任务（不用重传）
+                {failedProcessorJob
+                  ? "用已保存原片重启分析（不用重传）"
+                  : "继续后台任务（不用重传）"}
               </button>
             </div>
           )}
