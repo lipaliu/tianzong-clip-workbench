@@ -153,6 +153,28 @@ export type ProcessorCandidate = {
 
 type JsonObject = Record<string, unknown>;
 
+export class ProcessorRequestError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ProcessorRequestError";
+    this.status = status;
+  }
+}
+
+export function processorRequestIsRecoverable(error: unknown) {
+  if (error instanceof ProcessorRequestError) {
+    return [408, 425, 429, 500, 502, 503, 504].includes(error.status);
+  }
+  if (error instanceof TypeError) return true;
+  if (error instanceof DOMException) {
+    return error.name === "AbortError" || error.name === "NetworkError" || error.name === "TimeoutError";
+  }
+  const message = error instanceof Error ? error.message : "";
+  return /failed to fetch|load failed|networkerror|network request failed/i.test(message);
+}
+
 function operationHeaders(): Record<string, string> {
   return {
     "content-type": "application/json",
@@ -171,7 +193,7 @@ async function readJson<T>(response: Response): Promise<T> {
       (nestedError && typeof nestedError.message === "string" && nestedError.message) ||
       (typeof payload.error === "string" && payload.error) ||
       `请求失败（${response.status}）`;
-    throw new Error(message);
+    throw new ProcessorRequestError(message, response.status);
   }
   return payload as T;
 }
@@ -330,18 +352,6 @@ async function presignMultipartParts(
   }>(response);
 }
 
-async function abortMultipartUpload(upload: MultipartPresignedUpload) {
-  const response = await fetch(
-    `/api/runtime/projects/${encodeURIComponent(upload.projectId)}/uploads/${encodeURIComponent(upload.id)}/multipart/abort`,
-    {
-      method: "POST",
-      headers: operationHeaders(),
-      body: "{}",
-    },
-  );
-  return readJson(response);
-}
-
 function retryDelay(attempt: number) {
   const base = Math.min(4_000, 400 * (2 ** attempt));
   return new Promise((resolve) => window.setTimeout(resolve, base + Math.random() * 250));
@@ -351,6 +361,10 @@ async function uploadMultipartFile(
   file: File,
   upload: MultipartPresignedUpload,
   onProgress: (ratio: number) => void,
+  options: {
+    completedParts?: UploadedMultipartPart[];
+    onPartsCompleted?: (parts: UploadedMultipartPart[]) => void;
+  } = {},
 ): Promise<UploadedMultipartPart[]> {
   const expectedPartCount = Math.ceil(file.size / upload.partSizeBytes);
   if (expectedPartCount !== upload.partCount) {
@@ -358,26 +372,47 @@ async function uploadMultipartFile(
   }
 
   const concurrency = 3;
-  const completed: UploadedMultipartPart[] = [];
+  const completedByNumber = new Map<number, UploadedMultipartPart>();
+  for (const part of options.completedParts ?? []) {
+    if (
+      Number.isSafeInteger(part.partNumber)
+      && part.partNumber >= 1
+      && part.partNumber <= upload.partCount
+      && typeof part.etag === "string"
+      && part.etag.trim()
+    ) {
+      completedByNumber.set(part.partNumber, {
+        partNumber: part.partNumber,
+        etag: part.etag,
+      });
+    }
+  }
   const activeLoadedBytes = new Map<number, number>();
-  let completedBytes = 0;
+  const partSize = (partNumber: number) => {
+    const start = (partNumber - 1) * upload.partSizeBytes;
+    return Math.max(0, Math.min(file.size, start + upload.partSizeBytes) - start);
+  };
+  let completedBytes = Array.from(completedByNumber.keys())
+    .reduce((sum, partNumber) => sum + partSize(partNumber), 0);
   const reportProgress = () => {
     const activeBytes = Array.from(activeLoadedBytes.values())
       .reduce((sum, value) => sum + value, 0);
     onProgress(Math.min(1, (completedBytes + activeBytes) / file.size));
   };
 
-  try {
-    for (let startIndex = 0; startIndex < upload.partCount; startIndex += concurrency) {
-      const partNumbers = Array.from(
-        { length: Math.min(concurrency, upload.partCount - startIndex) },
-        (_, offset) => startIndex + offset + 1,
-      );
-      const signed = await presignMultipartParts(upload, partNumbers);
-      const signedByNumber = new Map(
-        signed.parts.map((part) => [part.partNumber, part]),
-      );
-      const settledBatch = await Promise.allSettled(partNumbers.map(async (partNumber) => {
+  reportProgress();
+  const pendingPartNumbers = Array.from(
+    { length: upload.partCount },
+    (_, index) => index + 1,
+  ).filter((partNumber) => !completedByNumber.has(partNumber));
+
+  for (let startIndex = 0; startIndex < pendingPartNumbers.length; startIndex += concurrency) {
+    const partNumbers = pendingPartNumbers.slice(startIndex, startIndex + concurrency);
+    const signed = await presignMultipartParts(upload, partNumbers);
+    const signedByNumber = new Map(
+      signed.parts.map((part) => [part.partNumber, part]),
+    );
+    const settledBatch = await Promise.allSettled(partNumbers.map(async (partNumber) => {
         const start = (partNumber - 1) * upload.partSizeBytes;
         const end = Math.min(file.size, start + upload.partSizeBytes);
         const blob = file.slice(start, end);
@@ -402,7 +437,13 @@ async function uploadMultipartFile(
             activeLoadedBytes.delete(partNumber);
             completedBytes += blob.size;
             reportProgress();
-            return { partNumber, etag };
+            const completedPart = { partNumber, etag };
+            completedByNumber.set(partNumber, completedPart);
+            options.onPartsCompleted?.(
+              Array.from(completedByNumber.values())
+                .sort((left, right) => left.partNumber - right.partNumber),
+            );
+            return completedPart;
           } catch (error) {
             lastError = error;
             activeLoadedBytes.set(partNumber, 0);
@@ -413,30 +454,36 @@ async function uploadMultipartFile(
         throw lastError instanceof Error
           ? lastError
           : new Error(`第 ${partNumber} 个分片上传失败。`);
-      }));
-      const failed = settledBatch.find(
-        (result): result is PromiseRejectedResult => result.status === "rejected",
-      );
-      if (failed) throw failed.reason;
-      completed.push(...settledBatch.map((result) =>
-        (result as PromiseFulfilledResult<UploadedMultipartPart>).value
-      ));
+    }));
+    const failed = settledBatch.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failed) throw failed.reason;
+    for (const result of settledBatch) {
+      const part = (result as PromiseFulfilledResult<UploadedMultipartPart>).value;
+      completedByNumber.set(part.partNumber, part);
     }
-    onProgress(1);
-    return completed.sort((left, right) => left.partNumber - right.partNumber);
-  } catch (error) {
-    await abortMultipartUpload(upload).catch(() => undefined);
-    throw error;
+    options.onPartsCompleted?.(
+      Array.from(completedByNumber.values())
+        .sort((left, right) => left.partNumber - right.partNumber),
+    );
   }
+  onProgress(1);
+  return Array.from(completedByNumber.values())
+    .sort((left, right) => left.partNumber - right.partNumber);
 }
 
 export async function uploadToPresignedUrl(
   file: File,
   upload: PresignedUpload,
   onProgress: (ratio: number) => void,
+  options: {
+    completedParts?: UploadedMultipartPart[];
+    onPartsCompleted?: (parts: UploadedMultipartPart[]) => void;
+  } = {},
 ): Promise<UploadedMultipartPart[]> {
   if (upload.strategy === "multipart") {
-    return uploadMultipartFile(file, upload, onProgress);
+    return uploadMultipartFile(file, upload, onProgress, options);
   }
   await uploadBlobToPresignedUrl(
     file,
