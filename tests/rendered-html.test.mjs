@@ -405,11 +405,12 @@ test("server-renders the Tianzong project workbench", async () => {
 });
 
 test("ships product metadata and removes the disposable starter preview", async () => {
-  const [page, layout, packageJson, styles] = await Promise.all([
+  const [page, layout, packageJson, styles, processorClient] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/processor-client.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /本场自然发现/);
@@ -486,6 +487,17 @@ test("ships product metadata and removes the disposable starter preview", async 
   assert.match(page, /剪购买理由如何被证明/);
   assert.match(page, /className="project-library"/);
   assert.match(page, /按日期保存项目/);
+  assert.match(page, /后台实时分析/);
+  assert.match(page, /原片已经保存，正在持续找切片/);
+  assert.match(page, /继续后台任务（不用重传）/);
+  assert.match(page, /网络波动，后台任务仍在运行，正在自动恢复连接/);
+  assert.match(page, /setStep\(2\);/);
+  assert.match(page, /synchronized\.find\(projectNeedsAutomaticResume\)/);
+  assert.match(processorClient, /export function processorRequestIsRecoverable/);
+  assert.match(processorClient, /failed to fetch\|load failed\|networkerror/);
+  assert.match(processorClient, /completedParts/);
+  assert.match(processorClient, /onPartsCompleted/);
+  assert.doesNotMatch(processorClient, /abortMultipartUpload\(upload\)/);
   assert.match(page, /projectDateFromFile/);
   assert.match(page, /formatProjectDate/);
   assert.match(page, /fetch\("\/api\/projects"/);

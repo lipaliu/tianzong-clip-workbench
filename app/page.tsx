@@ -11,6 +11,7 @@ import {
   completeProcessorUpload,
   createProcessorProject,
   prepareProcessorUpload,
+  processorRequestIsRecoverable,
   readProcessorCandidates,
   readProcessorJob,
   readProcessorJobCost,
@@ -20,6 +21,8 @@ import {
   type ProcessorCandidate,
   type ProcessorJob,
   type ProcessorJobCost,
+  type PresignedUpload,
+  type UploadedMultipartPart,
 } from "./processor-client";
 
 type Mode = "聊播" | "带货";
@@ -98,6 +101,15 @@ type ProjectRecord = {
   createdAt: string;
 };
 
+type UploadResumeCheckpoint = {
+  version: 1;
+  fileFingerprint: string;
+  project: ProjectRecord;
+  upload: PresignedUpload;
+  completedParts: UploadedMultipartPart[];
+  updatedAt: string;
+};
+
 type ImportedSubtitle = {
   name: string;
   cueCount: number;
@@ -110,6 +122,45 @@ const corpusBaseline = {
 
 const MAX_UPLOAD_BYTES = 9_000_000_000;
 const MAX_SRT_BYTES = 5_000_000;
+const UPLOAD_RESUME_STORAGE_KEY = "tianzong-upload-resume-v1";
+
+function fileFingerprint(file: File) {
+  return [file.name, file.size, file.lastModified, file.type].join(":");
+}
+
+function readUploadResumeCheckpoint(file: File): UploadResumeCheckpoint | null {
+  try {
+    const raw = window.localStorage.getItem(UPLOAD_RESUME_STORAGE_KEY);
+    if (!raw) return null;
+    const checkpoint = JSON.parse(raw) as UploadResumeCheckpoint;
+    if (
+      checkpoint.version !== 1
+      || checkpoint.fileFingerprint !== fileFingerprint(file)
+      || checkpoint.upload?.strategy !== "multipart"
+      || !checkpoint.project?.id
+      || checkpoint.upload.projectId !== checkpoint.project.id
+      || !Array.isArray(checkpoint.completedParts)
+    ) {
+      return null;
+    }
+    return checkpoint;
+  } catch {
+    return null;
+  }
+}
+
+function writeUploadResumeCheckpoint(checkpoint: UploadResumeCheckpoint) {
+  try {
+    window.localStorage.setItem(UPLOAD_RESUME_STORAGE_KEY, JSON.stringify(checkpoint));
+  } catch {
+    // Uploading remains functional when browser storage is unavailable.
+  }
+}
+
+function clearUploadResumeCheckpoint(file: File) {
+  const checkpoint = readUploadResumeCheckpoint(file);
+  if (checkpoint) window.localStorage.removeItem(UPLOAD_RESUME_STORAGE_KEY);
+}
 
 const modelGalleryPhotos = [
   { src: "/photos/tz_street_tall.jpg", alt: "天总街头蓝色穿搭" },
@@ -723,6 +774,17 @@ function processorProgress(job: ProcessorJob) {
   );
 }
 
+function projectNeedsAutomaticResume(project: ProjectRecord) {
+  if (!project.processorJobId) return false;
+  if (project.status === "analyzing") return true;
+  return (
+    project.status === "failed"
+    && /failed to fetch|load failed|networkerror|network request failed|网络|连接中断/i.test(
+      project.error ?? "",
+    )
+  );
+}
+
 function projectMirrorFromJob(
   project: ProjectRecord,
   job: ProcessorJob,
@@ -934,6 +996,7 @@ export default function Home() {
   const [analysisError, setAnalysisError] = useState("");
   const [analysisCost, setAnalysisCost] = useState<ProcessorJobCost | null>(null);
   const [analysisReady, setAnalysisReady] = useState(false);
+  const [uploadResumeAvailable, setUploadResumeAvailable] = useState(false);
   const [runtimeIdeas, setRuntimeIdeas] = useState<ClipIdea[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
   const [activeClipId, setActiveClipId] = useState(ideas[0].id);
@@ -1002,6 +1065,7 @@ export default function Home() {
         if (!response.ok) throw new Error("project history unavailable");
         const payload = await response.json() as { projects?: ProjectRecord[] };
         const storedProjects = payload.projects ?? [];
+        const autoResumeProjectId = storedProjects.find(projectNeedsAutomaticResume)?.id;
         const synchronized = await Promise.all(storedProjects.map(async (project) => {
           if (!project.processorJobId) return project;
           try {
@@ -1028,7 +1092,9 @@ export default function Home() {
         const requestedProjectId = new URL(window.location.href).searchParams.get("project");
         const requestedProject = synchronized.find(
           (project) => project.id === requestedProjectId,
-        );
+        ) ?? synchronized.find(
+          (project) => project.id === autoResumeProjectId,
+        ) ?? synchronized.find(projectNeedsAutomaticResume);
         if (requestedProject) {
           void resumeProject(requestedProject, { quiet: true });
         }
@@ -1110,6 +1176,33 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 3600);
   }
 
+  async function retryProcessorRead<T>(
+    operation: () => Promise<T>,
+    runId: number,
+  ): Promise<T> {
+    let failures = 0;
+    while (runId === projectResumeRunRef.current) {
+      try {
+        const result = await operation();
+        if (failures > 0) {
+          setAnalysisError("");
+          showToast("连接已恢复，继续读取后台任务，不需要重新上传。");
+        }
+        return result;
+      } catch (error) {
+        if (!processorRequestIsRecoverable(error)) throw error;
+        failures += 1;
+        setAnalysisError("");
+        setAnalysisStage("网络波动，后台任务仍在运行，正在自动恢复连接");
+        if (failures === 1) {
+          showToast("连接有波动，后台任务没有取消，系统会自动接着等。");
+        }
+        await wait(Math.min(30_000, 1_500 * (2 ** Math.min(failures - 1, 4))));
+      }
+    }
+    throw new Error("任务恢复已停止。");
+  }
+
   function applyProcessorCandidateSet(
     candidates: ProcessorCandidate[],
     selectedMode: Mode,
@@ -1172,7 +1265,10 @@ export default function Home() {
   ) {
     let activeId = preferredCandidateId;
     while (runId === projectResumeRunRef.current) {
-      const { candidates } = await readProcessorCandidates(projectId);
+      const { candidates } = await retryProcessorRead(
+        () => readProcessorCandidates(projectId),
+        runId,
+      );
       const pending = candidates.some(
         (candidate) =>
           candidate.renderStatus === "revision_queued" ||
@@ -1207,9 +1303,13 @@ export default function Home() {
     });
     setFileName(project.sourceName);
     setSelectedFile(null);
+    setUploadResumeAvailable(false);
     setUploadedPreviewUrl("");
     setIntakeStep(2);
-    setStep(1);
+    // A saved processor job means the source upload is already complete. Move
+    // to the live analysis surface before the first network read so a slow or
+    // temporarily disconnected poll can never strand the user on the upload UI.
+    setStep(project.processorJobId ? 2 : 1);
     setAnalysisReady(false);
     setAnalysisError("");
     setAnalysisCost(null);
@@ -1238,7 +1338,10 @@ export default function Home() {
       let currentProject = project;
       let job: ProcessorJob | null = null;
       if (project.processorJobId) {
-        ({ job } = await readProcessorJob(project.processorJobId));
+        ({ job } = await retryProcessorRead(
+          () => readProcessorJob(project.processorJobId!),
+          runId,
+        ));
         let provisionalCandidatesShown = false;
         while (
           runId === projectResumeRunRef.current &&
@@ -1252,7 +1355,10 @@ export default function Home() {
           setAnalysisStage(currentProject.stage ?? "真实分析进行中");
           await persistProjectMirror(currentProject).catch(() => currentProject);
           if (!provisionalCandidatesShown && job.clipCount > 0) {
-            const { candidates } = await readProcessorCandidates(project.id);
+            const { candidates } = await retryProcessorRead(
+              () => readProcessorCandidates(project.id),
+              runId,
+            );
             const provisionalIdeas = applyProcessorCandidateSet(
               candidates,
               project.mode,
@@ -1271,7 +1377,10 @@ export default function Home() {
           }
           await wait(2_500);
           if (runId !== projectResumeRunRef.current) return;
-          ({ job } = await readProcessorJob(project.processorJobId!));
+          ({ job } = await retryProcessorRead(
+            () => readProcessorJob(project.processorJobId!),
+            runId,
+          ));
         }
         if (runId !== projectResumeRunRef.current) return;
         currentProject = projectMirrorFromJob(currentProject, job);
@@ -1290,7 +1399,10 @@ export default function Home() {
 
       setAnalysisProgress(99);
       setAnalysisStage("读取候选、证据、粗剪与成本台账");
-      const { candidates } = await readProcessorCandidates(project.id);
+      const { candidates } = await retryProcessorRead(
+        () => readProcessorCandidates(project.id),
+        runId,
+      );
       if (job?.id) {
         const { cost } = await readProcessorJobCost(job.id).catch(() => ({ cost: null }));
         if (runId !== projectResumeRunRef.current) return;
@@ -1368,6 +1480,7 @@ export default function Home() {
     setAnalysisProgress(0);
     setAnalysisStage("");
     setAnalysisError("");
+    setUploadResumeAvailable(false);
     setActiveProjectId("");
     setStep(1);
     setGenerationState("idle");
@@ -1394,23 +1507,42 @@ export default function Home() {
       return;
     }
     if (uploadedPreviewUrl) URL.revokeObjectURL(uploadedPreviewUrl);
+    const uploadCheckpoint = readUploadResumeCheckpoint(file);
     setSelectedFile(file);
     setFileName(file.name);
-    setProjectDate(projectDateFromFile(file));
+    setProjectDate(uploadCheckpoint
+      ? {
+          iso: uploadCheckpoint.project.projectDate,
+          label: formatProjectDate(uploadCheckpoint.project.projectDate),
+        }
+      : projectDateFromFile(file));
     setUploadedPreviewUrl(URL.createObjectURL(file));
     setAnalysisReady(false);
     setAnalysisProgress(0);
-    setAnalysisStage("");
+    setAnalysisStage(uploadCheckpoint ? "检测到未完成的分片，等待断点续传" : "");
     setAnalysisError("");
+    setUploadResumeAvailable(Boolean(uploadCheckpoint));
     setRuntimeIdeas([]);
-    setActiveProjectId("");
+    setActiveProjectId(uploadCheckpoint?.project.id ?? "");
+    if (uploadCheckpoint) {
+      setMode(uploadCheckpoint.project.mode);
+      setEditorMode(uploadCheckpoint.project.editorMode);
+      setProjects((current) => [
+        uploadCheckpoint.project,
+        ...current.filter((item) => item.id !== uploadCheckpoint.project.id),
+      ]);
+      setProjectQuery(uploadCheckpoint.project.id);
+      showToast(
+        `检测到 ${uploadCheckpoint.completedParts.length}/${uploadCheckpoint.upload.strategy === "multipart" ? uploadCheckpoint.upload.partCount : 0} 个已完成分片，点击继续上传即可从断点接着传。`,
+      );
+    }
     setStep(1);
     setIntakeStep(2);
     setReviewSourceMode("candidate");
     setAvConfirmed(false);
     setImportedSubtitle(null);
     setSelectedLocalExports(["mp4"]);
-    setProjectQuery(null);
+    if (!uploadCheckpoint) setProjectQuery(null);
   }
 
   async function startAnalysis() {
@@ -1425,6 +1557,7 @@ export default function Home() {
 
     const selectedMode = mode;
     projectResumeRunRef.current += 1;
+    const runId = projectResumeRunRef.current;
     const projectDraft = {
       title: `${projectDate.label} · ${selectedMode}切片`,
       projectDate: projectDate.iso,
@@ -1440,40 +1573,93 @@ export default function Home() {
     setAnalysisStage("创建本场切片项目");
     let projectId = "";
     let processorJobId = "";
+    const uploadCheckpoint = readUploadResumeCheckpoint(selectedFile);
+    const canResumeUpload = Boolean(
+      uploadCheckpoint
+      && uploadCheckpoint.project.mode === selectedMode
+      && uploadCheckpoint.project.editorMode === editorMode
+      && uploadCheckpoint.project.sourceName === selectedFile.name,
+    );
     try {
-      const response = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(projectDraft),
-      });
-      const payload = await response.json().catch(() => ({})) as {
-        project?: ProjectRecord;
-        error?: string;
-      };
-      if (!response.ok || !payload.project) {
-        throw new Error(payload.error || "无法创建项目。");
+      let projectRecord: ProjectRecord;
+      let upload: PresignedUpload;
+      let resumedParts: UploadedMultipartPart[] = [];
+
+      if (canResumeUpload && uploadCheckpoint) {
+        projectRecord = uploadCheckpoint.project;
+        projectId = projectRecord.id;
+        upload = uploadCheckpoint.upload;
+        resumedParts = uploadCheckpoint.completedParts;
+        setAnalysisStage(
+          `从断点继续上传 · 已完成 ${resumedParts.length}/${upload.strategy === "multipart" ? upload.partCount : 0} 个分片`,
+        );
+        setAnalysisProgress(
+          upload.strategy === "multipart"
+            ? Math.max(5, Math.round(5 + (resumedParts.length / upload.partCount) * 23))
+            : 5,
+        );
+        setUploadResumeAvailable(false);
+      } else {
+        const response = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(projectDraft),
+        });
+        const payload = await response.json().catch(() => ({})) as {
+          project?: ProjectRecord;
+          error?: string;
+        };
+        if (!response.ok || !payload.project) {
+          throw new Error(payload.error || "无法创建项目。");
+        }
+        projectRecord = payload.project;
+        projectId = projectRecord.id;
+
+        setAnalysisProgress(3);
+        setAnalysisStage("绑定天总私有切片内核");
+        await createProcessorProject({
+          id: projectId,
+          title: projectDraft.title,
+          projectDate: projectDraft.projectDate,
+          sourceName: selectedFile.name,
+          mode: selectedMode,
+          editorMode,
+        });
+
+        setAnalysisProgress(5);
+        setAnalysisStage("上传完整直播原片");
+        ({ upload } = await prepareProcessorUpload(projectId, selectedFile));
+        if (upload.strategy === "multipart") {
+          writeUploadResumeCheckpoint({
+            version: 1,
+            fileFingerprint: fileFingerprint(selectedFile),
+            project: projectRecord,
+            upload,
+            completedParts: [],
+            updatedAt: new Date().toISOString(),
+          });
+        }
       }
-      projectId = payload.project.id;
+
       setActiveProjectId(projectId);
       setProjectQuery(projectId);
-      setProjects((current) => [payload.project!, ...current.filter((item) => item.id !== projectId)]);
+      setProjects((current) => [projectRecord, ...current.filter((item) => item.id !== projectId)]);
 
-      setAnalysisProgress(3);
-      setAnalysisStage("绑定天总私有切片内核");
-      await createProcessorProject({
-        id: projectId,
-        title: projectDraft.title,
-        projectDate: projectDraft.projectDate,
-        sourceName: selectedFile.name,
-        mode: selectedMode,
-        editorMode,
-      });
-
-      setAnalysisProgress(5);
-      setAnalysisStage("上传完整直播原片");
-      const { upload } = await prepareProcessorUpload(projectId, selectedFile);
       const uploadedParts = await uploadToPresignedUrl(selectedFile, upload, (ratio) => {
         setAnalysisProgress(Math.max(5, Math.round(5 + ratio * 23)));
+      }, {
+        completedParts: resumedParts,
+        onPartsCompleted: (completedParts) => {
+          if (upload.strategy !== "multipart") return;
+          writeUploadResumeCheckpoint({
+            version: 1,
+            fileFingerprint: fileFingerprint(selectedFile),
+            project: projectRecord,
+            upload,
+            completedParts,
+            updatedAt: new Date().toISOString(),
+          });
+        },
       });
 
       setAnalysisProgress(28);
@@ -1484,17 +1670,21 @@ export default function Home() {
       setAnalysisStage("原片校验完成，进入异步分析");
       const { job: startedJob } = await startProcessorJob(projectId, upload.id);
       processorJobId = startedJob.id;
-      const persistedStartedProject = await persistProjectMirror({
-        ...payload.project,
+      clearUploadResumeCheckpoint(selectedFile);
+      const startedProject = {
+        ...projectRecord,
         status: "analyzing",
         processorJobId: startedJob.id,
         stage: processorStageLabel(startedJob.stage),
         progress: 29,
         error: null,
-      });
+      } satisfies ProjectRecord;
+      const persistedStartedProject = await persistProjectMirror(startedProject)
+        .catch(() => startedProject);
       setProjects((current) => current.map((project) =>
         project.id === projectId ? persistedStartedProject : project
       ));
+      setStep(2);
 
       let job = startedJob;
       let provisionalCandidatesShown = false;
@@ -1509,7 +1699,10 @@ export default function Home() {
           progress: normalizedProgress,
         } : project));
         if (!provisionalCandidatesShown && job.clipCount > 0) {
-          const { candidates } = await readProcessorCandidates(projectId);
+          const { candidates } = await retryProcessorRead(
+            () => readProcessorCandidates(projectId),
+            runId,
+          );
           const provisionalIdeas = applyProcessorCandidateSet(
             candidates,
             selectedMode,
@@ -1527,7 +1720,10 @@ export default function Home() {
           }
         }
         await wait(2_500);
-        ({ job } = await readProcessorJob(startedJob.id));
+        ({ job } = await retryProcessorRead(
+          () => readProcessorJob(startedJob.id),
+          runId,
+        ));
       }
 
       if (job.status !== "succeeded") {
@@ -1541,7 +1737,10 @@ export default function Home() {
 
       setAnalysisStage("读取候选、证据、粗剪与成本台账");
       setAnalysisProgress(99);
-      const { candidates } = await readProcessorCandidates(projectId);
+      const { candidates } = await retryProcessorRead(
+        () => readProcessorCandidates(projectId),
+        runId,
+      );
       const { cost } = await readProcessorJobCost(job.id).catch(() => ({ cost: null }));
       setAnalysisCost(cost);
       const modelResultCandidates = applyProcessorCandidateSet(
@@ -1567,7 +1766,7 @@ export default function Home() {
         progress: 100,
         clipCount: modelResultCount,
         error: null,
-      });
+      }).catch(() => undefined);
 
       if (!modelResultCount) {
         showToast("本场没有通过事实与风险门禁的候选；系统没有为了凑数生成切片。");
@@ -1580,7 +1779,34 @@ export default function Home() {
       window.setTimeout(() => setStep(2), 320);
       showToast(`天总内容地图完成：本场自然识别 ${modelResultCount} 条候选，等待团队连续原片复核。`);
     } catch (error) {
+      if (runId !== projectResumeRunRef.current) return;
       const message = error instanceof Error ? error.message : "真实分析未完成。";
+      const resumableUpload = selectedFile
+        ? readUploadResumeCheckpoint(selectedFile)
+        : null;
+      if (
+        projectId
+        && !processorJobId
+        && resumableUpload?.project.id === projectId
+      ) {
+        const resumableProject: ProjectRecord = {
+          ...resumableUpload.project,
+          status: "analyzing",
+          stage: "上传中断，等待断点续传",
+          progress: 0,
+          error: message,
+        };
+        setAnalysisError(`${message} 已完成的分片已经保留，点击继续即可接着上传。`);
+        setAnalysisProgress(0);
+        setAnalysisStage("上传中断，等待断点续传");
+        setUploadResumeAvailable(true);
+        setProjects((current) => current.map((project) =>
+          project.id === projectId ? resumableProject : project
+        ));
+        void persistProjectMirror(resumableProject).catch(() => undefined);
+        showToast("上传连接中断，但已完成分片没有清空，可以从断点继续。");
+        return;
+      }
       setAnalysisError(message);
       setAnalysisProgress(0);
       setAnalysisStage("分析失败");
@@ -1610,7 +1836,13 @@ export default function Home() {
   }
 
   function openStep(nextStep: WorkflowStep) {
-    if (nextStep === 1 || analysisReady) setStep(nextStep);
+    if (
+      nextStep === 1
+      || (nextStep === 2 && (analysisReady || Boolean(activeProjectId)))
+      || (nextStep === 3 && analysisReady)
+    ) {
+      setStep(nextStep);
+    }
   }
 
   function toggleSelected(id: string) {
@@ -1990,7 +2222,10 @@ export default function Home() {
               <button
                 key={item.step}
                 className={step === item.step ? "active" : step > item.step ? "complete" : ""}
-                disabled={item.step > 1 && !analysisReady}
+                disabled={
+                  (item.step === 2 && !analysisReady && !activeProjectId)
+                  || (item.step === 3 && !analysisReady)
+                }
                 onClick={() => openStep(item.step)}
                 aria-current={step === item.step ? "step" : undefined}
               >
@@ -2176,7 +2411,11 @@ export default function Home() {
                         aria-label="开始分析这场直播"
                         disabled={!uploadedPreviewUrl || !mode || (analysisProgress > 0 && analysisProgress < 100)}
                       >
-                        {analysisProgress > 0 && analysisProgress < 100 ? `正在分析 ${Math.min(analysisProgress, 99)}%` : "开始分析这场直播"}
+                        {analysisProgress > 0 && analysisProgress < 100
+                          ? `正在分析 ${Math.min(analysisProgress, 99)}%`
+                          : uploadResumeAvailable
+                            ? "从断点继续上传"
+                            : "开始分析这场直播"}
                         {!(analysisProgress > 0 && analysisProgress < 100) && <span aria-hidden="true">↑</span>}
                       </button>
                     </div>
@@ -2190,9 +2429,21 @@ export default function Home() {
                   </div>
                 )}
                 {analysisError && (
-                  <p className="composer-error" role="alert">
-                    {analysisError}
-                  </p>
+                  <div className="composer-error" role="alert">
+                    <span>{analysisError}</span>
+                    {activeProjectId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const project = projects.find((item) => item.id === activeProjectId);
+                          if (project?.processorJobId) void resumeProject(project);
+                          else if (uploadResumeAvailable) void startAnalysis();
+                        }}
+                      >
+                        {uploadResumeAvailable ? "从断点继续上传" : "继续后台任务（不用重传）"}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
@@ -2264,12 +2515,20 @@ export default function Home() {
                         <small>{project.sourceName} · {project.mode}</small>
                       </div>
                       <span className={`project-status ${project.status}`}>
-                        {project.status === "ready" ? "已完成" : project.status === "failed" ? "失败" : "分析中"}
+                        {project.status === "ready"
+                          ? "已完成"
+                          : projectNeedsAutomaticResume(project)
+                            ? "可恢复"
+                            : project.status === "failed"
+                              ? "失败"
+                              : "分析中"}
                       </span>
                       <b>
                         {project.status === "ready"
                           ? `${project.clipCount} 条切片`
-                          : project.status === "failed"
+                          : projectNeedsAutomaticResume(project)
+                            ? "连接中断 · 点击继续"
+                            : project.status === "failed"
                             ? "分析失败"
                             : `${project.stage ?? "正在找切片"}${project.progress ? ` · ${project.progress}%` : ""}`}
                       </b>
@@ -2284,8 +2543,52 @@ export default function Home() {
         </section>
       )}
 
-      {step === 2 && (
+      {step === 2 && runtimeIdeas.length === 0 && analysisProgress < 100 ? (
+        <section className="analysis-live-view" aria-labelledby="analysis-live-title">
+          <header>
+            <span>后台实时分析</span>
+            <h1 id="analysis-live-title">原片已经保存，正在持续找切片</h1>
+            <p>现在可以离开这个页面；断线后会自动接着读取后台任务，不会重新上传原片。</p>
+          </header>
+          <div className="analysis-live-progress" aria-live="polite">
+            <div>
+              <strong>{Math.max(29, analysisProgress)}%</strong>
+              <span>{analysisStage || "正在恢复后台任务"}</span>
+            </div>
+            <i><b style={{ width: `${Math.max(2, analysisProgress)}%` }} /></i>
+          </div>
+          <div className="analysis-live-counts">
+            <article><span>已经找到</span><strong>{runtimeIdeas.length}</strong><small>条可先看的候选</small></article>
+            <article><span>当前模型</span><strong>{editorMode === "doubao" ? "豆包" : editorMode === "openai" ? "OpenAI" : editorMode === "kimi" ? "Kimi" : "三模型"}</strong><small>后台继续补齐与校验</small></article>
+            <article><span>原片状态</span><strong>已保存</strong><small>无需重新上传</small></article>
+          </div>
+          <div className="analysis-live-stream">
+            <span>候选会在通过第一轮证据门禁后直接出现在这里</span>
+            <p>逐字转写 → 视觉事件地图 → 候选粗剪 → 事实与风险校验</p>
+          </div>
+          {analysisError && (
+            <div className="analysis-live-error" role="alert">
+              <span>{analysisError}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const project = projects.find((item) => item.id === activeProjectId);
+                  if (project) void resumeProject(project);
+                }}
+              >
+                继续后台任务（不用重传）
+              </button>
+            </div>
+          )}
+        </section>
+      ) : step === 2 && (
         <section className="map-view" aria-labelledby="map-title">
+          {analysisProgress > 0 && analysisProgress < 100 && (
+            <div className="analysis-live-banner" aria-live="polite">
+              <span>{analysisStage} · {analysisProgress}%</span>
+              <strong>已先交付 {runtimeIdeas.length} 条，后台仍在继续分析</strong>
+            </div>
+          )}
           <aside className="idea-index">
             <div className="panel-heading">
               <div><span>本场自然发现</span><b>{discoveredCount} 条候选</b></div>
