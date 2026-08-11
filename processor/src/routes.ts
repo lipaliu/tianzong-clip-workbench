@@ -456,6 +456,68 @@ export async function registerRoutes(
     },
   );
 
+  app.get(
+    "/v1/projects/:id/uploads/:uploadId/multipart/status",
+    async (request) => {
+      const projectId = parseId(request.params, "id");
+      const uploadId = parseId(request.params, "uploadId");
+      const upload = await repository.getUpload(projectId, uploadId);
+      if (
+        upload.upload_strategy !== "multipart"
+        || typeof upload.multipart_upload_id !== "string"
+        || !["multipart_initiated", "uploading", "completing", "uploaded", "verified"].includes(
+          String(upload.status),
+        )
+      ) {
+        throw new AppError(
+          409,
+          "multipart_upload_state_invalid",
+          "分片上传状态无效，不能恢复上传。",
+        );
+      }
+
+      const expected = await repository.getMultipartPartPlan(projectId, uploadId);
+      const expectedByNumber = new Map(expected.map((part) => [part.partNumber, part]));
+      let uploadedParts = await repository.getRecordedMultipartParts(projectId, uploadId);
+      if (upload.status !== "uploaded" && upload.status !== "verified") {
+        const remoteParts = await storage.listMultipartParts({
+          objectKey: String(upload.object_key),
+          multipartUploadId: String(upload.multipart_upload_id),
+        });
+        const verifiedParts = remoteParts.map((part) => {
+          const expectedPart = expectedByNumber.get(part.partNumber);
+          if (!expectedPart || expectedPart.sizeBytes !== part.sizeBytes) {
+            throw new AppError(
+              409,
+              "multipart_remote_part_mismatch",
+              `私有存储中的第 ${part.partNumber} 个分片与上传计划不匹配。`,
+            );
+          }
+          return part;
+        });
+        if (verifiedParts.length) {
+          await repository.recordMultipartParts({
+            projectId,
+            uploadId,
+            parts: verifiedParts,
+          });
+        }
+        uploadedParts = verifiedParts.map((part) => ({
+          partNumber: part.partNumber,
+          etag: part.etag,
+        }));
+      }
+
+      return {
+        uploadId,
+        projectId,
+        status: String(upload.status),
+        partCount: expected.length,
+        uploadedParts,
+      };
+    },
+  );
+
   app.post(
     "/v1/projects/:id/uploads/:uploadId/multipart/complete",
     async (request, reply) => {
@@ -643,19 +705,29 @@ export async function registerRoutes(
               },
             };
           } catch (error) {
+            // Only a stale completion list is recoverable. Integrity failures
+            // (especially ETag or expected-size mismatches) must still fail
+            // closed and discard the remote multipart upload immediately.
+            const canResume = error instanceof AppError
+              && [
+                "multipart_part_count_mismatch",
+                "multipart_remote_part_count_mismatch",
+              ].includes(error.code);
             if (objectCompleted) {
               await storage.delete(objectKey).catch(() => undefined);
-            } else {
+            } else if (!canResume) {
               await storage.abortMultipartUpload({
                 objectKey,
                 multipartUploadId,
               }).catch(() => undefined);
             }
-            await repository.finishMultipartUploadState(
-              projectId,
-              uploadId,
-              "failed",
-            ).catch(() => undefined);
+            if (!canResume) {
+              await repository.finishMultipartUploadState(
+                projectId,
+                uploadId,
+                "failed",
+              ).catch(() => undefined);
+            }
             throw error;
           }
         },
@@ -729,6 +801,16 @@ export async function registerRoutes(
   app.get("/v1/jobs/:jobId", async (request) => {
     const jobId = parseId(request.params, "jobId");
     return { job: await repository.getJob(jobId) };
+  });
+
+  app.get("/v1/jobs/:jobId/events", async (request) => {
+    const jobId = parseId(request.params, "jobId");
+    const query = request.query as { after?: unknown };
+    const afterId = query.after === undefined ? 0 : Number(query.after);
+    if (!Number.isSafeInteger(afterId) || afterId < 0) {
+      throw new AppError(400, "invalid_job_event_cursor", "任务事件游标无效。");
+    }
+    return { events: await repository.getJobEvents(jobId, afterId) };
   });
 
   // Spend for one run. Reported separately from the job record because the

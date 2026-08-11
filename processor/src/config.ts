@@ -33,8 +33,10 @@ const envSchema = z.object({
   PREVIEW_TTL_SECONDS: positiveInteger(600),
   MAX_UPLOAD_BYTES: z.coerce.number().int().positive().max(50_000_000_000)
     .default(9_000_000_000),
+  // Keep single PUT intentionally small: multi-GB uploads must always use
+  // resumable storage multipart uploads rather than one fragile browser request.
   SINGLE_PUT_MAX_BYTES: z.coerce.number().int().positive().max(5 * 1024 * 1024 * 1024)
-    .default(4_900_000_000),
+    .default(512 * 1024 * 1024),
   MULTIPART_PART_SIZE_BYTES: z.coerce.number().int()
     .min(5 * 1024 * 1024)
     .max(5 * 1024 * 1024 * 1024)

@@ -37,6 +37,14 @@ export type UploadedMultipartPart = {
   etag: string;
 };
 
+export type MultipartUploadStatus = {
+  uploadId: string;
+  projectId: string;
+  status: "multipart_initiated" | "uploading" | "completing" | "uploaded" | "verified";
+  partCount: number;
+  uploadedParts: UploadedMultipartPart[];
+};
+
 export type ProcessorJobStatus =
   | "queued"
   | "running"
@@ -60,6 +68,14 @@ export type ProcessorJob = {
   coreSha256: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ProcessorJobEvent = {
+  id: number;
+  stage: string;
+  progress: number;
+  message: string;
+  createdAt: string;
 };
 
 /** Server-calculated ledger only; the browser never invents or estimates cost. */
@@ -165,7 +181,7 @@ export class ProcessorRequestError extends Error {
 
 export function processorRequestIsRecoverable(error: unknown) {
   if (error instanceof ProcessorRequestError) {
-    return [408, 425, 429, 500, 502, 503, 504].includes(error.status);
+    return [0, 408, 425, 429, 500, 502, 503, 504].includes(error.status);
   }
   if (error instanceof TypeError) return true;
   if (error instanceof DOMException) {
@@ -325,10 +341,10 @@ function uploadBlobToPresignedUrl(
         }
         resolve(etag);
       } else {
-        reject(new Error(`原片上传失败（${request.status || "网络错误"}）`));
+        reject(new ProcessorRequestError(`原片上传失败（${request.status || "网络错误"}）`, request.status));
       }
     });
-    request.addEventListener("error", () => reject(new Error("原片上传失败，请检查网络和存储跨域设置。")));
+    request.addEventListener("error", () => reject(new ProcessorRequestError("原片上传失败，请检查网络和存储跨域设置。", 0)));
     request.addEventListener("abort", () => reject(new Error("原片上传已取消。")));
     request.send(body);
   });
@@ -352,9 +368,35 @@ async function presignMultipartParts(
   }>(response);
 }
 
+/**
+ * The storage provider is authoritative. Querying it before resuming prevents a
+ * stale local checkpoint, browser crash, or a second tab from re-uploading data
+ * that has already safely reached private storage.
+ */
+export async function readMultipartUploadStatus(
+  upload: MultipartPresignedUpload,
+): Promise<MultipartUploadStatus> {
+  const response = await fetch(
+    `/api/runtime/projects/${encodeURIComponent(upload.projectId)}/uploads/${encodeURIComponent(upload.id)}/multipart/status`,
+    { cache: "no-store" },
+  );
+  return readJson<MultipartUploadStatus>(response);
+}
+
 function retryDelay(attempt: number) {
   const base = Math.min(4_000, 400 * (2 ** attempt));
   return new Promise((resolve) => window.setTimeout(resolve, base + Math.random() * 250));
+}
+
+function preferredMultipartConcurrency() {
+  const connection = (navigator as Navigator & {
+    connection?: NetworkInformation & { downlink?: number; saveData?: boolean };
+  }).connection;
+  if (connection?.saveData || connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g") {
+    return 2;
+  }
+  if (typeof connection?.downlink === "number" && connection.downlink < 4) return 3;
+  return 4;
 }
 
 async function uploadMultipartFile(
@@ -371,7 +413,8 @@ async function uploadMultipartFile(
     throw new Error("本地文件大小与服务端分片计划不一致，请重新选择原片。");
   }
 
-  const concurrency = 3;
+  const concurrency = preferredMultipartConcurrency();
+  const presignWindow = Math.max(concurrency, Math.min(8, concurrency * 2));
   const completedByNumber = new Map<number, UploadedMultipartPart>();
   for (const part of options.completedParts ?? []) {
     if (
@@ -399,6 +442,8 @@ async function uploadMultipartFile(
       .reduce((sum, value) => sum + value, 0);
     onProgress(Math.min(1, (completedBytes + activeBytes) / file.size));
   };
+  const completedParts = () => Array.from(completedByNumber.values())
+    .sort((left, right) => left.partNumber - right.partNumber);
 
   reportProgress();
   const pendingPartNumbers = Array.from(
@@ -406,28 +451,38 @@ async function uploadMultipartFile(
     (_, index) => index + 1,
   ).filter((partNumber) => !completedByNumber.has(partNumber));
 
-  for (let startIndex = 0; startIndex < pendingPartNumbers.length; startIndex += concurrency) {
-    const partNumbers = pendingPartNumbers.slice(startIndex, startIndex + concurrency);
+  for (let startIndex = 0; startIndex < pendingPartNumbers.length; startIndex += presignWindow) {
+    const partNumbers = pendingPartNumbers.slice(startIndex, startIndex + presignWindow);
     const signed = await presignMultipartParts(upload, partNumbers);
-    const signedByNumber = new Map(
-      signed.parts.map((part) => [part.partNumber, part]),
-    );
-    const settledBatch = await Promise.allSettled(partNumbers.map(async (partNumber) => {
+    const signedByNumber = new Map(signed.parts.map((part) => [part.partNumber, part]));
+    const queue = [...partNumbers];
+    let failed: unknown = null;
+
+    await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+      while (queue.length && !failed) {
+        const partNumber = queue.shift();
+        if (!partNumber) continue;
         const start = (partNumber - 1) * upload.partSizeBytes;
         const end = Math.min(file.size, start + upload.partSizeBytes);
         const blob = file.slice(start, end);
-        const part = signedByNumber.get(partNumber);
-        if (!part || blob.size <= 0) {
-          throw new Error(`第 ${partNumber} 个上传分片计划无效。`);
+        let signedPart = signedByNumber.get(partNumber);
+        if (!signedPart || blob.size <= 0) {
+          failed = new Error(`第 ${partNumber} 个上传分片计划无效。`);
+          return;
         }
         let lastError: unknown;
         for (let attempt = 0; attempt < 3; attempt += 1) {
           activeLoadedBytes.set(partNumber, 0);
           reportProgress();
           try {
+            if (attempt > 0) {
+              const refreshed = await presignMultipartParts(upload, [partNumber]);
+              signedPart = refreshed.parts[0];
+              if (!signedPart) throw new Error(`第 ${partNumber} 个上传分片重签失败。`);
+            }
             const etag = await uploadBlobToPresignedUrl(
               blob,
-              { url: part.putUrl, requireEtag: true },
+              { url: signedPart.putUrl, requireEtag: true },
               (loadedBytes) => {
                 activeLoadedBytes.set(partNumber, Math.min(blob.size, loadedBytes));
                 reportProgress();
@@ -436,14 +491,12 @@ async function uploadMultipartFile(
             if (!etag) throw new Error(`第 ${partNumber} 个分片缺少 ETag。`);
             activeLoadedBytes.delete(partNumber);
             completedBytes += blob.size;
-            reportProgress();
             const completedPart = { partNumber, etag };
             completedByNumber.set(partNumber, completedPart);
-            options.onPartsCompleted?.(
-              Array.from(completedByNumber.values())
-                .sort((left, right) => left.partNumber - right.partNumber),
-            );
-            return completedPart;
+            reportProgress();
+            options.onPartsCompleted?.(completedParts());
+            lastError = null;
+            break;
           } catch (error) {
             lastError = error;
             activeLoadedBytes.set(partNumber, 0);
@@ -451,26 +504,17 @@ async function uploadMultipartFile(
             if (attempt < 2) await retryDelay(attempt);
           }
         }
-        throw lastError instanceof Error
-          ? lastError
-          : new Error(`第 ${partNumber} 个分片上传失败。`);
+        if (lastError) {
+          failed = lastError;
+          return;
+        }
+      }
     }));
-    const failed = settledBatch.find(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    if (failed) throw failed.reason;
-    for (const result of settledBatch) {
-      const part = (result as PromiseFulfilledResult<UploadedMultipartPart>).value;
-      completedByNumber.set(part.partNumber, part);
-    }
-    options.onPartsCompleted?.(
-      Array.from(completedByNumber.values())
-        .sort((left, right) => left.partNumber - right.partNumber),
-    );
+    if (failed) throw failed;
+    options.onPartsCompleted?.(completedParts());
   }
   onProgress(1);
-  return Array.from(completedByNumber.values())
-    .sort((left, right) => left.partNumber - right.partNumber);
+  return completedParts();
 }
 
 export async function uploadToPresignedUrl(
@@ -539,6 +583,14 @@ export async function readProcessorJob(jobId: string) {
     cache: "no-store",
   });
   return readJson<{ job: ProcessorJob }>(response);
+}
+
+export async function readProcessorJobEvents(jobId: string, afterId = 0) {
+  const response = await fetch(
+    `/api/runtime/jobs/${encodeURIComponent(jobId)}/events?after=${encodeURIComponent(String(afterId))}`,
+    { cache: "no-store" },
+  );
+  return readJson<{ events: ProcessorJobEvent[] }>(response);
 }
 
 export async function readProcessorJobCost(jobId: string) {

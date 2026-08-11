@@ -328,6 +328,24 @@ export class ProcessorRepository {
     }));
   }
 
+  async getRecordedMultipartParts(
+    projectId: string,
+    uploadId: string,
+  ): Promise<Array<{ partNumber: number; etag: string }>> {
+    const result = await this.database.query(
+      `SELECT part_number, etag
+       FROM multipart_upload_parts
+       WHERE upload_id = $1 AND project_id = $2
+         AND status = 'uploaded' AND etag IS NOT NULL
+       ORDER BY part_number`,
+      [uploadId, projectId],
+    );
+    return result.rows.map((row) => ({
+      partNumber: Number(row.part_number),
+      etag: String(row.etag),
+    }));
+  }
+
   async markMultipartUploading(projectId: string, uploadId: string): Promise<void> {
     const result = await this.database.query(
       `UPDATE media_uploads
@@ -493,6 +511,34 @@ export class ProcessorRepository {
       }
       throw error;
     }
+  }
+
+  async getJobEvents(
+    jobId: string,
+    afterId = 0,
+  ): Promise<Array<{
+    id: number;
+    stage: string;
+    progress: number;
+    message: string;
+    createdAt: string;
+  }>> {
+    await this.getJob(jobId);
+    const result = await this.database.query(
+      `SELECT id, stage, progress, message, created_at
+       FROM job_events
+       WHERE job_id = $1 AND id > $2
+       ORDER BY id ASC
+       LIMIT 100`,
+      [jobId, afterId],
+    );
+    return result.rows.map((row) => ({
+      id: numberValue(row.id),
+      stage: String(row.stage),
+      progress: numberValue(row.progress),
+      message: String(row.message),
+      createdAt: isoValue(row.created_at),
+    }));
   }
 
   async getJob(jobId: string): Promise<JobApi> {

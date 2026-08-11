@@ -15,6 +15,8 @@ import {
   readProcessorCandidates,
   readProcessorJob,
   readProcessorJobCost,
+  readProcessorJobEvents,
+  readMultipartUploadStatus,
   startProcessorJob,
   submitProcessorFeedback,
   uploadToPresignedUrl,
@@ -995,6 +997,13 @@ export default function Home() {
   const [analysisStage, setAnalysisStage] = useState("");
   const [analysisError, setAnalysisError] = useState("");
   const [analysisCost, setAnalysisCost] = useState<ProcessorJobCost | null>(null);
+  const [analysisEvents, setAnalysisEvents] = useState<Array<{
+    id: number;
+    stage: string;
+    progress: number;
+    message: string;
+    createdAt: string;
+  }>>([]);
   const [analysisReady, setAnalysisReady] = useState(false);
   const [failedProcessorJob, setFailedProcessorJob] = useState<ProcessorJob | null>(null);
   const [uploadResumeAvailable, setUploadResumeAvailable] = useState(false);
@@ -1024,6 +1033,7 @@ export default function Home() {
   const deliveryRef = useRef<HTMLElement>(null);
   const galleryRef = useRef<HTMLDivElement>(null);
   const projectResumeRunRef = useRef(0);
+  const analysisEventCursorRef = useRef(0);
 
   const galleryAutoPlaying = galleryMotionAllowed
     && galleryVisible;
@@ -1204,6 +1214,21 @@ export default function Home() {
     throw new Error("任务恢复已停止。");
   }
 
+  async function syncProcessorEvents(jobId: string, runId: number) {
+    const { events } = await retryProcessorRead(
+      () => readProcessorJobEvents(jobId, analysisEventCursorRef.current),
+      runId,
+    );
+    if (runId !== projectResumeRunRef.current || !events.length) return;
+    const latest = events.at(-1)!;
+    analysisEventCursorRef.current = latest.id;
+    setAnalysisEvents((current) => {
+      const known = new Set(current.map((event) => event.id));
+      return [...current, ...events.filter((event) => !known.has(event.id))].slice(-8);
+    });
+    if (latest.message) setAnalysisStage(latest.message);
+  }
+
   function applyProcessorCandidateSet(
     candidates: ProcessorCandidate[],
     selectedMode: Mode,
@@ -1315,6 +1340,8 @@ export default function Home() {
     setAnalysisError("");
     setFailedProcessorJob(null);
     setAnalysisCost(null);
+    analysisEventCursorRef.current = 0;
+    setAnalysisEvents([]);
     setRuntimeIdeas([]);
     setCurrentTime(0);
     setReviewSourceMode("candidate");
@@ -1344,6 +1371,7 @@ export default function Home() {
           () => readProcessorJob(project.processorJobId!),
           runId,
         ));
+        await syncProcessorEvents(job.id, runId);
         let provisionalCandidatesShown = false;
         while (
           runId === projectResumeRunRef.current &&
@@ -1356,6 +1384,7 @@ export default function Home() {
           setAnalysisProgress(currentProject.progress ?? 29);
           setAnalysisStage(currentProject.stage ?? "真实分析进行中");
           await persistProjectMirror(currentProject).catch(() => currentProject);
+          await syncProcessorEvents(job.id, runId);
           if (!provisionalCandidatesShown && job.clipCount > 0) {
             const { candidates } = await retryProcessorRead(
               () => readProcessorCandidates(project.id),
@@ -1623,6 +1652,8 @@ export default function Home() {
 
     setRuntimeIdeas([]);
     setAnalysisReady(false);
+    analysisEventCursorRef.current = 0;
+    setAnalysisEvents([]);
     setAnalysisError("");
     setFailedProcessorJob(null);
     setAnalysisProgress(1);
@@ -1701,6 +1732,29 @@ export default function Home() {
       setProjectQuery(projectId);
       setProjects((current) => [projectRecord, ...current.filter((item) => item.id !== projectId)]);
 
+      if (upload.strategy === "multipart") {
+        setAnalysisStage("正在与私有存储核对可续传分片");
+        const remoteState = await readMultipartUploadStatus(upload);
+        resumedParts = remoteState.uploadedParts;
+        writeUploadResumeCheckpoint({
+          version: 1,
+          fileFingerprint: fileFingerprint(selectedFile),
+          project: projectRecord,
+          upload,
+          completedParts: resumedParts,
+          updatedAt: new Date().toISOString(),
+        });
+        setAnalysisProgress(Math.max(
+          5,
+          Math.round(5 + (resumedParts.length / upload.partCount) * 23),
+        ));
+        setAnalysisStage(
+          resumedParts.length
+            ? `已核对 ${resumedParts.length}/${upload.partCount} 个分片，正在继续上传`
+            : "已建立安全续传点，正在上传完整直播原片",
+        );
+      }
+
       const uploadedParts = await uploadToPresignedUrl(selectedFile, upload, (ratio) => {
         setAnalysisProgress(Math.max(5, Math.round(5 + ratio * 23)));
       }, {
@@ -1743,6 +1797,7 @@ export default function Home() {
       setStep(2);
 
       let job = startedJob;
+      await syncProcessorEvents(job.id, runId);
       let provisionalCandidatesShown = false;
       while (processorJobIsPending(job)) {
         const normalizedProgress = processorProgress(job);
@@ -1754,6 +1809,7 @@ export default function Home() {
           stage: stageLabel,
           progress: normalizedProgress,
         } : project));
+        await syncProcessorEvents(job.id, runId);
         if (!provisionalCandidatesShown && job.clipCount > 0) {
           const { candidates } = await retryProcessorRead(
             () => readProcessorCandidates(projectId),
@@ -2629,6 +2685,16 @@ export default function Home() {
             <span>候选会在通过第一轮证据门禁后直接出现在这里</span>
             <p>逐字转写 → 视觉事件地图 → 候选粗剪 → 事实与风险校验</p>
           </div>
+          <ol className="analysis-event-timeline" aria-label="后台分析实时进展" aria-live="polite">
+            {analysisEvents.length ? [...analysisEvents].reverse().map((event) => (
+              <li key={event.id}>
+                <span>{Math.max(0, Math.min(100, event.progress))}%</span>
+                <p>{event.message}</p>
+              </li>
+            )) : (
+              <li className="pending"><span>···</span><p>正在连接后台分析时间线。</p></li>
+            )}
+          </ol>
           {analysisError && (
             <div className="analysis-live-error" role="alert">
               <span>{analysisError}</span>
