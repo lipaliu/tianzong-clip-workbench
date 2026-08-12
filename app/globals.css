@@ -5045,3 +5045,462 @@ body {
   .upload-pair-grid { grid-template-columns: 1fr; }
   .upload-pair-grid .composer-input { min-height: 170px; }
 }
+
+/* ──────────────────────────────────────────────────────────
+   Readability restore layer
+   The editorial refresh above pushed display type very large and
+   support type down to 6–9px, which crushed Chinese labels into
+   one-character-per-line columns. This layer keeps the calm
+   black-on-paper look but returns a normal landscape layout and a
+   conventional type scale. It is intentionally last so it wins.
+   ────────────────────────────────────────────────────────── */
+
+/* 1. 版面：主工作区用满横版宽度，取消挤压主区的窄栏比例 */
+.home-shell {
+  max-width: 1600px;
+  grid-template-columns: minmax(0, 2.1fr) minmax(300px, 0.9fr);
+  column-gap: 40px;
+}
+
+.workspace-home {
+  padding: clamp(28px, 3.4vw, 52px) clamp(20px, 3.2vw, 56px) 72px;
+}
+
+.home-prompt {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.46fr);
+  align-items: center;
+  gap: 40px;
+  padding: 30px 0 32px;
+}
+
+/* 2. 主标题：常规大标题字号，不再强制折行成两行巨字 */
+.home-prompt h1 {
+  max-width: none;
+  font-size: clamp(28px, 2.5vw, 38px);
+  line-height: 1.24;
+  letter-spacing: 0.005em;
+  text-wrap: balance;
+}
+
+.home-prompt p {
+  max-width: 460px;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+/* 3. 步骤条：横向排布，标题与说明同行可读，不再逐字竖排 */
+.step-rail,
+.intake-stepper {
+  min-width: 0;
+}
+
+.step-rail button,
+.intake-stepper button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "index title"
+    "index caption";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+  text-align: left;
+}
+
+.step-rail button > span:first-child,
+.intake-stepper button > span:first-child {
+  grid-area: index;
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.step-rail button strong,
+.intake-stepper button strong {
+  grid-area: title;
+  margin: 0;
+  white-space: nowrap;
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.step-rail button small,
+.intake-stepper button small {
+  grid-area: caption;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.intake-stepper button { min-height: 72px; padding: 14px 18px; }
+
+/* 4. 配对上传卡：并排横向卡片，标题单行或两行，说明有正常行宽 */
+.upload-pair-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.upload-pair-grid .composer-input {
+  min-height: 188px;
+  padding: 44px 26px 24px;
+}
+
+.upload-pair-grid .composer-placeholder,
+.upload-pair-grid .composer-file {
+  margin-top: 0;
+  gap: 10px;
+}
+
+.upload-pair-grid .composer-placeholder strong,
+.upload-pair-grid .composer-file strong {
+  overflow-wrap: normal;
+  word-break: keep-all;
+  font-size: clamp(18px, 1.5vw, 22px);
+  line-height: 1.35;
+  letter-spacing: 0.005em;
+  text-wrap: balance;
+}
+
+.upload-pair-grid .composer-placeholder small,
+.upload-pair-grid .composer-file small {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.upload-file-label {
+  top: 18px;
+  left: 24px;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+}
+
+.subtitle-routing-note {
+  margin-top: 16px;
+  padding: 11px 14px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+/* 5. 单卡上传态（未配对时）同样使用常规标题字号 */
+.composer-placeholder strong,
+.composer-file strong {
+  font-size: clamp(22px, 1.9vw, 28px);
+  line-height: 1.3;
+}
+
+.composer-placeholder small,
+.composer-file small {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.composer-input::after {
+  margin-top: 26px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+/* 6. 字幕来源状态行：文字不再压到 7–9px */
+.mode-subtitle-source strong { font-size: 14px; }
+.mode-subtitle-source small { font-size: 12px; }
+.mode-subtitle-source button { font-size: 13px; }
+.mode-subtitle-source > span { font-size: 11px; }
+
+/* 7. 全站兜底：任何残留的超小号与过宽字距都回到可读区间 */
+.cutline-app small,
+.cutline-app span,
+.cutline-app label,
+.cutline-app li,
+.cutline-app p,
+.cutline-app b,
+.cutline-app time,
+.cutline-app button {
+  letter-spacing: normal;
+}
+
+.cutline-app :is(small, span, label, li, b, time) {
+  font-size: max(1em, 12px);
+}
+
+.masthead::before {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+}
+
+.masthead-brand > span {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+
+.wordmark { font-size: clamp(20px, 1.5vw, 26px); letter-spacing: 0.02em; }
+
+/* 8. 侧栏与其它区块：与主区形成正常层级而非极端对比 */
+.model-statement h2 { font-size: 22px; }
+.model-statement p { font-size: 16px; line-height: 1.6; }
+.model-statement small,
+.model-statement-meta small { font-size: 12px; letter-spacing: 0.08em; }
+.project-library header h2 { font-size: 24px; }
+.project-row time { font-size: 17px; }
+.project-row strong { font-size: 15px; }
+.home-prototype-note { font-size: 13px; line-height: 1.75; }
+
+.mode-choice-cards button span,
+.editor-choice-cards button strong { font-size: 19px; }
+.mode-knowledge h2,
+.editor-choice-section h2 { font-size: 21px; }
+.mode-knowledge > span,
+.editor-choice-section > header > span { font-size: 12px; letter-spacing: 0.09em; }
+
+/* 9. 分析进度页：进度数字回到正常尺度，事件流保持易读 */
+.analysis-live-view { max-width: 1320px; }
+.analysis-live-view > header h1 { font-size: clamp(26px, 2.4vw, 36px); line-height: 1.25; letter-spacing: 0.005em; }
+.analysis-live-view > header p { font-size: 15px; }
+.analysis-live-progress strong { font-size: clamp(38px, 3.6vw, 54px); letter-spacing: -0.01em; }
+.analysis-live-progress span { max-width: 520px; font-size: 15px; line-height: 1.6; }
+.analysis-live-counts strong { font-size: 26px; }
+.analysis-live-counts span { font-size: 12px; letter-spacing: 0.07em; }
+.analysis-live-counts small { font-size: 13px; }
+.analysis-live-stream span { font-size: 17px; }
+.analysis-live-stream p { font-size: 14px; }
+.analysis-event-timeline li { grid-template-columns: 88px minmax(0, 1fr); }
+.analysis-event-timeline span { font-size: 13px; letter-spacing: 0.04em; }
+.analysis-event-timeline p { font-size: 14px; line-height: 1.65; }
+.analysis-live-banner { font-size: 14px; }
+.analysis-live-banner strong { font-size: 16px; }
+.map-preview h1 { font-size: clamp(26px, 2.3vw, 34px); line-height: 1.25; }
+.map-preview > p { font-size: 15px; }
+.panel-heading b { font-size: 21px; }
+
+/* 10. 窄屏：单列堆叠，仍保持常规字号 */
+@media (max-width: 1180px) {
+  .home-shell { grid-template-columns: minmax(0, 1fr); }
+  .home-prompt { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 18px; }
+  .workflow-composer { padding-right: 0; border-right: 0; }
+  .project-library { padding-right: 0; border-right: 0; }
+  .model-statement { padding-left: 0; }
+}
+
+@media (max-width: 900px) {
+  .home-prompt h1 { font-size: clamp(24px, 5.4vw, 32px); }
+  .upload-pair-grid { grid-template-columns: minmax(0, 1fr); }
+  .upload-pair-grid .composer-input { min-height: 156px; }
+  .step-rail button small { display: none; }
+  .analysis-live-view > header h1 { font-size: 26px; }
+  .analysis-live-progress strong { font-size: 40px; }
+}
+
+/* ──────────────────────────────────────────────────────────
+   Readability restore layer — part 2: intake layout
+   The original composer used a 168px left sidebar for the stepper,
+   which reduced the stage to a narrow column and forced Chinese
+   labels to wrap one character per line. Stack the stepper above
+   the stage so the form uses the full landscape width.
+   ────────────────────────────────────────────────────────── */
+
+.workflow-composer {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: visible;
+  padding: 0;
+}
+
+.intake-stepper {
+  grid-template-rows: auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0;
+  border-right: 0;
+  background: transparent;
+}
+
+.intake-stepper button + button { margin-top: 0; }
+
+.intake-stepper button {
+  min-height: 68px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.intake-stepper button:last-child { border-right: 1px solid var(--line); }
+.intake-stepper button.active { border-color: var(--ink); background: var(--ink); color: var(--paper); }
+.intake-stepper button.active > span:first-child,
+.intake-stepper button.active small { color: inherit; opacity: 0.82; }
+.intake-stepper button.complete:not(.active) { background: #e8e4da; }
+.intake-stepper button.complete:not(.active)::after { top: 12px; right: 14px; font-size: 12px; }
+.intake-stepper button > span:first-child { margin-bottom: 0; }
+.intake-stepper small { margin-top: 0; opacity: 0.78; }
+
+.intake-stage {
+  min-height: 0;
+  padding: 24px 0 0;
+  background: transparent;
+}
+
+.upload-stage,
+.mode-stage { min-height: 0; }
+
+/* 操作区：横向排布，按钮文字保持单行 */
+.stage-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 0;
+}
+
+.stage-secondary,
+.stage-primary {
+  min-height: 46px;
+  flex: 0 0 auto;
+  padding: 0 22px;
+  border-radius: 0;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.stage-actions .subtitle-pick { margin-left: 0; }
+.stage-actions .stage-primary { margin-left: auto; }
+
+/* 上传卡：内容纵向靠下，标签不与标题重叠 */
+.upload-pair-grid .composer-input {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 0;
+  text-align: left;
+}
+
+.upload-pair-grid .composer-placeholder,
+.upload-pair-grid .composer-file {
+  width: 100%;
+  max-width: 100%;
+}
+
+.upload-pair-grid .composer-file {
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.upload-pair-grid .composer-file > span:first-child {
+  width: 40px;
+  height: 40px;
+  border-radius: 0;
+  font-size: 13px;
+}
+
+.upload-pair-grid .composer-file strong { font-size: 14px; }
+.upload-pair-grid .composer-file small { font-size: 12px; }
+
+.subtitle-upload-input .composer-file { background: rgba(17, 17, 15, 0.05); }
+
+@media (max-width: 900px) {
+  .intake-stepper { grid-template-columns: minmax(0, 1fr); }
+  .stage-actions .stage-primary { margin-left: 0; width: 100%; }
+}
+
+/* ──────────────────────────────────────────────────────────
+   Readability restore layer — part 3: alignment and duplication
+   ────────────────────────────────────────────────────────── */
+
+/* 标题与说明左对齐，跟随主内容左边线 */
+.home-prompt {
+  justify-items: start;
+  text-align: left;
+}
+
+.home-prompt h1,
+.home-prompt p {
+  text-align: left;
+}
+
+.home-prompt p { justify-self: start; }
+
+/* 顶栏步骤条与表单内步骤条重复，只保留表单内的那一组 */
+.masthead .step-rail { visibility: hidden; }
+
+@media (max-width: 900px) {
+  .masthead .step-rail { display: none; }
+}
+
+/* 上传卡：标签与标题之间留出稳定间距 */
+.upload-pair-grid .composer-input {
+  min-height: 196px;
+  padding: 46px 24px 22px;
+}
+
+.upload-pair-grid .composer-placeholder { gap: 8px; }
+
+.subtitle-routing-note { margin-top: 18px; }
+
+/* 侧栏文案与主区形成克制层级 */
+.model-statement p { font-size: 15px; line-height: 1.7; }
+.model-statement h2 { font-size: 20px; }
+
+/* ──────────────────────────────────────────────────────────
+   Readability restore layer — part 4: surface cleanup
+   ────────────────────────────────────────────────────────── */
+
+/* 表单外框改为克制的单线，不再是圆角浮起卡片 */
+.workflow-composer {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.workflow-composer:focus-within {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* 上传卡边框统一为实线细边，虚线仅用于可选字幕卡 */
+.upload-pair-grid .composer-input {
+  border-style: solid;
+  border-color: var(--ink);
+}
+
+.subtitle-upload-input {
+  border-style: dashed;
+  border-color: rgba(17, 17, 15, 0.35);
+}
+
+.subtitle-upload-input:hover {
+  border-color: var(--ink);
+  background: rgba(17, 17, 15, 0.04);
+}
+
+/* 提示条完整显示，不被容器裁切 */
+.subtitle-routing-note {
+  border-left-width: 3px;
+  border-left-color: rgba(17, 17, 15, 0.35);
+  background: rgba(17, 17, 15, 0.035);
+}
+
+.subtitle-routing-note.is-ready {
+  border-left-color: var(--ink);
+  background: rgba(17, 17, 15, 0.06);
+}
+
+/* 项目区与画廊：无图时不显示大块灰底 */
+.model-mini-gallery {
+  min-height: 0;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.model-mini { min-height: 0; }
+
+.project-library { padding-top: 28px; }
+.project-library header h2 { margin: 0; }
+.project-library header span { display: block; margin-top: 6px; color: var(--muted); }

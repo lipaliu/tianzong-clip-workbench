@@ -48,8 +48,10 @@ export class PrivateObjectStorage {
       ...commonClientOptions,
       endpoint: config.r2.endpoint,
     });
-    // Models execute outside the Beijing VPC and cannot reach a TOS .ivolces.com
-    // address. Generate their one-time GET URL against the public endpoint only.
+    // Browsers and external model providers both execute outside the Beijing VPC
+    // and cannot resolve a TOS .ivolces.com address. Every presigned URL handed
+    // to an outside caller must therefore be signed against the public endpoint,
+    // while the processor keeps reading and writing over the internal endpoint.
     this.providerClient = new S3Client({
       ...commonClientOptions,
       endpoint: config.r2.providerEndpoint,
@@ -80,7 +82,7 @@ export class PrivateObjectStorage {
     // TOS persists object metadata only when it is sent as request headers.
     // Keep those headers out of the query string and include them in SigV4's
     // SignedHeaders set so TOS does not reject them as unsigned additions.
-    const url = await getSignedUrl(this.client, command, {
+    const url = await getSignedUrl(this.providerClient, command, {
       expiresIn: this.config.r2.presignTtlSeconds,
       unhoistableHeaders: new Set(Object.keys(requiredHeaders).filter((name) => name.startsWith("x-amz-meta-"))),
     });
@@ -128,7 +130,9 @@ export class PrivateObjectStorage {
       PartNumber: options.partNumber,
     });
     return {
-      url: await getSignedUrl(this.client, command, {
+      // Part uploads are performed by the visitor's browser, so this URL must be
+      // signed for the public TOS endpoint as well.
+      url: await getSignedUrl(this.providerClient, command, {
         expiresIn: this.config.r2.presignTtlSeconds,
       }),
       expiresIn: this.config.r2.presignTtlSeconds,

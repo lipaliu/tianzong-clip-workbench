@@ -56,3 +56,8 @@ next-env.d.ts
 /processor/private-core/
 *.private*.skill
 *私有母包*
+
+# 本次上线的受控临时资产与密钥，禁止入库
+/.secrets/
+/.deploy-assets/
+/tmp/
