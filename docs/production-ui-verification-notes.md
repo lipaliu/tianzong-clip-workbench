@@ -182,3 +182,9 @@ Cloudflare 生产Worker已新增 `PROCESSOR_KEY_ID=sites-proxy`，与现有 `PRO
 Cloudflare生产Worker已发布运行时配置：`PROCESSOR_API_URL` 指向北京处理器，`PROCESSOR_KEY_ID=sites-proxy`，`PROCESSOR_API_SECRET` 已作为加密Secret同步。准备进行生产入口认证与上传契约验证。
 
 北京处理器已通过 `https://124.174.9.168.sslip.io` 获得有效临时HTTPS证书，Cloudflare生产Worker已将 `PROCESSOR_API_URL` 更新并发布至该HTTPS入口。后续需用线上代理接口验证HMAC认证与上传启动契约。
+
+提交 `7e81fe6`（字幕优先国内分析流程与默认火山主编）已推送；Cloudflare Git 自动构建已启动，等待其成为生产活动版本后再做登录态端到端上传验证。
+
+方舟专用Key已通过非计费模型目录验证；北京处理器API与工作线程均为active，私有核心/TOS角色链路保持就绪。Caddy在80/443监听、持有有效sslip.io临时证书，实例本机按SNI访问`/healthz`返回200；需在正式使用前用自有域名替换临时sslip.io地址。Cloudflare Git构建`7e81fe6`仍在进行中。
+
+Cloudflare构建详情显示提交`7e81fe6`的初始化、克隆、依赖安装、构建和部署均完成且为成功状态（总时长1分18秒）。北京数据库迁移账本确认`008_uploaded_subtitles.sql`已应用；处理器发布产物包含`subtitleUploadId`契约与SRT解析器。
