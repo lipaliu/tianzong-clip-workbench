@@ -1362,13 +1362,14 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             );
           },
         });
+        const newlyRefined = refined as Record<string, any>;
         await recordCost(
           job,
           modelCostEntry({
             stage: "final_editorial",
             provider,
             model: editorProviderModel(provider),
-            usages: (refined.refinementRuns ?? []).map(
+            usages: (newlyRefined.refinementRuns ?? []).map(
               (run: Record<string, unknown>) => run.usage,
             ),
           }),
