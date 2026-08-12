@@ -211,7 +211,7 @@ const editorChoices: Array<{
   {
     id: "compare",
     name: "三模型对比",
-    eyebrow: "推荐",
+    eyebrow: "需三方凭据",
     description: "OpenAI、Kimi K3 与火山读取同一份天总 Skill，分别给出切片方案。",
   },
   {
@@ -229,7 +229,7 @@ const editorChoices: Array<{
   {
     id: "doubao",
     name: "火山主编",
-    eyebrow: "中文音画",
+    eyebrow: "推荐 · 国内",
     description: "侧重中文直播语境、现场感、动作表情与本土表达。",
   },
 ];
@@ -996,7 +996,7 @@ export default function Home() {
   const [step, setStep] = useState<WorkflowStep>(1);
   const [intakeStep, setIntakeStep] = useState<IntakeStep>(1);
   const [mode, setMode] = useState<Mode | null>(null);
-  const [editorMode, setEditorMode] = useState<EditorMode>("compare");
+  const [editorMode, setEditorMode] = useState<EditorMode>("doubao");
   const [fileName, setFileName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedSubtitle, setSelectedSubtitle] = useState<PairedSubtitle | null>(null);
