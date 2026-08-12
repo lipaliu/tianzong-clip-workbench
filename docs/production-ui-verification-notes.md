@@ -198,3 +198,7 @@ Cloudflare构建详情显示提交`7e81fe6`的初始化、克隆、依赖安装�
 Cloudflare Build #01d945e8 对提交`7db261c`显示绿色成功标记；初始化、克隆、安装、构建、部署五个阶段均完成（总时长1分57秒），部署命令为`npx wrangler deploy --config dist/server/wrangler.json`。
 
 最新生产只读代理已越过缺失变量阶段，但返回525 TLS握手错误。北京实例Caddy监听80/443，且已为`124.174.9.168.sslip.io`成功签发Let's Encrypt证书；从沙箱外部curl仍在TLS握手阶段中断，Caddy近三分钟无对应接入日志，表明请求未到达反向代理，需继续排查云网络入口。
+
+已使用真实团队会话打开生产工作台，确认新版首页显示原片与可选SRT两张上传卡片，说明文字明确“未上传SRT时才调用语音识别”。此前用户看到的ERROR来自只读虚构任务ID验证，登录后该接口正确返回job_not_found，页面现已返回工作台。
+
+真实小样本验收发现火山TOS兼容性差异：AWS S3 SDK默认将对象元数据移入预签名查询参数，随后浏览器按requiredHeaders重发元数据会被TOS以“headers present but not signed”拒绝；移除元数据头又会导致完成接口读取不到项目与SHA-256元数据。修复方式为S3Client使用`requestChecksumCalculation: WHEN_REQUIRED`，并在`getSignedUrl`中将`x-amz-meta-project-id`与`x-amz-meta-sha256`列为`unhoistableHeaders`，使其作为SigV4已签名请求头传递。该修复已通过本地构建和109项测试，并已同步到北京处理器；API和Worker服务均为active。

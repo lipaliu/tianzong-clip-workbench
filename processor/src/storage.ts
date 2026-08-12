@@ -34,6 +34,12 @@ export class PrivateObjectStorage {
       endpoint: config.r2.endpoint,
       region: config.r2.region,
       credentials,
+      // TOS accepts the signed payload metadata used below, but rejects AWS SDK
+      // v3's optional flexible-checksum query parameters on browser presigns.
+      // The application's own SHA-256 metadata plus post-upload HEAD check
+      // remains the authoritative integrity boundary.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
       // Tencent COS and R2 both support virtual-hosted bucket URLs. COS
       // rejects path-style HEAD requests even when PutObject succeeds.
       forcePathStyle: false,
@@ -56,16 +62,18 @@ export class PrivateObjectStorage {
       ContentType: options.contentType,
       Metadata: metadata,
     });
-    const url = await getSignedUrl(this.client, command, {
-      expiresIn: this.config.r2.presignTtlSeconds,
-    });
     const requiredHeaders: Record<string, string> = {
       "content-type": options.contentType,
       "x-amz-meta-project-id": options.projectId,
     };
-    if (options.sha256) {
-      requiredHeaders["x-amz-meta-sha256"] = options.sha256;
-    }
+    if (options.sha256) requiredHeaders["x-amz-meta-sha256"] = options.sha256;
+    // TOS persists object metadata only when it is sent as request headers.
+    // Keep those headers out of the query string and include them in SigV4's
+    // SignedHeaders set so TOS does not reject them as unsigned additions.
+    const url = await getSignedUrl(this.client, command, {
+      expiresIn: this.config.r2.presignTtlSeconds,
+      unhoistableHeaders: new Set(Object.keys(requiredHeaders).filter((name) => name.startsWith("x-amz-meta-"))),
+    });
     return {
       url,
       requiredHeaders,
