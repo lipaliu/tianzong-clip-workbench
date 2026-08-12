@@ -4859,3 +4859,142 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* 原片与字幕配对：用户可清晰看见本次是否会调用自动转写。 */
+.upload-pair-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: 12px;
+}
+
+.upload-pair-grid .composer-input {
+  position: relative;
+  min-height: 202px;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 25px 22px;
+  text-align: left;
+}
+
+.upload-file-label {
+  position: absolute;
+  top: 15px;
+  left: 18px;
+  color: var(--pink-deep);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+}
+
+.subtitle-upload-input {
+  border-color: rgba(91, 75, 81, 0.23);
+  background: linear-gradient(145deg, rgba(255, 253, 248, 0.95), rgba(244, 235, 225, 0.56));
+}
+
+.subtitle-upload-input:hover {
+  background: rgba(242, 230, 213, 0.72);
+}
+
+.subtitle-upload-input.has-subtitle {
+  border-style: solid;
+  border-color: rgba(148, 92, 54, 0.5);
+  background: linear-gradient(145deg, rgba(250, 240, 223, 0.92), rgba(255, 255, 255, 0.93));
+}
+
+.subtitle-upload-input.has-subtitle .composer-file > span:first-child {
+  background: rgba(197, 133, 76, 0.15);
+  color: #8f542b;
+}
+
+.subtitle-routing-note {
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border-left: 2px solid rgba(115, 99, 106, 0.42);
+  color: var(--muted);
+  background: rgba(250, 247, 242, 0.82);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.subtitle-routing-note.is-ready {
+  border-left-color: #a75e31;
+  color: #6d482f;
+  background: rgba(250, 239, 223, 0.66);
+}
+
+.stage-actions .subtitle-pick {
+  margin-left: auto;
+}
+
+.mode-subtitle-source {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0 15px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.mode-subtitle-source > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.mode-subtitle-source.uploaded > span {
+  background: rgba(197, 133, 76, 0.15);
+  color: #8f542b;
+}
+
+.mode-subtitle-source.automatic > span {
+  background: var(--pink-pale);
+  color: var(--pink-deep);
+}
+
+.mode-subtitle-source p {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.mode-subtitle-source strong,
+.mode-subtitle-source small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mode-subtitle-source strong {
+  font-size: 9px;
+  font-weight: 520;
+}
+
+.mode-subtitle-source small {
+  color: var(--faint);
+  font-size: 7px;
+}
+
+.mode-subtitle-source button {
+  padding: 7px 0 7px 10px;
+  background: transparent;
+  color: var(--pink-deep);
+  font-size: 8px;
+}
+
+@media (max-width: 740px) {
+  .upload-pair-grid { grid-template-columns: 1fr; }
+  .upload-pair-grid .composer-input { min-height: 155px; }
+  .stage-actions { flex-wrap: wrap; }
+  .stage-actions .subtitle-pick { margin-left: 0; }
+  .mode-subtitle-source { grid-template-columns: 34px minmax(0, 1fr); }
+  .mode-subtitle-source button { grid-column: 2; justify-self: start; padding: 2px 0 0; }
+}

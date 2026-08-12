@@ -118,6 +118,13 @@ type ImportedSubtitle = {
   originalBytes: ArrayBuffer;
 };
 
+type PairedSubtitle = {
+  file: File;
+  cueCount: number;
+  startSeconds: number;
+  endSeconds: number;
+};
+
 const corpusBaseline = {
   version: "内测 BETA 1.0",
 };
@@ -992,6 +999,7 @@ export default function Home() {
   const [editorMode, setEditorMode] = useState<EditorMode>("compare");
   const [fileName, setFileName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedSubtitle, setSelectedSubtitle] = useState<PairedSubtitle | null>(null);
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState("");
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisStage, setAnalysisStage] = useState("");
@@ -1028,6 +1036,7 @@ export default function Home() {
   const [galleryMotionAllowed, setGalleryMotionAllowed] = useState(false);
   const [galleryVisible, setGalleryVisible] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const subtitleUploadRef = useRef<HTMLInputElement>(null);
   const subtitleRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const deliveryRef = useRef<HTMLElement>(null);
@@ -1600,6 +1609,7 @@ export default function Home() {
         }
       : projectDateFromFile(file));
     setUploadedPreviewUrl(URL.createObjectURL(file));
+    setSelectedSubtitle(null);
     setAnalysisReady(false);
     setAnalysisProgress(0);
     setAnalysisStage(uploadCheckpoint ? "检测到未完成的分片，等待断点续传" : "");
@@ -1627,6 +1637,54 @@ export default function Home() {
     setImportedSubtitle(null);
     setSelectedLocalExports(["mp4"]);
     if (!uploadCheckpoint) setProjectQuery(null);
+  }
+
+  async function handleSubtitleUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reset = () => { event.target.value = ""; };
+    if (!file.name.toLowerCase().endsWith(".srt")) {
+      showToast("请上传 .srt 字幕文件；它会与当前原片组成同一场分析。");
+      reset();
+      return;
+    }
+    if (file.size <= 0 || file.size > MAX_SRT_BYTES) {
+      showToast("SRT 字幕需大于 0 且小于 5 MB。请导出完整字幕后再上传。");
+      reset();
+      return;
+    }
+
+    try {
+      const content = await file.text();
+      const cues = [...content.matchAll(
+        /(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/g,
+      )];
+      if (!cues.length) throw new Error("没有识别到标准 SRT 时间码");
+
+      const toSeconds = (hours: string, minutes: string, seconds: string, milliseconds: string) => (
+        Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds) + Number(milliseconds) / 1000
+      );
+      const windows = cues.map((cue) => ({
+        start: toSeconds(cue[1]!, cue[2]!, cue[3]!, cue[4]!),
+        end: toSeconds(cue[5]!, cue[6]!, cue[7]!, cue[8]!),
+      }));
+      if (windows.some((window) => window.end <= window.start)) {
+        throw new Error("字幕中存在结束时间早于开始时间的时间码");
+      }
+
+      setSelectedSubtitle({
+        file,
+        cueCount: windows.length,
+        startSeconds: windows[0]!.start,
+        endSeconds: windows[windows.length - 1]!.end,
+      });
+      showToast(`已配对 ${file.name}：${windows.length} 条字幕。本次会优先使用它，不调用语音识别。`);
+    } catch (error) {
+      setSelectedSubtitle(null);
+      showToast(error instanceof Error ? `${error.message}，请重新导出 SRT。` : "字幕文件无法校验，请重新导出 SRT。");
+    } finally {
+      reset();
+    }
   }
 
   async function startAnalysis() {
@@ -1776,9 +1834,32 @@ export default function Home() {
       setAnalysisStage("校验完整原片已到达私有存储");
       await completeProcessorUpload(projectId, upload, uploadedParts);
 
-      setAnalysisProgress(29);
-      setAnalysisStage("原片校验完成，进入异步分析");
-      const { job: startedJob } = await startProcessorJob(projectId, upload.id);
+      let subtitleUploadId: string | undefined;
+      if (selectedSubtitle) {
+        setAnalysisProgress(29);
+        setAnalysisStage(`上传并校验用户字幕 · ${selectedSubtitle.file.name}`);
+        const subtitlePlan = await prepareProcessorUpload(
+          projectId,
+          selectedSubtitle.file,
+          "subtitle_srt",
+        );
+        const subtitleParts = await uploadToPresignedUrl(
+          selectedSubtitle.file,
+          subtitlePlan,
+        );
+        await completeProcessorUpload(projectId, subtitlePlan, subtitleParts);
+        subtitleUploadId = subtitlePlan.id;
+        setAnalysisProgress(30);
+        setAnalysisStage(`字幕已校验 · 将使用 ${selectedSubtitle.cueCount} 条用户时间码，不调用语音识别`);
+      } else {
+        setAnalysisProgress(29);
+        setAnalysisStage("原片校验完成，未提供字幕，准备自动转写");
+      }
+      const { job: startedJob } = await startProcessorJob(
+        projectId,
+        upload.id,
+        subtitleUploadId,
+      );
       processorJobId = startedJob.id;
       clearUploadResumeCheckpoint(selectedFile);
       const startedProject = {
@@ -2411,31 +2492,65 @@ export default function Home() {
               <div className="intake-stage">
                 {intakeStep === 1 ? (
                   <div className="upload-stage">
-                    <button
-                      type="button"
-                      className="composer-input"
-                      onClick={() => fileRef.current?.click()}
-                      aria-label={fileName ? `更换直播原片：${fileName}` : "上传整场直播"}
-                    >
-                      {fileName ? (
-                        <span className="composer-file">
-                          <span aria-hidden="true">▶</span>
-                          <span>
-                            <strong>{fileName}</strong>
-                            <small>{projectDate?.label} · 已准备进入类型判断</small>
+                    <div className="upload-pair-grid">
+                      <button
+                        type="button"
+                        className="composer-input upload-source-input"
+                        onClick={() => fileRef.current?.click()}
+                        aria-label={fileName ? `更换直播原片：${fileName}` : "上传整场直播"}
+                      >
+                        <span className="upload-file-label">01 · 原片</span>
+                        {fileName ? (
+                          <span className="composer-file">
+                            <span aria-hidden="true">▶</span>
+                            <span>
+                              <strong>{fileName}</strong>
+                              <small>{projectDate?.label} · 已准备进入类型判断</small>
+                            </span>
                           </span>
-                        </span>
-                      ) : (
-                        <span className="composer-placeholder">
-                          <strong>上传整场直播，开始找天总切片</strong>
-                          <small>支持 MP4 / MOV；完整上下文会用于判断哪些内容值得剪。</small>
-                        </span>
-                      )}
-                    </button>
+                        ) : (
+                          <span className="composer-placeholder">
+                            <strong>上传整场直播，开始找天总切片</strong>
+                            <small>支持 MP4 / MOV；完整上下文会用于判断哪些内容值得剪。</small>
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className={`composer-input subtitle-upload-input${selectedSubtitle ? " has-subtitle" : ""}`}
+                        onClick={() => subtitleUploadRef.current?.click()}
+                        aria-label={selectedSubtitle ? `更换配对字幕：${selectedSubtitle.file.name}` : "上传可选SRT字幕"}
+                      >
+                        <span className="upload-file-label">02 · 字幕（可选）</span>
+                        {selectedSubtitle ? (
+                          <span className="composer-file">
+                            <span aria-hidden="true">≡</span>
+                            <span>
+                              <strong>{selectedSubtitle.file.name}</strong>
+                              <small>{selectedSubtitle.cueCount} 条时间码 · 优先使用，不调用语音识别</small>
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="composer-placeholder">
+                            <strong>上传 SRT，跳过自动转写</strong>
+                            <small>推荐剪映导出的 .srt；没有字幕时才调用语音识别。</small>
+                          </span>
+                        )}
+                      </button>
+                    </div>
+
+                    <p className={`subtitle-routing-note${selectedSubtitle ? " is-ready" : ""}`} aria-live="polite">
+                      {selectedSubtitle
+                        ? `字幕优先 · 将使用 ${selectedSubtitle.file.name} 的 ${selectedSubtitle.cueCount} 条时间码进行分析。`
+                        : "自动转写待命 · 未上传 SRT 时，分析会调用语音识别并逐步显示转写进度。"}
+                    </p>
 
                     <div className="stage-actions">
                       <button type="button" className="stage-secondary" onClick={() => fileRef.current?.click()}>
                         {fileName ? "更换原片" : "选择原片"}
+                      </button>
+                      <button type="button" className="stage-secondary subtitle-pick" onClick={() => subtitleUploadRef.current?.click()}>
+                        {selectedSubtitle ? "更换字幕" : "选择字幕（可选）"}
                       </button>
                       <button
                         type="button"
@@ -2456,6 +2571,18 @@ export default function Home() {
                         <small>{projectDate?.label} · 完整直播原片</small>
                       </p>
                       <button type="button" onClick={() => fileRef.current?.click()}>更换</button>
+                    </div>
+                    <div className={`mode-subtitle-source${selectedSubtitle ? " uploaded" : " automatic"}`}>
+                      <span>{selectedSubtitle ? "SRT" : "ASR"}</span>
+                      <p>
+                        <strong>{selectedSubtitle ? "优先使用用户字幕" : "未检测到字幕，将自动转写"}</strong>
+                        <small>{selectedSubtitle
+                          ? `${selectedSubtitle.file.name} · ${selectedSubtitle.cueCount} 条时间码已校验`
+                          : "上传 SRT 可跳过语音识别；否则会在原片校验后自动开始转写。"}</small>
+                      </p>
+                      <button type="button" onClick={() => subtitleUploadRef.current?.click()}>
+                        {selectedSubtitle ? "更换字幕" : "添加 SRT"}
+                      </button>
                     </div>
 
                     <div className="mode-choice-cards" role="radiogroup" aria-label="选择聊播或带货切片">
@@ -2566,6 +2693,7 @@ export default function Home() {
                 )}
               </div>
               <input ref={fileRef} type="file" accept="video/mp4,video/quicktime" hidden onChange={handleFile} />
+              <input ref={subtitleUploadRef} type="file" accept=".srt,application/x-subrip,text/plain" hidden onChange={handleSubtitleUpload} />
             </form>
 
             <p className="composer-hint">候选有多少就返回多少，不设目标数，也不为凑数补候选。</p>

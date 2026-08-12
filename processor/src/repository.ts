@@ -57,6 +57,10 @@ export function mapJob(row: Record<string, unknown>): JobApi {
     id: String(row.id),
     projectId: String(row.project_id),
     uploadId: String(row.upload_id),
+    subtitleUploadId: row.subtitle_upload_id === null || row.subtitle_upload_id === undefined
+      ? null
+      : String(row.subtitle_upload_id),
+    transcriptSource: (row.transcript_source ?? "automatic_asr") as JobApi["transcriptSource"],
     status: row.status as JobApi["status"],
     stage: String(row.stage),
     progress: numberValue(row.progress),
@@ -230,17 +234,20 @@ export class ProcessorRepository {
     sizeBytes: number;
     sha256?: string;
     strategy: "single" | "multipart";
+    purpose: "source_video" | "subtitle_srt";
   }): Promise<{ id: string; objectKey: string }> {
     await this.getProject(input.projectId);
     const id = randomUUID();
-    const extension = input.sourceName.toLowerCase().endsWith(".mov") ? ".mov" : ".mp4";
-    const objectKey = `uploads/${input.projectId}/${id}/source${extension}`;
+    const extension = input.purpose === "subtitle_srt"
+      ? ".srt"
+      : input.sourceName.toLowerCase().endsWith(".mov") ? ".mov" : ".mp4";
+    const objectKey = `uploads/${input.projectId}/${id}/${input.purpose === "subtitle_srt" ? "subtitle" : "source"}${extension}`;
     await this.database.query(
       `INSERT INTO media_uploads(
          id, project_id, object_key, source_name, content_type,
-         expected_size_bytes, expected_sha256, upload_strategy
+         expected_size_bytes, expected_sha256, upload_strategy, upload_purpose
        )
-       VALUES($1, $2, $3, $4, $5, $6, $7, $8)`,
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         id,
         input.projectId,
@@ -250,14 +257,17 @@ export class ProcessorRepository {
         input.sizeBytes,
         input.sha256 ?? null,
         input.strategy,
+        input.purpose,
       ],
     );
-    await this.database.query(
-      `UPDATE projects
-       SET status = 'uploading', stage = 'uploading', progress = 0, updated_at = now()
-       WHERE id = $1`,
-      [input.projectId],
-    );
+    if (input.purpose === "source_video") {
+      await this.database.query(
+        `UPDATE projects
+         SET status = 'uploading', stage = 'uploading', progress = 0, updated_at = now()
+         WHERE id = $1`,
+        [input.projectId],
+      );
+    }
     return { id, objectKey };
   }
 
@@ -470,10 +480,23 @@ export class ProcessorRepository {
   async createJob(input: {
     projectId: string;
     uploadId: string;
+    subtitleUploadId?: string;
   }): Promise<JobApi> {
     const upload = await this.getUpload(input.projectId, input.uploadId);
+    if ((upload.upload_purpose ?? "source_video") !== "source_video") {
+      throw new AppError(409, "source_upload_required", "只能使用已校验的原片启动分析。");
+    }
     if (upload.status !== "uploaded" && upload.status !== "verified") {
       throw new AppError(409, "upload_not_complete", "原片尚未完成上传校验。");
+    }
+    if (input.subtitleUploadId) {
+      const subtitle = await this.getUpload(input.projectId, input.subtitleUploadId);
+      if (
+        subtitle.upload_purpose !== "subtitle_srt"
+        || !["uploaded", "verified"].includes(String(subtitle.status))
+      ) {
+        throw new AppError(409, "subtitle_upload_not_complete", "SRT 字幕尚未完成上传校验。");
+      }
     }
     if (!await this.hasRecentWorkerHeartbeat()) {
       throw new AppError(
@@ -485,10 +508,16 @@ export class ProcessorRepository {
     }
     try {
       const result = await this.database.query(
-        `INSERT INTO processing_jobs(project_id, upload_id, max_attempts)
-         VALUES($1, $2, $3)
+        `INSERT INTO processing_jobs(project_id, upload_id, subtitle_upload_id, transcript_source, max_attempts)
+         VALUES($1, $2, $3, $4, $5)
          RETURNING *`,
-        [input.projectId, input.uploadId, this.config.worker.maxAttempts],
+        [
+          input.projectId,
+          input.uploadId,
+          input.subtitleUploadId ?? null,
+          input.subtitleUploadId ? "uploaded_srt" : "automatic_asr",
+          this.config.worker.maxAttempts,
+        ],
       );
       await this.database.query(
         `UPDATE projects
@@ -822,11 +851,14 @@ export class ProcessorRepository {
       const row = result.rows[0] as Record<string, unknown>;
       const joined = await client.query(
         `SELECT
-           j.id, j.project_id, j.upload_id, j.attempt, j.max_attempts,
+           j.id, j.project_id, j.upload_id, j.subtitle_upload_id, j.transcript_source,
+           j.attempt, j.max_attempts,
            u.object_key, u.source_name, u.expected_size_bytes, u.expected_sha256,
+           s.object_key AS subtitle_object_key, s.source_name AS subtitle_source_name,
            p.mode, p.editor_mode
          FROM processing_jobs j
          JOIN media_uploads u ON u.id = j.upload_id
+         LEFT JOIN media_uploads s ON s.id = j.subtitle_upload_id
          JOIN projects p ON p.id = j.project_id
          WHERE j.id = $1`,
         [row.id],
@@ -847,6 +879,10 @@ export class ProcessorRepository {
         uploadId: String(item.upload_id),
         objectKey: String(item.object_key),
         sourceName: String(item.source_name),
+        subtitleUploadId: item.subtitle_upload_id === null ? null : String(item.subtitle_upload_id),
+        subtitleObjectKey: item.subtitle_object_key === null ? null : String(item.subtitle_object_key),
+        subtitleSourceName: item.subtitle_source_name === null ? null : String(item.subtitle_source_name),
+        transcriptSource: (item.transcript_source ?? "automatic_asr") as ClaimedJob["transcriptSource"],
         expectedSizeBytes: numberValue(item.expected_size_bytes),
         expectedSha256:
           item.expected_sha256 === null ? null : String(item.expected_sha256),

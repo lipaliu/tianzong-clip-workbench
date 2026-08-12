@@ -25,8 +25,10 @@ const envSchema = z.object({
   INTERNAL_API_KEYS: z.string().min(2),
   INTERNAL_SIGNATURE_TTL_SECONDS: positiveInteger(300),
   R2_ENDPOINT: z.string().url(),
-  R2_ACCESS_KEY_ID: z.string().min(1),
-  R2_SECRET_ACCESS_KEY: z.string().min(1),
+  R2_CREDENTIAL_MODE: z.enum(["static", "ecs_role"]).default("static"),
+  R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+  R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  R2_ECS_ROLE_NAME: z.string().min(1).optional(),
   R2_BUCKET: z.string().min(1),
   R2_REGION: z.string().min(1).default("auto"),
   PRESIGN_TTL_SECONDS: positiveInteger(3_600),
@@ -104,6 +106,23 @@ const envSchema = z.object({
   WORK_DIRECTORY: z.string().min(1).default("/tmp/tianclip"),
 }).superRefine((value, context) => {
   if (
+    value.R2_CREDENTIAL_MODE === "static"
+    && (!value.R2_ACCESS_KEY_ID || !value.R2_SECRET_ACCESS_KEY)
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["R2_ACCESS_KEY_ID"],
+      message: "static object storage mode requires R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY",
+    });
+  }
+  if (value.R2_CREDENTIAL_MODE === "ecs_role" && !value.R2_ECS_ROLE_NAME) {
+    context.addIssue({
+      code: "custom",
+      path: ["R2_ECS_ROLE_NAME"],
+      message: "ecs_role object storage mode requires R2_ECS_ROLE_NAME",
+    });
+  }
+  if (
     value.TRANSCRIPTION_PROVIDER === "doubao"
     && (!value.DOUBAO_ASR_APP_KEY || !value.DOUBAO_ASR_ACCESS_KEY)
   ) {
@@ -136,8 +155,10 @@ export type ProcessorConfig = {
   signatureTtlSeconds: number;
   r2: {
     endpoint: string;
-    accessKeyId: string;
-    secretAccessKey: string;
+    credentialMode: "static" | "ecs_role";
+    accessKeyId: string | null;
+    secretAccessKey: string | null;
+    ecsRoleName: string | null;
     bucket: string;
     region: string;
     presignTtlSeconds: number;
@@ -244,8 +265,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
     signatureTtlSeconds: value.INTERNAL_SIGNATURE_TTL_SECONDS,
     r2: {
       endpoint: value.R2_ENDPOINT,
-      accessKeyId: value.R2_ACCESS_KEY_ID,
-      secretAccessKey: value.R2_SECRET_ACCESS_KEY,
+      credentialMode: value.R2_CREDENTIAL_MODE,
+      accessKeyId: value.R2_ACCESS_KEY_ID ?? null,
+      secretAccessKey: value.R2_SECRET_ACCESS_KEY ?? null,
+      ecsRoleName: value.R2_ECS_ROLE_NAME ?? null,
       bucket: value.R2_BUCKET,
       region: value.R2_REGION,
       presignTtlSeconds: value.PRESIGN_TTL_SECONDS,

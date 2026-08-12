@@ -30,10 +30,19 @@ const projectBody = z.object({
 
 const uploadBody = z.object({
   sourceName: z.string().trim().min(1).max(500),
-  contentType: z.enum(["video/mp4", "video/quicktime"]),
+  contentType: z.enum(["video/mp4", "video/quicktime", "application/x-subrip"]),
+  purpose: z.enum(["source_video", "subtitle_srt"]).default("source_video"),
   sizeBytes: z.number().int().positive(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const isSubtitle = value.purpose === "subtitle_srt";
+  if (isSubtitle && value.contentType !== "application/x-subrip") {
+    context.addIssue({ code: "custom", path: ["contentType"], message: "SRT 字幕必须使用 application/x-subrip。" });
+  }
+  if (!isSubtitle && !["video/mp4", "video/quicktime"].includes(value.contentType)) {
+    context.addIssue({ code: "custom", path: ["contentType"], message: "原片只接受 MP4 或 MOV。" });
+  }
+});
 
 const multipartPartsBody = z.object({
   partNumbers: z.array(z.number().int().min(1).max(10_000)).min(1).max(100),
@@ -97,6 +106,7 @@ type UploadPresignPayload =
 
 const jobBody = z.object({
   uploadId: uuid,
+  subtitleUploadId: uuid.optional(),
 }).strict();
 
 const feedbackBody = z.object({
@@ -235,14 +245,19 @@ export async function registerRoutes(
   app.post("/v1/projects/:id/uploads/presign", async (request, reply) => {
     const projectId = parseId(request.params, "id");
     const body = parse(uploadBody, request.body);
-    if (body.sizeBytes > config.r2.maxUploadBytes) {
+    const maxBytes = body.purpose === "subtitle_srt"
+      ? 5 * 1024 * 1024
+      : config.r2.maxUploadBytes;
+    if (body.sizeBytes > maxBytes) {
       throw new AppError(
         413,
         "upload_too_large",
-        `当前单条直播原片不能超过 ${Math.floor(config.r2.maxUploadBytes / 1_000_000_000)}GB。`,
+        body.purpose === "subtitle_srt"
+          ? "SRT 字幕不能超过 5 MB。"
+          : `当前单条直播原片不能超过 ${Math.floor(config.r2.maxUploadBytes / 1_000_000_000)}GB。`,
       );
     }
-    const strategy = body.sizeBytes <= config.r2.singlePutMaxBytes
+    const strategy = body.purpose === "subtitle_srt" || body.sizeBytes <= config.r2.singlePutMaxBytes
       ? "single"
       : "multipart";
     const response = await repository.withIdempotency<UploadPresignPayload>(
@@ -257,6 +272,7 @@ export async function registerRoutes(
           sizeBytes: body.sizeBytes,
           ...(body.sha256 ? { sha256: body.sha256 } : {}),
           strategy,
+          purpose: body.purpose,
         });
         if (strategy === "multipart") {
           const plan = buildMultipartPartPlan(
@@ -790,7 +806,11 @@ export async function registerRoutes(
       async () => ({
         statusCode: 202,
         payload: {
-          job: await repository.createJob({ projectId, uploadId: body.uploadId }),
+          job: await repository.createJob({
+            projectId,
+            uploadId: body.uploadId,
+            ...(body.subtitleUploadId ? { subtitleUploadId: body.subtitleUploadId } : {}),
+          }),
         },
       }),
     );

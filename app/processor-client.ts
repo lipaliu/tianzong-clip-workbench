@@ -57,6 +57,8 @@ export type ProcessorJob = {
   id: string;
   projectId: string;
   uploadId: string;
+  subtitleUploadId: string | null;
+  transcriptSource: "uploaded_srt" | "automatic_asr";
   status: ProcessorJobStatus;
   stage: string;
   progress: number;
@@ -214,9 +216,18 @@ async function readJson<T>(response: Response): Promise<T> {
   return payload as T;
 }
 
-function supportedContentType(file: File): "video/mp4" | "video/quicktime" {
+type UploadPurpose = "source_video" | "subtitle_srt";
+
+function supportedContentType(
+  file: File,
+  purpose: UploadPurpose,
+): "video/mp4" | "video/quicktime" | "application/x-subrip" {
   const type = file.type.toLowerCase();
   const name = file.name.toLowerCase();
+  if (purpose === "subtitle_srt") {
+    if (name.endsWith(".srt")) return "application/x-subrip";
+    throw new Error("字幕必须是标准 .srt 文件。");
+  }
   if (name.endsWith(".mp4")) return "video/mp4";
   if (name.endsWith(".mov")) return "video/quicktime";
   if (type === "video/mp4") return "video/mp4";
@@ -233,7 +244,11 @@ export async function createProcessorProject(input: ProcessorProjectInput) {
   return readJson<{ project: { id: string } }>(response);
 }
 
-export async function prepareProcessorUpload(projectId: string, file: File) {
+export async function prepareProcessorUpload(
+  projectId: string,
+  file: File,
+  purpose: UploadPurpose = "source_video",
+) {
   const response = await fetch(
     `/api/runtime/projects/${encodeURIComponent(projectId)}/uploads/presign`,
     {
@@ -241,7 +256,8 @@ export async function prepareProcessorUpload(projectId: string, file: File) {
       headers: operationHeaders(),
       body: JSON.stringify({
         sourceName: file.name,
-        contentType: supportedContentType(file),
+        contentType: supportedContentType(file, purpose),
+        purpose,
         sizeBytes: file.size,
       }),
     },
@@ -566,13 +582,20 @@ export async function completeProcessorUpload(
   }>(response);
 }
 
-export async function startProcessorJob(projectId: string, uploadId: string) {
+export async function startProcessorJob(
+  projectId: string,
+  uploadId: string,
+  subtitleUploadId?: string,
+) {
   const response = await fetch(
     `/api/runtime/projects/${encodeURIComponent(projectId)}/jobs`,
     {
       method: "POST",
       headers: operationHeaders(),
-      body: JSON.stringify({ uploadId }),
+      body: JSON.stringify({
+        uploadId,
+        ...(subtitleUploadId ? { subtitleUploadId } : {}),
+      }),
     },
   );
   return readJson<{ job: ProcessorJob }>(response);

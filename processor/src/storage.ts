@@ -15,6 +15,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { canonicalJson, sha256Hex } from "./canonical.js";
+import { createEcsRoleCredentialProvider } from "./ecs-role-credentials.js";
 import type { ProcessorConfig } from "./config.js";
 import { AppError } from "./errors.js";
 import { hashAndSize } from "./media.js";
@@ -23,13 +24,16 @@ export class PrivateObjectStorage {
   readonly client: S3Client;
 
   constructor(private readonly config: ProcessorConfig) {
+    const credentials = config.r2.credentialMode === "ecs_role"
+      ? createEcsRoleCredentialProvider(config.r2.ecsRoleName ?? "")
+      : {
+        accessKeyId: config.r2.accessKeyId ?? "",
+        secretAccessKey: config.r2.secretAccessKey ?? "",
+      };
     this.client = new S3Client({
       endpoint: config.r2.endpoint,
       region: config.r2.region,
-      credentials: {
-        accessKeyId: config.r2.accessKeyId,
-        secretAccessKey: config.r2.secretAccessKey,
-      },
+      credentials,
       // Tencent COS and R2 both support virtual-hosted bucket URLs. COS
       // rejects path-style HEAD requests even when PutObject succeeds.
       forcePathStyle: false,

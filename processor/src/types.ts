@@ -28,6 +28,8 @@ export type JobApi = {
   id: string;
   projectId: string;
   uploadId: string;
+  subtitleUploadId: string | null;
+  transcriptSource: "uploaded_srt" | "automatic_asr";
   status: JobStatus;
   stage: string;
   progress: number;
@@ -143,6 +145,10 @@ export type ClaimedJob = {
   uploadId: string;
   objectKey: string;
   sourceName: string;
+  subtitleUploadId: string | null;
+  subtitleObjectKey: string | null;
+  subtitleSourceName: string | null;
+  transcriptSource: "uploaded_srt" | "automatic_asr";
   expectedSizeBytes: number;
   expectedSha256: string | null;
   mode: TianClipMode;

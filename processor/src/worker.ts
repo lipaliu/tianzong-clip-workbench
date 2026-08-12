@@ -57,6 +57,7 @@ import {
 import type { CostEntry, CostStage } from "./pricing.js";
 import { transcribeAudioChunks } from "./pipeline/transcription.mjs";
 import { ProcessorRepository } from "./repository.js";
+import { parseUploadedSrt } from "./srt-transcript.js";
 import { renderCandidateRevision } from "./revision-render.js";
 import { PrivateObjectStorage } from "./storage.js";
 import {
@@ -609,9 +610,11 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       job.workerId,
       "transcribing",
       18,
-      config.providers.transcription === "doubao"
-        ? "正在用豆包录音文件识别生成中文逐字稿、说话人与绝对时间码。"
-        : "正在分段转写并保留说话人和绝对时间码。",
+      job.transcriptSource === "uploaded_srt"
+        ? "已检测到用户上传的 SRT，正在校验时间码并匹配原片时长。"
+        : config.providers.transcription === "doubao"
+          ? "未提供 SRT，正在用豆包录音文件识别生成中文逐字稿、说话人与绝对时间码。"
+          : "未提供 SRT，正在分段转写并保留说话人和绝对时间码。",
     );
     const transcribeWithOpenAi = async () => {
       const chunks = audioPlan({
@@ -770,7 +773,9 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       sourceSha256: sourceIntegrity.sha256,
       sourceSizeBytes: sourceIntegrity.sizeBytes,
       mediaDurationSec: media.durationSec,
-      transcriptionProvider: config.providers.transcription,
+      transcriptionProvider: job.transcriptSource === "uploaded_srt"
+        ? "uploaded_srt"
+        : config.providers.transcription,
     };
     let transcriptRoute: Record<string, any> | null = null;
     try {
@@ -793,24 +798,56 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         "已校验并复用同一原片的完整逐字稿检查点，避免重试时重复转写。",
       );
     } else {
-      transcriptRoute = config.providers.transcription === "doubao"
-        ? await providerRouteExecute({
-            requestedProvider: "doubao",
-            primaryProvider: "doubao",
-            primary: transcribeWithDoubao,
-            fallbackProvider: "openai",
-            fallback: transcribeWithOpenAi,
-            allowFallback: config.providers.transcriptionFallbackToOpenai,
-          })
-        : {
-            value: await transcribeWithOpenAi(),
-            route: {
-              requestedProvider: "openai",
-              effectiveProvider: "openai",
-              fallbackUsed: false,
-              primaryFailure: null,
-            },
-          };
+      transcriptRoute = job.transcriptSource === "uploaded_srt"
+        ? await (async () => {
+            if (!job.subtitleObjectKey || !job.subtitleSourceName) {
+              throw new AppError(
+                422,
+                "subtitle_missing_for_job",
+                "任务声明使用用户字幕，但私有存储中没有可校验的 SRT 文件。",
+              );
+            }
+            return {
+              value: parseUploadedSrt(
+                (await storage.getBuffer(job.subtitleObjectKey)).toString("utf8"),
+                media.durationSec,
+              ),
+              route: {
+                requestedProvider: "uploaded_srt",
+                effectiveProvider: "uploaded_srt",
+                fallbackUsed: false,
+                primaryFailure: null,
+                subtitleSourceName: job.subtitleSourceName,
+              },
+            };
+          })()
+        : config.providers.transcription === "doubao"
+          ? await providerRouteExecute({
+              requestedProvider: "doubao",
+              primaryProvider: "doubao",
+              primary: transcribeWithDoubao,
+              fallbackProvider: "openai",
+              fallback: transcribeWithOpenAi,
+              allowFallback: config.providers.transcriptionFallbackToOpenai,
+            })
+          : {
+              value: await transcribeWithOpenAi(),
+              route: {
+                requestedProvider: "openai",
+                effectiveProvider: "openai",
+                fallbackUsed: false,
+                primaryFailure: null,
+              },
+            };
+      if (transcriptRoute && transcriptRoute.route?.effectiveProvider === "uploaded_srt") {
+        await repository.updateJobStage(
+          job.id,
+          job.workerId,
+          "transcribing",
+          42,
+          "用户 SRT 已通过时间码与原片时长校验，跳过自动语音识别。",
+        );
+      }
       await storage.uploadJson(
         transcriptCheckpointKey,
         buildTranscriptCheckpoint(
