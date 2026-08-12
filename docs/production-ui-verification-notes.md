@@ -202,3 +202,19 @@ Cloudflare Build #01d945e8 对提交`7db261c`显示绿色成功标记；初始�
 已使用真实团队会话打开生产工作台，确认新版首页显示原片与可选SRT两张上传卡片，说明文字明确“未上传SRT时才调用语音识别”。此前用户看到的ERROR来自只读虚构任务ID验证，登录后该接口正确返回job_not_found，页面现已返回工作台。
 
 真实小样本验收发现火山TOS兼容性差异：AWS S3 SDK默认将对象元数据移入预签名查询参数，随后浏览器按requiredHeaders重发元数据会被TOS以“headers present but not signed”拒绝；移除元数据头又会导致完成接口读取不到项目与SHA-256元数据。修复方式为S3Client使用`requestChecksumCalculation: WHEN_REQUIRED`，并在`getSignedUrl`中将`x-amz-meta-project-id`与`x-amz-meta-sha256`列为`unhoistableHeaders`，使其作为SigV4已签名请求头传递。该修复已通过本地构建和109项测试，并已同步到北京处理器；API和Worker服务均为active。
+
+## 2026-08-13：火山自动转写回退兼容性依据
+
+火山官方“录音文件识别标准版 HTTP”文档说明：新版控制台用 `X-Api-Key` 鉴权；录音文件识别模型 2.0 的资源 ID 是 `volc.seedasr.auc`；提交音频 URL 后返回任务 ID，再轮询结果；列出的容器格式包含 `mp3`，不包含 M4A。来源：https://www.volcengine.com/docs/6561/1354868
+
+火山官方TOS端点表说明：华北2（北京）S3内网端点为 `tos-s3-cn-beijing.ivolces.com`，公网端点为 `tos-s3-cn-beijing.volces.com`。处理器内网读写继续使用内网端点；外部语音服务下载一次性音频时必须生成以公网端点为主机名的预签名 GET URL。来源：https://www.volcengine.com/docs/6349/107356
+
+火山官方AWS S3 SDK文档进一步确认TOS S3端点仅支持虚拟主机样式，且应使用V4签名。来源：https://www.volcengine.com/docs/6349/2387330
+
+## 2026-08-13：端到端生产验收结果
+
+1. **用户SRT优先路径：通过。** 六秒原片与严格校验的SRT已完成受签名上传，任务的 `transcriptSource` 是 `uploaded_srt`，事件流明确记录“跳过自动语音识别”，任务进入 `review_ready`。
+2. **自动语音回退路径：通过。** 使用约12.92秒的中文口播测试视频、且不提交SRT，任务的 `transcriptSource` 是 `automatic_asr`。事件顺序实测为：私有TOS下载 → 私有核心校验 → MP3音轨整理 → 豆包录音文件识别2.0 accepted/queued/completed → 时间戳逐字稿 → 2秒密集帧与镜头变化帧 → 火山 Seed Pro 私有Skill分析 → 私有核心复核 → `review_ready`。
+3. **自动转写兼容性修复：** 初始静音样本被服务正确返回 `20000003 Normal silence audio`，证明服务与鉴权正常；随后以真实口播样本验证成功。外部模型下载失败 `45000006 Invalid audio URI` 的根因是处理器使用TOS内网预签名地址，已改为“内网读写 + 外网S3端点生成仅供外部提供方下载的一次性GET URL”。
+4. **测试成本：** 成功的12.92秒自动转写与分析任务账本总计 `¥0.0731`。本次样本没有自然候选，因此结果为0条候选；系统不虚构切片。
+5. **生产安全边界：** 上传仍为浏览器直传私有TOS，支持分片恢复；处理器使用ECS实例角色临时凭据，不在服务器保存TOS长期AK/SK；模型与语音密钥均仅存在于服务器受限环境文件，未写入Git或公开日志。

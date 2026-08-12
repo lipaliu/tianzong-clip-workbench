@@ -22,6 +22,7 @@ import { hashAndSize } from "./media.js";
 
 export class PrivateObjectStorage {
   readonly client: S3Client;
+  readonly providerClient: S3Client;
 
   constructor(private readonly config: ProcessorConfig) {
     const credentials = config.r2.credentialMode === "ecs_role"
@@ -30,19 +31,28 @@ export class PrivateObjectStorage {
         accessKeyId: config.r2.accessKeyId ?? "",
         secretAccessKey: config.r2.secretAccessKey ?? "",
       };
-    this.client = new S3Client({
-      endpoint: config.r2.endpoint,
+    const commonClientOptions = {
       region: config.r2.region,
       credentials,
       // TOS accepts the signed payload metadata used below, but rejects AWS SDK
       // v3's optional flexible-checksum query parameters on browser presigns.
       // The application's own SHA-256 metadata plus post-upload HEAD check
       // remains the authoritative integrity boundary.
-      requestChecksumCalculation: "WHEN_REQUIRED",
-      responseChecksumValidation: "WHEN_REQUIRED",
+      requestChecksumCalculation: "WHEN_REQUIRED" as const,
+      responseChecksumValidation: "WHEN_REQUIRED" as const,
       // Tencent COS and R2 both support virtual-hosted bucket URLs. COS
       // rejects path-style HEAD requests even when PutObject succeeds.
       forcePathStyle: false,
+    };
+    this.client = new S3Client({
+      ...commonClientOptions,
+      endpoint: config.r2.endpoint,
+    });
+    // Models execute outside the Beijing VPC and cannot reach a TOS .ivolces.com
+    // address. Generate their one-time GET URL against the public endpoint only.
+    this.providerClient = new S3Client({
+      ...commonClientOptions,
+      endpoint: config.r2.providerEndpoint,
     });
   }
 
@@ -347,7 +357,7 @@ export class PrivateObjectStorage {
       ResponseContentType: options.contentType,
     });
     return {
-      url: await getSignedUrl(this.client, command, {
+      url: await getSignedUrl(this.providerClient, command, {
         expiresIn,
       }),
       expiresIn,

@@ -25,6 +25,7 @@ const envSchema = z.object({
   INTERNAL_API_KEYS: z.string().min(2),
   INTERNAL_SIGNATURE_TTL_SECONDS: positiveInteger(300),
   R2_ENDPOINT: z.string().url(),
+  R2_PROVIDER_ENDPOINT: z.string().url().optional(),
   R2_CREDENTIAL_MODE: z.enum(["static", "ecs_role"]).default("static"),
   R2_ACCESS_KEY_ID: z.string().min(1).optional(),
   R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
@@ -66,7 +67,7 @@ const envSchema = z.object({
   DOUBAO_ASR_API_KEY: z.string().min(1).optional(),
   DOUBAO_ASR_APP_KEY: z.string().min(1).optional(),
   DOUBAO_ASR_ACCESS_KEY: z.string().min(1).optional(),
-  DOUBAO_ASR_RESOURCE_ID: z.string().min(1).default("volc.bigasr.auc"),
+  DOUBAO_ASR_RESOURCE_ID: z.string().min(1).default("volc.seedasr.auc"),
   DOUBAO_ASR_BASE_URL: z.string().url()
     .default("https://openspeech.bytedance.com"),
   DOUBAO_ASR_REQUEST_TIMEOUT_MS: positiveInteger(60_000),
@@ -157,6 +158,7 @@ export type ProcessorConfig = {
   signatureTtlSeconds: number;
   r2: {
     endpoint: string;
+    providerEndpoint: string;
     credentialMode: "static" | "ecs_role";
     accessKeyId: string | null;
     secretAccessKey: string | null;
@@ -268,6 +270,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
     signatureTtlSeconds: value.INTERNAL_SIGNATURE_TTL_SECONDS,
     r2: {
       endpoint: value.R2_ENDPOINT,
+      providerEndpoint: (value.R2_PROVIDER_ENDPOINT ?? value.R2_ENDPOINT).replace(/\/+$/, ""),
       credentialMode: value.R2_CREDENTIAL_MODE,
       accessKeyId: value.R2_ACCESS_KEY_ID ?? null,
       secretAccessKey: value.R2_SECRET_ACCESS_KEY ?? null,

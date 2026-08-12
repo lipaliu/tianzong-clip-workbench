@@ -86,6 +86,13 @@ export const MODEL_RATES: Readonly<Record<string, ModelRate>> = Object.freeze({
 
 export const DURATION_RATES: Readonly<Record<string, DurationRate>> =
   Object.freeze({
+    "volc.seedasr.auc": {
+      currency: "CNY",
+      perHour: 0.8,
+      source: "https://www.volcengine.com/docs/6561/1354868?lang=zh",
+      checkedOn: "2026-08-13",
+    },
+    // Kept solely to render any pre-migration ledger rows correctly.
     "volc.bigasr.auc": {
       currency: "CNY",
       perHour: 0.8,

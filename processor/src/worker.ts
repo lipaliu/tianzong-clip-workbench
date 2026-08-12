@@ -681,7 +681,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           outputPath: join(
             workDir,
             "doubao-asr",
-            `${chunk.id}.m4a`,
+            `${chunk.id}.mp3`,
           ),
           ...(chunked
             ? {
@@ -703,7 +703,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         );
         const objectKey =
           `provider-inputs/${job.projectId}/${job.id}/doubao-asr/`
-          + `${chunk.id}.m4a`;
+          + `${chunk.id}.mp3`;
         transientObjectKeys.add(objectKey);
         try {
           await storage.uploadFile(
@@ -1725,6 +1725,32 @@ function publicJobError(error: unknown): string {
   return "处理任务未完成，系统将自动重试或等待后台检查。";
 }
 
+function internalJobDiagnostic(error: unknown): string {
+  const base = internalErrorMessage(error);
+  if (!error || typeof error !== "object") return base;
+  const record = error as Record<string, unknown>;
+  const code = typeof record.code === "string" ? record.code : undefined;
+  const stage = typeof record.stage === "string" ? record.stage : undefined;
+  const details = record.details && typeof record.details === "object"
+    ? record.details as Record<string, unknown>
+    : undefined;
+  const safeDetails = details
+    ? Object.fromEntries(
+        ["apiStatusCode", "apiMessage", "httpStatus", "timeoutMs"].flatMap((key) =>
+          details[key] === undefined ? [] : [[key, details[key]]],
+        ),
+      )
+    : undefined;
+  const suffix = [
+    code ? `code=${code}` : undefined,
+    stage ? `stage=${stage}` : undefined,
+    safeDetails && Object.keys(safeDetails).length > 0
+      ? `details=${JSON.stringify(safeDetails)}`
+      : undefined,
+  ].filter(Boolean).join("; ");
+  return suffix ? `${base}; ${suffix}` : base;
+}
+
 function retryableJobError(error: unknown): boolean {
   if (error instanceof TianClipCoreError) return false;
   if (error instanceof AppError && error.statusCode >= 400 && error.statusCode < 500) {
@@ -1774,7 +1800,7 @@ async function runLoop(): Promise<void> {
           await repository.failOrRetryJob(
             job,
             publicJobError(error),
-            internalErrorMessage(error),
+            internalJobDiagnostic(error),
             retryableJobError(error),
           );
         }

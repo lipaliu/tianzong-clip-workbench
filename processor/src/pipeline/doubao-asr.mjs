@@ -267,7 +267,7 @@ export function mergeDoubaoChunkTranscripts(
       service: "recording_file_asr_chunked",
       apiVersion: "v3",
       resourceId: chunkResults[0].provenance?.resourceId
-        ?? "volc.bigasr.auc",
+        ?? "volc.seedasr.auc",
       originalTimestampUnit: "milliseconds",
       speakerDiarizationRequested: true,
       chunkProvenance,
@@ -284,7 +284,7 @@ export function normalizeDoubaoBigAsrResult(raw, {
   mediaDurationSec = undefined,
   chunkId = "audio_full",
   model = "doubao-bigasr-2.0",
-  resourceId = "volc.bigasr.auc",
+  resourceId = "volc.seedasr.auc",
   taskId = undefined,
   generatedAt = new Date().toISOString(),
 } = {}) {
@@ -402,7 +402,7 @@ export function createDoubaoBigAsrClient({
     ?? process.env.DOUBAO_ASR_ACCESS_KEY
     ?? process.env.DOUDAO_ASR_ACCESS_KEY,
   baseUrl = "https://openspeech.bytedance.com",
-  resourceId = process.env.DOUBAO_ASR_RESOURCE_ID ?? "volc.bigasr.auc",
+  resourceId = process.env.DOUBAO_ASR_RESOURCE_ID ?? "volc.seedasr.auc",
   fetchImpl = globalThis.fetch,
   sleepImpl = defaultSleep,
   requestIdFactory = randomUUID,

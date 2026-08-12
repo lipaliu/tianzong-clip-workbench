@@ -194,18 +194,17 @@ export async function extractRemoteAsrAudio({
     "-vn",
     "-ac", "1",
     "-ar", "16000",
-    "-c:a", "aac",
+    "-c:a", "libmp3lame",
     "-b:a", "64k",
-    "-movflags", "+faststart",
     "-y",
     outputPath,
   ], { signal });
   if (verifyOutput) await assertArtifact(outputPath, "remote_asr_audio_extract");
   return {
     path: outputPath,
-    format: "m4a",
-    mimeType: "audio/mp4",
-    codec: "aac",
+    format: "mp3",
+    mimeType: "audio/mpeg",
+    codec: "mp3",
     sampleRate: 16000,
     channels: 1,
     bitrate: 64_000,

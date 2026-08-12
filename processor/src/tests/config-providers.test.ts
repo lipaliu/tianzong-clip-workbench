@@ -30,7 +30,7 @@ test("provider routing defaults preserve the existing OpenAI and sampled-still p
   assert.equal(config.providers.candidateAvReview, "sampled_stills");
   assert.equal(config.providers.transcriptionFallbackToOpenai, true);
   assert.equal(config.providers.avReviewFallbackToSampledStills, true);
-  assert.equal(config.doubao.asr.resourceId, "volc.bigasr.auc");
+  assert.equal(config.doubao.asr.resourceId, "volc.seedasr.auc");
   assert.equal(config.doubao.ark.avModel, "doubao-seed-2-0-lite-260428");
 });
 
@@ -55,7 +55,7 @@ test("Doubao routes fail closed when their server-side credentials are absent", 
       ...baseEnv,
       TRANSCRIPTION_PROVIDER: "doubao",
     }),
-    /DOUBAO_ASR_APP_KEY and DOUBAO_ASR_ACCESS_KEY/,
+    /DOUBAO_ASR_API_KEY or DOUBAO_ASR_APP_KEY and DOUBAO_ASR_ACCESS_KEY/,
   );
   assert.throws(
     () => loadConfig({
@@ -82,10 +82,23 @@ test("Doubao routes pin the intended services and parse explicit false fallbacks
   assert.equal(config.providers.transcriptionFallbackToOpenai, false);
   assert.equal(config.providers.candidateAvReview, "doubao");
   assert.equal(config.providers.avReviewFallbackToSampledStills, false);
+  assert.equal(config.doubao.asr.apiKey, null);
   assert.equal(config.doubao.asr.appKey, "app-key");
   assert.equal(config.doubao.asr.accessKey, "access-key");
   assert.equal(
     config.doubao.ark.baseUrl,
     "https://ark.cn-beijing.volces.com/api/v3",
   );
+});
+
+test("Doubao transcription accepts a single current-console API Key", () => {
+  const config = loadConfig({
+    ...baseEnv,
+    TRANSCRIPTION_PROVIDER: "doubao",
+    DOUBAO_ASR_API_KEY: "new-console-api-key",
+  });
+
+  assert.equal(config.doubao.asr.apiKey, "new-console-api-key");
+  assert.equal(config.doubao.asr.appKey, null);
+  assert.equal(config.doubao.asr.accessKey, null);
 });

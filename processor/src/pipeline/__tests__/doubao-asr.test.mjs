@@ -83,7 +83,7 @@ test("Doubao BigASR submits, polls, and normalizes a diarized transcript with AP
   assert.equal(calls[0].init.headers["X-Api-Key"], "new-console-secret");
   assert.equal(calls[0].init.headers["X-Api-App-Key"], undefined);
   assert.equal(calls[0].init.headers["X-Api-Request-Id"], "task-0001");
-  assert.equal(calls[0].init.headers["X-Api-Resource-Id"], "volc.bigasr.auc");
+  assert.equal(calls[0].init.headers["X-Api-Resource-Id"], "volc.seedasr.auc");
   assert.equal(calls[0].init.headers["X-Api-Sequence"], "-1");
   assert.equal(calls[1].init.headers["X-Tt-Logid"], "safe-log-id");
 
@@ -131,7 +131,7 @@ test("Doubao BigASR submits, polls, and normalizes a diarized transcript with AP
     provider: "doubao",
     service: "recording_file_asr",
     apiVersion: "v3",
-    resourceId: "volc.bigasr.auc",
+    resourceId: "volc.seedasr.auc",
     taskId: "task-0001",
     originalTimestampUnit: "milliseconds",
     speakerDiarizationRequested: true,
