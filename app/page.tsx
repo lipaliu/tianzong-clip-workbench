@@ -2492,57 +2492,33 @@ export default function Home() {
               <div className="intake-stage">
                 {intakeStep === 1 ? (
                   <div className="upload-stage">
-                    <div className="upload-pair-grid">
-                      <button
-                        type="button"
-                        className="composer-input upload-source-input"
-                        onClick={() => fileRef.current?.click()}
-                        aria-label={fileName ? `更换直播原片：${fileName}` : "上传整场直播"}
-                      >
-                        <span className="upload-file-label">01 · 原片</span>
-                        {fileName ? (
-                          <span className="composer-file">
-                            <span aria-hidden="true">▶</span>
-                            <span>
-                              <strong>{fileName}</strong>
-                              <small>{projectDate?.label} · 已准备进入类型判断</small>
-                            </span>
+                    <button
+                      type="button"
+                      className="composer-input upload-source-input"
+                      onClick={() => fileRef.current?.click()}
+                      aria-label={fileName ? `更换直播原片：${fileName}` : "上传整场直播"}
+                    >
+                      <span className="upload-file-label">直播原片</span>
+                      {fileName ? (
+                        <span className="composer-file">
+                          <span aria-hidden="true">▶</span>
+                          <span>
+                            <strong>{fileName}</strong>
+                            <small>{projectDate?.label} · 已准备进入类型判断</small>
                           </span>
-                        ) : (
-                          <span className="composer-placeholder">
-                            <strong>上传整场直播，开始找天总切片</strong>
-                            <small>支持 MP4 / MOV；完整上下文会用于判断哪些内容值得剪。</small>
-                          </span>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        className={`composer-input subtitle-upload-input${selectedSubtitle ? " has-subtitle" : ""}`}
-                        onClick={() => subtitleUploadRef.current?.click()}
-                        aria-label={selectedSubtitle ? `更换配对字幕：${selectedSubtitle.file.name}` : "上传可选SRT字幕"}
-                      >
-                        <span className="upload-file-label">02 · 字幕（可选）</span>
-                        {selectedSubtitle ? (
-                          <span className="composer-file">
-                            <span aria-hidden="true">≡</span>
-                            <span>
-                              <strong>{selectedSubtitle.file.name}</strong>
-                              <small>{selectedSubtitle.cueCount} 条时间码 · 优先使用，不调用语音识别</small>
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="composer-placeholder">
-                            <strong>上传 SRT，跳过自动转写</strong>
-                            <small>推荐剪映导出的 .srt；没有字幕时才调用语音识别。</small>
-                          </span>
-                        )}
-                      </button>
-                    </div>
+                        </span>
+                      ) : (
+                        <span className="composer-placeholder">
+                          <strong>上传整场直播，开始找天总切片</strong>
+                          <small>支持 MP4 / MOV，最大 9 GB；大文件支持断点续传。</small>
+                        </span>
+                      )}
+                    </button>
 
                     <p className={`subtitle-routing-note${selectedSubtitle ? " is-ready" : ""}`} aria-live="polite">
                       {selectedSubtitle
-                        ? `字幕优先 · 将使用 ${selectedSubtitle.file.name} 的 ${selectedSubtitle.cueCount} 条时间码进行分析。`
-                        : "自动转写待命 · 未上传 SRT 时，分析会调用语音识别并逐步显示转写进度。"}
+                        ? `已附加字幕 · ${selectedSubtitle.file.name} · ${selectedSubtitle.cueCount} 条时间码，将跳过自动转写。`
+                        : "没有字幕也可以直接开始；系统会自动转写。已有 SRT 时可在下方附加。"}
                     </p>
 
                     <div className="stage-actions">
