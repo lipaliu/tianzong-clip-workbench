@@ -231,3 +231,24 @@ Cloudflare Build #01d945e8 对提交`7db261c`显示绿色成功标记；初始�
 1. `processor/src/storage.ts`：单文件预签名与分片预签名统一改用公网端点客户端（`providerClient`）签名；处理器自身的读写、HEAD、分片对账、下载仍走内网端点客户端，保持同地域低延迟且不产生公网流量。
 2. 新增 `processor/src/tests/browser-upload-endpoint.test.ts`：断言浏览器可见的预签名主机必须是公网端点、不得泄漏 `ivolces.com`，同时断言处理器内部客户端仍指向内网端点。处理器测试 113/113 通过。
 3. TOS 桶跨域规则：通过控制台为桶 `changdao-clip-test-20260812` 新增 CORS 规则（来源为线上工作台域名与本地开发地址；方法 PUT/GET/POST/DELETE/HEAD；Allow-Headers `*`；Expose-Headers 含 `ETag`，分片续传必须能读取；Max-Age 3600；开启 `Vary: Origin`）。实例角色为最小权限、不含桶配置写权限，故该项由控制台完成而非脚本执行。
+
+## 2026-08-13：分片上传与断点续传真实验证
+
+**分片体量调整依据：** 从沙箱（跨境链路）实测到北京 TOS 的上行速率仅约 0.2–0.3 MB/s，64 MiB 一片在约 68 秒被对端断开（`curl: (52) Empty reply from server`），而同一链路 8 MiB 分片 PUT 稳定返回 200 与 ETag。这说明分片过大在弱网下会让单片失败代价过高。因此：
+
+- `SINGLE_PUT_MAX_BYTES` 默认值由 512 MiB 下调至 64 MiB（超过即走分片，不再让浏览器用一个脆弱的大请求上传）。
+- `MULTIPART_PART_SIZE_BYTES` 默认值由 64 MiB 下调至 8 MiB（失败重传代价小、续传粒度细）。
+- 北京实例 `/etc/tianclip/processor.env` 同步更新为 `SINGLE_PUT_MAX_BYTES=67108864`、`MULTIPART_PART_SIZE_BYTES=8388608` 并重启服务。
+- 前端 `app/processor-client.ts` 的单片重试次数由 3 次提升到 6 次，退避上限由 4 秒放宽到 8 秒，且每次重试都重新签发分片地址，避免签名过期造成硬失败。
+
+**端到端验证结果（`scripts/verify-resumable-upload.mjs`，全部 PUT 直打预签名主机）：**
+
+| 阶段 | 结果 |
+|---|---|
+| 分片凭证签发 | 10 片，每片 8 MiB |
+| 上传一半后中断 | 已传 5 片 |
+| 云端断点对账 | 状态 `uploading`，云端确认已传 5 片，与实际一致 |
+| 仅续传缺失分片 | 续传 5 片 |
+| 合并完成 | 状态 `uploaded`，合并后 83,886,080 字节与源文件完全一致 |
+
+处理器测试 113/113 通过。

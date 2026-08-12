@@ -39,11 +39,14 @@ const envSchema = z.object({
   // Keep single PUT intentionally small: multi-GB uploads must always use
   // resumable storage multipart uploads rather than one fragile browser request.
   SINGLE_PUT_MAX_BYTES: z.coerce.number().int().positive().max(5 * 1024 * 1024 * 1024)
-    .default(512 * 1024 * 1024),
+    .default(64 * 1024 * 1024),
+  // Part size is deliberately modest. A failed part must be cheap to retry on a
+  // slow or unstable consumer connection: with 8 MiB parts a stall costs seconds
+  // of re-upload instead of tens of megabytes, and resume granularity is finer.
   MULTIPART_PART_SIZE_BYTES: z.coerce.number().int()
     .min(5 * 1024 * 1024)
     .max(5 * 1024 * 1024 * 1024)
-    .default(64 * 1024 * 1024),
+    .default(8 * 1024 * 1024),
   MULTIPART_PRESIGN_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(12),
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),

@@ -400,9 +400,17 @@ export async function readMultipartUploadStatus(
 }
 
 function retryDelay(attempt: number) {
-  const base = Math.min(4_000, 400 * (2 ** attempt));
-  return new Promise((resolve) => window.setTimeout(resolve, base + Math.random() * 250));
+  const base = Math.min(8_000, 500 * (2 ** attempt));
+  return new Promise((resolve) => window.setTimeout(resolve, base + Math.random() * 400));
 }
+
+/**
+ * A consumer uplink can stall for tens of seconds without the connection being
+ * truly dead. Retrying a part several times with backoff (and a freshly signed
+ * URL each time) keeps a multi-GB transfer alive instead of surfacing a hard
+ * failure the user has to restart from.
+ */
+const PART_UPLOAD_ATTEMPTS = 6;
 
 function preferredMultipartConcurrency() {
   const connection = (navigator as Navigator & {
@@ -487,7 +495,7 @@ async function uploadMultipartFile(
           return;
         }
         let lastError: unknown;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
+        for (let attempt = 0; attempt < PART_UPLOAD_ATTEMPTS; attempt += 1) {
           activeLoadedBytes.set(partNumber, 0);
           reportProgress();
           try {
@@ -517,7 +525,7 @@ async function uploadMultipartFile(
             lastError = error;
             activeLoadedBytes.set(partNumber, 0);
             reportProgress();
-            if (attempt < 2) await retryDelay(attempt);
+            if (attempt < PART_UPLOAD_ATTEMPTS - 1) await retryDelay(attempt);
           }
         }
         if (lastError) {
