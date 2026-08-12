@@ -123,6 +123,7 @@ const kimiEditor = config.kimi.apiKey
   : null;
 const doubaoAsr = config.providers.transcription === "doubao"
   ? doubaoAsrFactory({
+      apiKey: config.doubao.asr.apiKey ?? undefined,
       appId: config.doubao.asr.appKey ?? undefined,
       accessToken: config.doubao.asr.accessKey ?? undefined,
       baseUrl: config.doubao.asr.baseUrl,

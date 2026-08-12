@@ -63,6 +63,7 @@ const envSchema = z.object({
     .default("sampled_stills"),
   AV_REVIEW_FALLBACK_TO_SAMPLED_STILLS: envBoolean(true),
   PROVIDER_URL_TTL_SECONDS: positiveInteger(3_600),
+  DOUBAO_ASR_API_KEY: z.string().min(1).optional(),
   DOUBAO_ASR_APP_KEY: z.string().min(1).optional(),
   DOUBAO_ASR_ACCESS_KEY: z.string().min(1).optional(),
   DOUBAO_ASR_RESOURCE_ID: z.string().min(1).default("volc.bigasr.auc"),
@@ -124,13 +125,14 @@ const envSchema = z.object({
   }
   if (
     value.TRANSCRIPTION_PROVIDER === "doubao"
+    && !value.DOUBAO_ASR_API_KEY
     && (!value.DOUBAO_ASR_APP_KEY || !value.DOUBAO_ASR_ACCESS_KEY)
   ) {
     context.addIssue({
       code: "custom",
       path: ["TRANSCRIPTION_PROVIDER"],
-      message:
-        "Doubao transcription requires DOUBAO_ASR_APP_KEY and DOUBAO_ASR_ACCESS_KEY",
+          message:
+            "Doubao transcription requires DOUBAO_ASR_API_KEY or DOUBAO_ASR_APP_KEY and DOUBAO_ASR_ACCESS_KEY",
     });
   }
   if (
@@ -192,6 +194,7 @@ export type ProcessorConfig = {
   };
   doubao: {
     asr: {
+      apiKey: string | null;
       appKey: string | null;
       accessKey: string | null;
       resourceId: string;
@@ -303,6 +306,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProcessorConfi
     },
     doubao: {
       asr: {
+        apiKey: value.DOUBAO_ASR_API_KEY ?? null,
         appKey: value.DOUBAO_ASR_APP_KEY ?? null,
         accessKey: value.DOUBAO_ASR_ACCESS_KEY ?? null,
         resourceId: value.DOUBAO_ASR_RESOURCE_ID,
