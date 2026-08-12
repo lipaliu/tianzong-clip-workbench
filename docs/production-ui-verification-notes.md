@@ -188,3 +188,7 @@ Cloudflare生产Worker已发布运行时配置：`PROCESSOR_API_URL` 指向北�
 方舟专用Key已通过非计费模型目录验证；北京处理器API与工作线程均为active，私有核心/TOS角色链路保持就绪。Caddy在80/443监听、持有有效sslip.io临时证书，实例本机按SNI访问`/healthz`返回200；需在正式使用前用自有域名替换临时sslip.io地址。Cloudflare Git构建`7e81fe6`仍在进行中。
 
 Cloudflare构建详情显示提交`7e81fe6`的初始化、克隆、依赖安装、构建和部署均完成且为成功状态（总时长1分18秒）。北京数据库迁移账本确认`008_uploaded_subtitles.sql`已应用；处理器发布产物包含`subtitleUploadId`契约与SRT解析器。
+
+生产工作台已实测展示新版双文件上传：原片与可选SRT为独立卡片，标题、说明与状态文案均可读且无重叠；用户可明确看到“上传SRT，跳过自动转写”和缺失SRT才调用语音识别的回退规则。
+
+端到端只读任务请求曾返回“真实分析服务尚未配置”。检查生产设置发现仅`PROCESSOR_API_SECRET`持久存在；已重新以Production文本变量保存`PROCESSOR_API_URL=https://124.174.9.168.sslip.io`和`PROCESSOR_KEY_ID=sites-proxy`，两项现已显示在Worker变量列表中。
