@@ -192,3 +192,9 @@ Cloudflare构建详情显示提交`7e81fe6`的初始化、克隆、依赖安装�
 生产工作台已实测展示新版双文件上传：原片与可选SRT为独立卡片，标题、说明与状态文案均可读且无重叠；用户可明确看到“上传SRT，跳过自动转写”和缺失SRT才调用语音识别的回退规则。
 
 端到端只读任务请求曾返回“真实分析服务尚未配置”。检查生产设置发现仅`PROCESSOR_API_SECRET`持久存在；已重新以Production文本变量保存`PROCESSOR_API_URL=https://124.174.9.168.sslip.io`和`PROCESSOR_KEY_ID=sites-proxy`，两项现已显示在Worker变量列表中。
+
+最新提交`7db261c`已进入Cloudflare Build History；生成的`dist/server/wrangler.json`确认包含`PROCESSOR_API_URL`与`PROCESSOR_KEY_ID`。此前线上运行时仍返回缺失配置，需要继续核验该构建成为活动版本及运行时绑定传递。
+
+Cloudflare Build #01d945e8 对提交`7db261c`显示绿色成功标记；初始化、克隆、安装、构建、部署五个阶段均完成（总时长1分57秒），部署命令为`npx wrangler deploy --config dist/server/wrangler.json`。
+
+最新生产只读代理已越过缺失变量阶段，但返回525 TLS握手错误。北京实例Caddy监听80/443，且已为`124.174.9.168.sslip.io`成功签发Let's Encrypt证书；从沙箱外部curl仍在TLS握手阶段中断，Caddy近三分钟无对应接入日志，表明请求未到达反向代理，需继续排查云网络入口。

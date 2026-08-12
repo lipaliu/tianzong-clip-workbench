@@ -15,7 +15,7 @@
     "binding": "IMAGES"
   },
   "vars": {
-    "PROCESSOR_API_URL": "https://124.174.9.168.sslip.io",
+    "PROCESSOR_API_URL": "https://price-goals-recorders-howard.trycloudflare.com",
     "PROCESSOR_KEY_ID": "sites-proxy"
   }
 }
