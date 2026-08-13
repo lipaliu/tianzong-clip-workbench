@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import { canonicalJson, sha256Hex } from "./canonical.js";
 import type { LoadedTianClipCore } from "./core/index.js";
@@ -88,7 +87,7 @@ type VisualMap = {
 
 type CandidateResultItem = {
   candidateId: string;
-  editorProvider?: "openai" | "doubao";
+  editorProvider?: "openai" | "doubao" | "kimi";
   title: string;
   douyinTitle: string;
   xiaohongshuTitle: string;
@@ -163,6 +162,23 @@ type CandidateResultItem = {
     sourceCandidateId?: string;
   };
 };
+
+function stableCandidateUuid(
+  job: ClaimedJob,
+  candidate: CandidateResultItem,
+): string {
+  const digest = sha256Hex(
+    `${job.projectId}:${candidate.editorProvider ?? "editor"}:${candidate.candidateId}`,
+  ).slice(0, 32).split("");
+  // RFC 4122 variant + deterministic version-5-shaped UUID. The input is
+  // already SHA-256, so the same editorial candidate keeps the same database
+  // identity while its rough boundary/title is refined in the background.
+  digest[12] = "5";
+  digest[16] = ((Number.parseInt(digest[16]!, 16) & 0x3) | 0x8).toString(16);
+  const hex = digest.join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-`
+    + `${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 type CandidateResult = {
   candidates: CandidateResultItem[];
@@ -597,7 +613,7 @@ function publicPayload(
     ["标题潜力", candidate.score.titlePotential, 15],
   ] as const;
   return {
-    id: randomUUID(),
+    id: stableCandidateUuid(job, candidate),
     kind: job.mode,
     ...(candidate.editorProvider
       ? { editorProvider: candidate.editorProvider }

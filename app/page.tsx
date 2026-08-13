@@ -1381,7 +1381,7 @@ export default function Home() {
           runId,
         ));
         await syncProcessorEvents(job.id, runId);
-        let provisionalCandidatesShown = false;
+        let provisionalCandidateCount = 0;
         while (
           runId === projectResumeRunRef.current &&
           processorJobIsPending(job)
@@ -1394,7 +1394,7 @@ export default function Home() {
           setAnalysisStage(currentProject.stage ?? "真实分析进行中");
           await persistProjectMirror(currentProject).catch(() => currentProject);
           await syncProcessorEvents(job.id, runId);
-          if (!provisionalCandidatesShown && job.clipCount > 0) {
+          if (job.clipCount > provisionalCandidateCount) {
             const { candidates } = await retryProcessorRead(
               () => readProcessorCandidates(project.id),
               runId,
@@ -1404,15 +1404,20 @@ export default function Home() {
               project.mode,
             );
             if (provisionalIdeas.length) {
-              provisionalCandidatesShown = true;
+              const firstDelivery = provisionalCandidateCount === 0;
+              provisionalCandidateCount = provisionalIdeas.length;
               setAnalysisReady(true);
-              setActiveClipId(provisionalIdeas[0]!.id);
-              setSelectedIds([provisionalIdeas[0]!.id]);
+              if (firstDelivery) {
+                setActiveClipId(provisionalIdeas[0]!.id);
+                setSelectedIds([provisionalIdeas[0]!.id]);
+              }
               setReviewSourceMode("candidate");
               setStep(2);
-              showToast(
-                `先交付 ${provisionalIdeas.length} 条批量粗剪；模型精修完成后会逐条更新。`,
-              );
+              if (firstDelivery) {
+                showToast(
+                  `第 1 条可播放粗剪已交付；后台会持续增加，不必等待整批完成。`,
+                );
+              }
             }
           }
           await wait(2_500);
@@ -1879,7 +1884,7 @@ export default function Home() {
 
       let job = startedJob;
       await syncProcessorEvents(job.id, runId);
-      let provisionalCandidatesShown = false;
+      let provisionalCandidateCount = 0;
       while (processorJobIsPending(job)) {
         const normalizedProgress = processorProgress(job);
         const stageLabel = processorStageLabel(job.stage);
@@ -1891,7 +1896,7 @@ export default function Home() {
           progress: normalizedProgress,
         } : project));
         await syncProcessorEvents(job.id, runId);
-        if (!provisionalCandidatesShown && job.clipCount > 0) {
+        if (job.clipCount > provisionalCandidateCount) {
           const { candidates } = await retryProcessorRead(
             () => readProcessorCandidates(projectId),
             runId,
@@ -1901,15 +1906,20 @@ export default function Home() {
             selectedMode,
           );
           if (provisionalIdeas.length) {
-            provisionalCandidatesShown = true;
+            const firstDelivery = provisionalCandidateCount === 0;
+            provisionalCandidateCount = provisionalIdeas.length;
             setAnalysisReady(true);
-            setActiveClipId(provisionalIdeas[0]!.id);
-            setSelectedIds([provisionalIdeas[0]!.id]);
+            if (firstDelivery) {
+              setActiveClipId(provisionalIdeas[0]!.id);
+              setSelectedIds([provisionalIdeas[0]!.id]);
+            }
             setReviewSourceMode("candidate");
             setStep(2);
-            showToast(
-              `先交付 ${provisionalIdeas.length} 条批量粗剪；模型精修完成后会逐条更新。`,
-            );
+            if (firstDelivery) {
+              showToast(
+                `第 1 条可播放粗剪已交付；后台会持续增加，不必等待整批完成。`,
+              );
+            }
           }
         }
         await wait(2_500);

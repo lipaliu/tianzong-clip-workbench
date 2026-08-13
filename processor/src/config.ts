@@ -111,7 +111,7 @@ const envSchema = z.object({
   VISION_BATCH_SIZE: positiveInteger(8),
   CANDIDATE_FRAME_SECONDS: positiveInteger(2),
   ANALYSIS_WINDOW_SECONDS: positiveInteger(600),
-  FIRST_DELIVERY_CANDIDATE_LIMIT: nonNegativeInteger(6),
+  FIRST_DELIVERY_CANDIDATE_LIMIT: nonNegativeInteger(0),
   WORK_DIRECTORY: z.string().min(1).default("/tmp/tianclip"),
 }).superRefine((value, context) => {
   if (

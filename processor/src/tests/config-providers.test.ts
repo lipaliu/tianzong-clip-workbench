@@ -32,7 +32,7 @@ test("provider routing defaults preserve the existing OpenAI and sampled-still p
   assert.equal(config.providers.avReviewFallbackToSampledStills, true);
   assert.equal(config.doubao.asr.resourceId, "volc.seedasr.auc");
   assert.equal(config.doubao.ark.avModel, "doubao-seed-2-0-lite-260428");
-  assert.equal(config.worker.firstDeliveryCandidateLimit, 6);
+  assert.equal(config.worker.firstDeliveryCandidateLimit, 0);
 });
 
 test("first delivery limit is explicit and may be disabled with zero", () => {

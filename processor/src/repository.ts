@@ -1367,6 +1367,118 @@ export class ProcessorRepository {
     }
   }
 
+  /**
+   * Publishes one playable rough cut while the rest of the livestream is still
+   * being reviewed. This deliberately does not mark the job as succeeded: the
+   * worker can keep refining every remaining candidate, while the review UI
+   * sees clip_count grow 1, 2, 3... instead of waiting behind an all-or-nothing
+   * batch barrier.
+   */
+  async publishCandidate(
+    job: ClaimedJob,
+    candidate: CandidatePayload,
+    ordinal: number,
+  ): Promise<number> {
+    const client = await this.database.connect();
+    try {
+      await client.query("BEGIN");
+      const lease = await client.query(
+        `SELECT project_id
+         FROM processing_jobs
+         WHERE id = $1 AND worker_id = $2 AND status = 'running'
+           AND lease_expires_at > now()
+         FOR UPDATE`,
+        [job.id, job.workerId],
+      );
+      if (!lease.rowCount) {
+        throw new AppError(409, "job_lease_lost", "任务租约已经失效。", {
+          expose: false,
+        });
+      }
+      const previewObjectKey =
+        `previews/${job.projectId}/${candidate.id}.mp4`;
+      // Final refinement may reorder or reject provisional candidates. Free
+      // the target ordinal before the stable-id upsert so streaming delivery
+      // never trips the (job_id, ordinal) uniqueness constraint.
+      await client.query(
+        `DELETE FROM candidates
+         WHERE job_id = $1 AND ordinal = $2 AND id <> $3`,
+        [job.id, ordinal, candidate.id],
+      );
+      await client.query(
+        `INSERT INTO candidates(
+           id, project_id, job_id, ordinal, source_start_ms, source_end_ms,
+           score, priority, review_status, render_status, payload,
+           preview_object_key
+         )
+         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, 'rough_ready', $10, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           ordinal = EXCLUDED.ordinal,
+           source_start_ms = EXCLUDED.source_start_ms,
+           source_end_ms = EXCLUDED.source_end_ms,
+           score = EXCLUDED.score,
+           priority = EXCLUDED.priority,
+           review_status = EXCLUDED.review_status,
+           render_status = 'rough_ready',
+           payload = EXCLUDED.payload,
+           preview_object_key = EXCLUDED.preview_object_key,
+           updated_at = now()`,
+        [
+          candidate.id,
+          job.projectId,
+          job.id,
+          ordinal,
+          Math.round(candidate.sourceStart * 1_000),
+          Math.round(candidate.sourceEnd * 1_000),
+          candidate.score,
+          candidate.priority,
+          candidate.reviewStatus,
+          candidate,
+          previewObjectKey,
+        ],
+      );
+      const counted = await client.query(
+        `SELECT count(*)::integer AS count
+         FROM candidates WHERE job_id = $1`,
+        [job.id],
+      );
+      const candidateCount = numberValue(counted.rows[0]?.count);
+      await client.query(
+        `UPDATE processing_jobs
+         SET clip_count = $2, updated_at = now()
+         WHERE id = $1`,
+        [job.id, candidateCount],
+      );
+      await client.query(
+        `UPDATE projects
+         SET clip_count = $2, updated_at = now()
+         WHERE id = $1`,
+        [job.projectId, candidateCount],
+      );
+      await client.query(
+        `INSERT INTO job_events(job_id, stage, progress, message, detail)
+         SELECT id, stage, progress, $2, $3
+         FROM processing_jobs WHERE id = $1`,
+        [
+          job.id,
+          `第 ${candidateCount} 条可播放粗剪已交付，后台继续处理剩余内容。`,
+          {
+            candidateId: candidate.id,
+            candidateCount,
+            progressiveDelivery: true,
+          },
+        ],
+      );
+      await client.query("COMMIT");
+      return candidateCount;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async failOrRetryJob(
     job: ClaimedJob,
     publicMessage: string,

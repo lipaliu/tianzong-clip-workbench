@@ -1032,10 +1032,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           mode,
         }),
     );
-    const firstDeliveryLimit = config.worker.firstDeliveryCandidateLimit;
-    const deliveryCandidates = firstDeliveryLimit > 0
-      ? expandedCandidates.slice(0, firstDeliveryLimit)
-      : expandedCandidates;
+    const deliveryCandidates = expandedCandidates;
     const mergedCandidateResult = {
       ...mergedCandidateResultRaw,
       candidates: deliveryCandidates,
@@ -1044,26 +1041,86 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         qualifyingCount: deliveryCandidates.length,
         notes: arrayUnion(
           mergedCandidateResultRaw.selectionSummary?.notes,
-          firstDeliveryLimit > 0
-            ? [
-                `首批闭环验收只处理文字召回中的前 ${deliveryCandidates.length} 条；`
-                  + `其余 ${Math.max(0, expandedCandidates.length - deliveryCandidates.length)} 条保留在召回检查点，不调用音视频模型。`,
-              ]
-            : [],
+          ["候选总数由整场内容决定；不设首批条数上限，逐条完成、逐条交付。"],
         ),
       },
     };
 
-    if (firstDeliveryLimit > 0) {
-      await repository.updateJobStage(
-        job.id,
-        job.workerId,
-        "first_delivery_shortlist",
-        84,
-        `首批闭环验收：从 ${expandedCandidates.length} 条文字召回中只取前 `
-          + `${deliveryCandidates.length} 条进入音视频复核；其余候选本轮不产生模型费用。`,
+    // Do not hold the review UI behind the expensive candidate-by-candidate
+    // native AV review and final editorial pass. The text/visual recall above
+    // has already executed the private Tianzong core and produced publish-safe
+    // windows, so start rendering those windows now. Each completed MP4 is
+    // persisted immediately; the final pass later overwrites the same stable
+    // candidate id with its refined boundary/title.
+    const artifactBase = `artifacts/${job.projectId}/${job.id}`;
+    const previewDir = join(workDir, "rough-previews");
+    await mkdir(previewDir, { recursive: true });
+    const progressiveCandidateResult = {
+      ...mergedCandidateResult,
+      // The full artifact contract requires refinement whenever sourceFunnel
+      // is present. These are deliberately provisional recall candidates, not
+      // a false claim that expensive AV/final review already finished.
+      sourceFunnel: undefined,
+      refinementSummary: undefined,
+    };
+    const progressiveArtifacts = buildAndValidateEngineArtifacts({
+      job,
+      media,
+      sourceSha256: sourceIntegrity.sha256,
+      transcript,
+      visualMap: augmentedVisualMap as never,
+      candidateResult: progressiveCandidateResult as never,
+      core,
+      artifactUris: {
+        sourceMedia: r2Uri(job.objectKey),
+        transcript: r2Uri(`${artifactBase}/transcript.json`),
+      },
+    });
+    let progressiveDeliveryError: unknown = null;
+    const progressiveDeliveryPromise = (async () => {
+      let nextIndex = 0;
+      const renderAndPublishNext = async () => {
+        while (true) {
+          const index = nextIndex;
+          nextIndex += 1;
+          if (index >= progressiveArtifacts.candidatePayloads.length) return;
+          const payload = progressiveArtifacts.candidatePayloads[index]!;
+          const sourceCandidate = progressiveCandidateResult.candidates[index];
+          if (!sourceCandidate) continue;
+          const outputPath = join(previewDir, `${payload.id}.mp4`);
+          await renderRoughProxy({
+            sourcePath,
+            candidate: sourceCandidate,
+            outputPath,
+            mediaDurationSec: media.durationSec,
+          });
+          await storage.uploadFile(
+            `previews/${job.projectId}/${payload.id}.mp4`,
+            outputPath,
+            "video/mp4",
+            {
+              "project-id": job.projectId,
+              "job-id": job.id,
+              "candidate-id": payload.id,
+              "preview-kind": "progressive-rough-cut-needs-human-playback",
+            },
+          );
+          await repository.publishCandidate(job, payload, index + 1);
+        }
+      };
+      const workerCount = Math.max(
+        1,
+        Math.min(2, progressiveArtifacts.candidatePayloads.length),
       );
-    }
+      await Promise.all(
+        Array.from({ length: workerCount }, () => renderAndPublishNext()),
+      );
+    })().catch((error) => {
+      // A provisional preview is an acceleration layer. The normal final
+      // render below remains the recovery path and must not be sunk by one
+      // early ffmpeg/upload failure.
+      progressiveDeliveryError = error;
+    });
 
     let candidateResultForFinalRefinement = mergedCandidateResult;
     let candidateEvidenceVisualMap = augmentedVisualMap;
@@ -1411,7 +1468,6 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     );
     const evidenceVisualMap = candidateResult.visualMap;
 
-    const artifactBase = `artifacts/${job.projectId}/${job.id}`;
     const transcriptKey = `${artifactBase}/transcript.json`;
     const denseVisualRecallKey = `${artifactBase}/dense-visual-recall.json`;
     const candidateRefinementKey = `${artifactBase}/candidate-refinement.json`;
@@ -1533,8 +1589,16 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       95,
       "正在生成无字幕、无包装的候选粗剪，等待人工完整播放。",
     );
-    const previewDir = join(workDir, "rough-previews");
-    await mkdir(previewDir, { recursive: true });
+    await progressiveDeliveryPromise;
+    if (progressiveDeliveryError) {
+      await repository.updateJobStage(
+        job.id,
+        job.workerId,
+        "rendering_rough_proxies",
+        95,
+        "部分提前粗剪未完成，正在由正式渲染逐条补齐；已完成条目仍可先看。",
+      );
+    }
     let nextPreviewIndex = 0;
     let completedPreviewCount = 0;
     const renderNextPreview = async () => {
@@ -1573,6 +1637,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             "preview-kind": "rough-cut-needs-human-normal-playback",
           },
         );
+        await repository.publishCandidate(job, payload, index + 1);
         const completed = ++completedPreviewCount;
         await repository.updateJobStage(
           job.id,
