@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_DIR="${TIANCLIP_APP_DIR:-/opt/tianclip/processor}"
-SOURCE_REF="${TIANCLIP_SOURCE_REF:-0c98640}"
+SOURCE_REF="${TIANCLIP_SOURCE_REF:-a0f85a8}"
 RAW_BASE="https://raw.githubusercontent.com/lipaliu/tianzong-clip-workbench/${SOURCE_REF}/processor"
 BACKUP_DIR="${APP_DIR}/.deploy-backups/first-delivery-$(date +%Y%m%d-%H%M%S)"
 FILES=(
