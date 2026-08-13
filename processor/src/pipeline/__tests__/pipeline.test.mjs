@@ -1932,6 +1932,7 @@ test("multi-hour recall is batched, core-bound on every request, and naturally c
   };
   const requests = [];
   const progress = [];
+  const streamedResults = [];
   const coreBundle = candidateFixtures().coreBundle;
   const client = {
     async createStructuredResponse(value) {
@@ -2009,12 +2010,23 @@ test("multi-hour recall is batched, core-bound on every request, and naturally c
     mode: "chat",
     client,
     onBatchProgress: async (value) => progress.push(value),
+    onBatchResult: async (value) => streamedResults.push(value),
   });
 
   assert.ok(requests.length > 1);
   assert.equal(result.recallRuns.length, requests.length);
   assert.equal(result.candidates.length, requests.length);
   assert.equal(progress.length, requests.length);
+  assert.equal(streamedResults.length, requests.length);
+  assert.deepEqual(
+    streamedResults.map((event) => event.result.candidates.length),
+    Array.from({ length: requests.length }, (_, index) => index + 1),
+  );
+  assert.equal(streamedResults[0].completed, 1);
+  assert.equal(
+    streamedResults.at(-1).result.candidates.length,
+    result.candidates.length,
+  );
   assert.equal(result.usage.total_tokens, requests.length * 150);
   assert.ok(requests.every((request) =>
     request.instructions.includes(coreBundle.coreSha256)
