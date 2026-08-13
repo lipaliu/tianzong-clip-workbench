@@ -933,6 +933,106 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
       denseRecallResult,
     } = prepareTranscriptFirstVisualEvidence(denseFrameManifest);
 
+    const artifactBase = `artifacts/${job.projectId}/${job.id}`;
+    const previewDir = join(workDir, "rough-previews");
+    await mkdir(previewDir, { recursive: true });
+    const progressiveOrdinals = new Map<string, number>();
+    const progressiveFingerprints = new Map<string, string>();
+    let nextProgressiveOrdinal = 1;
+    let progressiveDeliveryError: unknown = null;
+    const publishProgressiveResult = async (
+      provider: EditorProvider,
+      providerModel: string,
+      partialResult: Record<string, any>,
+    ) => {
+      try {
+        const tagged = tagEditorialResult(
+          partialResult,
+          provider,
+          providerModel,
+        );
+        const expanded = {
+          ...tagged,
+          candidates: tagged.candidates.map(
+            (candidate: Record<string, any>) =>
+              expandCandidateWindow(candidate, {
+                mediaDurationSec: media.durationSec,
+                mode,
+              }),
+          ),
+          sourceFunnel: undefined,
+          refinementSummary: undefined,
+          selectionSummary: {
+            ...tagged.selectionSummary,
+            qualifyingCount: tagged.candidates.length,
+            notes: arrayUnion(
+              tagged.selectionSummary?.notes,
+              ["逐窗口召回、逐条粗剪；整场分析仍在后台继续。"],
+            ),
+          },
+        };
+        const partialArtifacts = buildAndValidateEngineArtifacts({
+          job,
+          media,
+          sourceSha256: sourceIntegrity.sha256,
+          transcript,
+          visualMap: augmentedVisualMap as never,
+          candidateResult: expanded as never,
+          core,
+          artifactUris: {
+            sourceMedia: r2Uri(job.objectKey),
+            transcript: r2Uri(`${artifactBase}/transcript.json`),
+          },
+        });
+        const pending: Array<Promise<void>> = [];
+        for (let index = 0; index < partialArtifacts.candidatePayloads.length; index += 1) {
+          const payload = partialArtifacts.candidatePayloads[index]!;
+          const sourceCandidate = expanded.candidates[index];
+          if (!sourceCandidate) continue;
+          const fingerprint = sha256Hex(canonicalJson({
+            sourceStart: payload.sourceStart,
+            sourceEnd: payload.sourceEnd,
+            title: payload.title,
+          }));
+          if (progressiveFingerprints.get(payload.id) === fingerprint) continue;
+          progressiveFingerprints.set(payload.id, fingerprint);
+          let ordinal = progressiveOrdinals.get(payload.id);
+          if (!ordinal) {
+            ordinal = nextProgressiveOrdinal;
+            nextProgressiveOrdinal += 1;
+            progressiveOrdinals.set(payload.id, ordinal);
+          }
+          pending.push((async () => {
+            const outputPath = join(previewDir, `${payload.id}.mp4`);
+            await renderRoughProxy({
+              sourcePath,
+              candidate: sourceCandidate,
+              outputPath,
+              mediaDurationSec: media.durationSec,
+            });
+            await storage.uploadFile(
+              `previews/${job.projectId}/${payload.id}.mp4`,
+              outputPath,
+              "video/mp4",
+              {
+                "project-id": job.projectId,
+                "job-id": job.id,
+                "candidate-id": payload.id,
+                "preview-kind": "window-progressive-rough-cut",
+              },
+            );
+            await repository.publishCandidate(job, payload, ordinal!);
+          })());
+          if (pending.length >= 2) {
+            await Promise.all(pending.splice(0, pending.length));
+          }
+        }
+        await Promise.all(pending);
+      } catch (error) {
+        progressiveDeliveryError = error;
+      }
+    };
+
     await repository.updateJobStage(
       job.id,
       job.workerId,
@@ -981,6 +1081,26 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         model: providerModel,
         analysisWindowSeconds: config.worker.analysisWindowSeconds,
         safetyIdentifier: `${job.projectId}:${provider}`,
+        onBatchResult: async (event) => {
+          await publishProgressiveResult(
+            provider,
+            providerModel,
+            event.result,
+          );
+          await repository.updateJobStage(
+            job.id,
+            job.workerId,
+            "private_core_reasoning",
+            56 + Math.floor(
+              24 * (
+                providerIndex
+                + event.completed / Math.max(1, event.total)
+              ) / editorialProviders.length,
+            ),
+            `${providerName} 已完成窗口 ${event.completed}/${event.total}；`
+              + "新发现的候选已逐条粗剪并交付，后台继续寻找。",
+          );
+        },
         onProgress: async (event) => {
           const providerShare = 24 / editorialProviders.length;
           const progress = 56
@@ -1052,9 +1172,6 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
     // windows, so start rendering those windows now. Each completed MP4 is
     // persisted immediately; the final pass later overwrites the same stable
     // candidate id with its refined boundary/title.
-    const artifactBase = `artifacts/${job.projectId}/${job.id}`;
-    const previewDir = join(workDir, "rough-previews");
-    await mkdir(previewDir, { recursive: true });
     const progressiveCandidateResult = {
       ...mergedCandidateResult,
       // The full artifact contract requires refinement whenever sourceFunnel
@@ -1076,7 +1193,6 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
         transcript: r2Uri(`${artifactBase}/transcript.json`),
       },
     });
-    let progressiveDeliveryError: unknown = null;
     const progressiveDeliveryPromise = (async () => {
       let nextIndex = 0;
       const renderAndPublishNext = async () => {
@@ -1087,6 +1203,19 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
           const payload = progressiveArtifacts.candidatePayloads[index]!;
           const sourceCandidate = progressiveCandidateResult.candidates[index];
           if (!sourceCandidate) continue;
+          const fingerprint = sha256Hex(canonicalJson({
+            sourceStart: payload.sourceStart,
+            sourceEnd: payload.sourceEnd,
+            title: payload.title,
+          }));
+          if (progressiveFingerprints.get(payload.id) === fingerprint) continue;
+          progressiveFingerprints.set(payload.id, fingerprint);
+          let ordinal = progressiveOrdinals.get(payload.id);
+          if (!ordinal) {
+            ordinal = nextProgressiveOrdinal;
+            nextProgressiveOrdinal += 1;
+            progressiveOrdinals.set(payload.id, ordinal);
+          }
           const outputPath = join(previewDir, `${payload.id}.mp4`);
           await renderRoughProxy({
             sourcePath,
@@ -1105,7 +1234,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
               "preview-kind": "progressive-rough-cut-needs-human-playback",
             },
           );
-          await repository.publishCandidate(job, payload, index + 1);
+          await repository.publishCandidate(job, payload, ordinal);
         }
       };
       const workerCount = Math.max(

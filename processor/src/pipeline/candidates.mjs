@@ -1185,6 +1185,7 @@ export async function generateCandidates({
   safetyIdentifier = undefined,
   recallConfig = undefined,
   onBatchProgress = undefined,
+  onBatchResult = undefined,
 } = {}) {
   invariant(mode === "chat" || mode === "sales", "Mode must be chat or sales", {
     code: "INVALID_CLIPPING_MODE",
@@ -1214,6 +1215,14 @@ export async function generateCandidates({
     "Candidate batch progress callback must be a function",
     {
       code: "INVALID_CANDIDATE_PROGRESS_CALLBACK",
+      stage: "candidate_generation",
+    },
+  );
+  invariant(
+    onBatchResult === undefined || typeof onBatchResult === "function",
+    "Candidate batch result callback must be a function",
+    {
+      code: "INVALID_CANDIDATE_RESULT_CALLBACK",
       stage: "candidate_generation",
     },
   );
@@ -1381,6 +1390,21 @@ export async function generateCandidates({
       response,
       transcriptSegmentCount: batch.transcriptSegments.length,
       sparseVisualEventCount: batchVisualEvents.length,
+    });
+    // A multi-hour livestream must not remain at zero candidates until every
+    // recall window finishes. Merge the evidence seen so far after each
+    // bounded window and expose it to the worker immediately. The final merge
+    // below still remains authoritative and may refine the trailing overlap.
+    await onBatchResult?.({
+      completed: batch.index + 1,
+      total: batches.length,
+      batchId: batch.batchId,
+      result: mergeCandidateBatchResults(batchResults, {
+        transcript,
+        visualMap,
+        coreBundle,
+      }),
+      latestBatchCandidateCount: response.parsed.candidates.length,
     });
     await onBatchProgress?.({
       completed: batch.index + 1,

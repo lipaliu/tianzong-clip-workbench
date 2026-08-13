@@ -92,6 +92,13 @@ export async function analyzeCandidateWindows(options: {
     completed: number;
     total: number;
   }) => Promise<void>;
+  onBatchResult?: (event: {
+    completed: number;
+    total: number;
+    batchId: string;
+    result: Record<string, any>;
+    latestBatchCandidateCount: number;
+  }) => Promise<void>;
 }): Promise<{
   candidates: CandidateLike[];
   selectionSummary: {
@@ -148,6 +155,7 @@ export async function analyzeCandidateWindows(options: {
       overlapSec,
     },
     onBatchProgress: options.onProgress,
+    onBatchResult: options.onBatchResult,
   });
 
   return {
