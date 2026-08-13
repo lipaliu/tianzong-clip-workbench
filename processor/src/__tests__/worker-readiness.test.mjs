@@ -120,6 +120,16 @@ test("job creation fails closed before queue insertion when no worker is recent"
 async function readinessApp(workerActive) {
   const { database } = fakeDatabase(async (text) => {
     if (text === "SELECT 1") return { rowCount: 1, rows: [{ "?column?": 1 }] };
+    if (text.includes("information_schema.columns")) {
+      return {
+        rowCount: 3,
+        rows: [
+          { table_name: "media_uploads", column_name: "upload_purpose" },
+          { table_name: "processing_jobs", column_name: "subtitle_upload_id" },
+          { table_name: "processing_jobs", column_name: "transcript_source" },
+        ],
+      };
+    }
     throw new Error(`unexpected query: ${text}`);
   });
   const repository = {
@@ -144,7 +154,31 @@ test("/readyz reports the worker dependency when all gates are live", async () =
     const response = await app.inject({ method: "GET", url: "/readyz" });
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(response.json().ready, true);
+    assert.equal(response.json().dependencies.databaseSchema, true);
     assert.equal(response.json().dependencies.backgroundWorker, true);
+  } finally {
+    await app.close();
+  }
+});
+
+test("/readyz fails closed when a required database migration is missing", async () => {
+  const { database } = fakeDatabase(async (text) => {
+    if (text === "SELECT 1") return { rowCount: 1, rows: [{ "?column?": 1 }] };
+    if (text.includes("information_schema.columns")) {
+      return { rowCount: 0, rows: [] };
+    }
+    throw new Error(`unexpected query: ${text}`);
+  });
+  const repository = { async hasRecentWorkerHeartbeat() { return true; } };
+  const storage = {
+    async head() { return { ContentLength: coreBytes.byteLength }; },
+    async getBuffer() { return coreBytes; },
+  };
+  const app = await buildApp({ config, database, repository, storage });
+  try {
+    const response = await app.inject({ method: "GET", url: "/readyz" });
+    assert.equal(response.statusCode, 503, response.body);
+    assert.equal(response.json().ready, false);
   } finally {
     await app.close();
   }

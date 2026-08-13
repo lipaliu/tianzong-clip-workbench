@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { ProcessorConfig } from "./config.js";
 import { sha256Hex } from "./canonical.js";
-import { checkDatabase, type Database } from "./db.js";
+import { checkDatabase, checkRequiredSchema, type Database } from "./db.js";
 import { publicError } from "./errors.js";
 import { verifyInternalRequest } from "./auth.js";
 import { ProcessorRepository } from "./repository.js";
@@ -73,6 +73,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
   app.get("/readyz", async (_request, reply) => {
     try {
       await checkDatabase(database);
+      await checkRequiredSchema(database);
       await verifyPinnedPrivateCore();
       if (!await repository.hasRecentWorkerHeartbeat()) {
         throw new Error("no recent background worker heartbeat");
@@ -82,6 +83,7 @@ export async function buildApp(dependencies: AppDependencies): Promise<FastifyIn
         service: "tianclip-processor",
         dependencies: {
           database: true,
+          databaseSchema: true,
           privateStorage: true,
           privateCoreObject: true,
           privateCorePinnedSha256: true,
