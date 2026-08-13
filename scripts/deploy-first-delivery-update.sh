@@ -3,13 +3,14 @@
 set -Eeuo pipefail
 
 APP_DIR="${TIANCLIP_APP_DIR:-/opt/tianclip/processor}"
-SOURCE_REF="${TIANCLIP_SOURCE_REF:-a6e9c329d9e9be4c29d6f993fee6248799073d4a}"
+SOURCE_REF="${TIANCLIP_SOURCE_REF:-e4c492a}"
 RAW_BASE="https://raw.githubusercontent.com/lipaliu/tianzong-clip-workbench/${SOURCE_REF}/processor"
 BACKUP_DIR="${APP_DIR}/.deploy-backups/first-delivery-$(date +%Y%m%d-%H%M%S)"
 FILES=(
   "src/config.ts"
+  "src/engine-artifacts.ts"
+  "src/repository.ts"
   "src/worker.ts"
-  "src/pipeline/candidate-refinement.mjs"
 )
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -61,4 +62,4 @@ systemctl is-active --quiet tianclip-worker
 curl --fail --silent --show-error http://127.0.0.1:10000/readyz >/dev/null
 
 trap - ERR
-echo "First-delivery update is live. Backup: $BACKUP_DIR"
+echo "Progressive-delivery update is live. Backup: $BACKUP_DIR"
