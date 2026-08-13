@@ -995,7 +995,6 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             title: payload.title,
           }));
           if (progressiveFingerprints.get(payload.id) === fingerprint) continue;
-          progressiveFingerprints.set(payload.id, fingerprint);
           let ordinal = progressiveOrdinals.get(payload.id);
           if (!ordinal) {
             ordinal = nextProgressiveOrdinal;
@@ -1022,6 +1021,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
               },
             );
             await repository.publishCandidate(job, payload, ordinal!);
+            progressiveFingerprints.set(payload.id, fingerprint);
           })());
           if (pending.length >= 2) {
             await Promise.all(pending.splice(0, pending.length));
@@ -1209,7 +1209,6 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             title: payload.title,
           }));
           if (progressiveFingerprints.get(payload.id) === fingerprint) continue;
-          progressiveFingerprints.set(payload.id, fingerprint);
           let ordinal = progressiveOrdinals.get(payload.id);
           if (!ordinal) {
             ordinal = nextProgressiveOrdinal;
@@ -1235,6 +1234,7 @@ async function processAnalysisJob(job: ClaimedJob): Promise<void> {
             },
           );
           await repository.publishCandidate(job, payload, ordinal);
+          progressiveFingerprints.set(payload.id, fingerprint);
         }
       };
       const workerCount = Math.max(
